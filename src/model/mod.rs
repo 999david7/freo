@@ -4,5 +4,6 @@ pub mod expr;
 pub mod features;
 pub mod regen;
 pub mod step_import;
+pub mod surfaces;
 pub mod threads;
 pub mod tolerance;

@@ -120,6 +120,21 @@ pub struct SweepDef {
     pub trajectory: Sketch,
     pub section: Sketch,
     pub remove: bool,
+    /// Zug-KE, Zug-Verbund (section blends into `section2` at the end) or Volumenzug-KE
+    #[serde(default)]
+    pub mode: SweepMode,
+    #[serde(default)]
+    pub section2: Sketch,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub enum SweepMode {
+    #[default]
+    Normal,
+    /// Zug-Verbund: the section changes into a second section along the trajectory
+    Blend,
+    /// Volumenzug-KE: the tool keeps its orientation while it moves along the trajectory
+    Volume,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -270,16 +285,16 @@ impl RoundDef {
 pub enum ChamferKind { DxD, D1xD2, AnglexD }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-pub struct ChamferDef { pub edges: Vec<EdgeRef>, pub kind: ChamferKind, pub d1: Dim, pub d2: Dim, pub angle: Dim }
+pub struct ChamferDef { pub edges: Vec<EdgeRef>, pub kind: ChamferKind, pub d1: Dim, pub d2: Dim, pub angle: Dim, /** Eckfase: cut the corner where the edges meet */ #[serde(default)] pub corner: bool }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct ShellDef { pub faces: Vec<FaceRef>, pub thickness: Dim }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-pub struct DraftDef { pub faces: Vec<FaceRef>, pub hinge: Option<PlaneRef>, pub angle: Dim, pub flip: bool }
+pub struct DraftDef { pub faces: Vec<FaceRef>, pub hinge: Option<PlaneRef>, pub angle: Dim, pub flip: bool, /** Variable Zugschräge: angle at the far end of the faces */ #[serde(default)] pub angle2: Option<Dim> }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub enum PatternKind { Direction, Axis, Fill, Curve }
+pub enum PatternKind { Direction, Axis, Fill, Curve, Table }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Serialize, Deserialize)]
 pub enum FillGrid { #[default] Square, Diamond, Triangle }
@@ -313,6 +328,9 @@ pub struct PatternDef {
     pub sketch_plane: Option<PlaneRef>,
     #[serde(default)]
     pub sketch: Sketch,
+    /// Mustertabelle: one translation (x, y, z) per instance
+    #[serde(default)]
+    pub table: Vec<[f64; 3]>,
     #[serde(default)]
     pub fill_grid: FillGrid,
     #[serde(default = "d20")]
@@ -342,6 +360,79 @@ pub struct ImportFace { pub v: Vec<[f32; 6]>, pub t: Vec<[u32; 3]> }
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct ImportDef { pub source: String, pub format: String, pub faces: Vec<ImportFace> }
 
+/// Surface (Sammelfläche) features of the Formen / Editieren / Flächen groups.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum SurfOp { Fill, Offset, Thicken, Solidify, Merge, Trim, Intersect, Project, Extend, Split, Copy, Replace, Boundary, Style, Freestyle }
+
+impl SurfOp {
+    pub fn name(&self) -> &'static str {
+        match self {
+            SurfOp::Fill => "Füllen", SurfOp::Offset => "Versatz", SurfOp::Thicken => "Aufdicken", SurfOp::Solidify => "Volumenkörper erzeugen",
+            SurfOp::Merge => "Zusammenführen", SurfOp::Trim => "Trimmen", SurfOp::Intersect => "Schnittpunkt", SurfOp::Project => "Projizieren",
+            SurfOp::Extend => "Verlängern", SurfOp::Split => "Teilen", SurfOp::Copy => "Bearbeitbare Kopie", SurfOp::Replace => "Ersetzen",
+            SurfOp::Boundary => "Berandungsverbund", SurfOp::Style => "Stil", SurfOp::Freestyle => "Freistil",
+        }
+    }
+    /// operations whose result is a quilt (the others change the solid or make curves)
+    pub fn makes_quilt(&self) -> bool { !matches!(self, SurfOp::Thicken | SurfOp::Solidify | SurfOp::Replace | SurfOp::Intersect | SurfOp::Project) }
+    pub fn needs_sketch(&self) -> bool { matches!(self, SurfOp::Fill | SurfOp::Project) }
+}
+
+fn d_five() -> Dim { Dim::v(5.0) }
+fn style_size() -> [f64; 3] { [80.0, 60.0, 40.0] }
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct SurfaceDef {
+    pub op: SurfOp,
+    /// sketch plane (Füllen, Projizieren, Stil, Freistil) or cutting plane (Trimmen, Schnittpunkt, Teilen, Ersetzen)
+    #[serde(default)]
+    pub plane: Option<PlaneRef>,
+    #[serde(default)]
+    pub sketch: Sketch,
+    /// input quilts or curves (feature ids)
+    #[serde(default)]
+    pub inputs: Vec<u64>,
+    /// solid faces (Versatz, Bearbeitbare Kopie, Ersetzen)
+    #[serde(default)]
+    pub faces: Vec<FaceRef>,
+    #[serde(default = "d_five")]
+    pub distance: Dim,
+    #[serde(default)]
+    pub flip: bool,
+    /// Aufdicken / Volumenkörper erzeugen: remove material
+    #[serde(default)]
+    pub remove: bool,
+    /// Stil: 4 × 4 control point heights
+    #[serde(default)]
+    pub heights: Vec<f64>,
+    /// Stil: width, length; Freistil: box size
+    #[serde(default = "style_size")]
+    pub size: [f64; 3],
+    /// Freistil: subdivision level
+    #[serde(default)]
+    pub level: u32,
+}
+
+/// Körper features: a new body, a Boolean between bodies, or a body split by a plane.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum BodyOp { New, Union, Subtract, Intersect, Split }
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct BodyDef {
+    pub op: BodyOp,
+    /// body acted on (0 = Körper 1, else the id of the feature that made the body)
+    #[serde(default)]
+    pub target: u64,
+    /// body combined into the target (Boolesche Operationen)
+    #[serde(default)]
+    pub tool: u64,
+    /// Körper teilen: splitting plane
+    #[serde(default)]
+    pub plane: Option<PlaneRef>,
+    #[serde(default)]
+    pub flip: bool,
+}
+
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub enum FeatureKind {
     DatumPlane(DatumPlaneDef),
@@ -366,6 +457,8 @@ pub enum FeatureKind {
     Helix(HelixDef),
     Thread(ThreadDef),
     Curve(CurveDef),
+    Surface(SurfaceDef),
+    Body(BodyDef),
 }
 
 impl FeatureKind {
@@ -373,26 +466,30 @@ impl FeatureKind {
         FeatureKind::Extrude(ExtrudeDef { plane: None, sketch: Sketch::default(), depth_type: DepthType::Blind, depth: Dim::v(20.0), side2: Side2::None, depth2: Dim::v(10.0), flip: false, remove: false, taper: Dim::v(0.0), thin: false, thickness: Dim::v(2.0), to_ref: None })
     }
     pub fn new_revolve() -> Self { FeatureKind::Revolve(RevolveDef { plane: None, sketch: Sketch::default(), symmetric: false, angle: Dim::v(360.0), flip: false, remove: false }) }
-    pub fn new_sweep() -> Self { FeatureKind::Sweep(SweepDef { plane: None, trajectory: Sketch::default(), section: Sketch::default(), remove: false }) }
+    pub fn new_sweep() -> Self { FeatureKind::Sweep(SweepDef { plane: None, trajectory: Sketch::default(), section: Sketch::default(), remove: false, mode: SweepMode::Normal, section2: Sketch::default() }) }
     pub fn new_blend() -> Self { FeatureKind::Blend(BlendDef { plane: None, sections: vec![Sketch::default()], offsets: vec![], flip: false, remove: false, rotational: false }) }
     pub fn new_rotational_blend() -> Self { FeatureKind::Blend(BlendDef { plane: None, sections: vec![Sketch::default()], offsets: vec![], flip: false, remove: false, rotational: true }) }
     pub fn new_csys() -> Self { let z = || Dim::v(0.0); FeatureKind::DatumCsys(CsysDef { x: z(), y: z(), z: z(), rx: z(), ry: z(), rz: z() }) }
     pub fn new_rib() -> Self { FeatureKind::Rib(RibDef { plane: None, sketch: Sketch::default(), thickness: Dim::v(4.0), flip: false, side: 0 }) }
     pub fn new_helix() -> Self { FeatureKind::Helix(HelixDef { plane: None, profile: Sketch::default(), section: Sketch::default(), pitch: Dim::v(5.0), left_handed: false, remove: false }) }
     pub fn new_thread() -> Self { FeatureKind::Thread(ThreadDef { face: None, diameter: Dim::v(10.0), pitch: Dim::v(1.5), length: Dim::v(10.0), flip: false }) }
+    pub fn new_surface(op: SurfOp) -> Self {
+        FeatureKind::Surface(SurfaceDef { op, plane: None, sketch: Sketch::default(), inputs: vec![], faces: vec![], distance: Dim::v(if op == SurfOp::Extend { 10.0 } else { 5.0 }), flip: false, remove: false, heights: vec![0.0; 16], size: style_size(), level: 2 })
+    }
+    pub fn new_body(op: BodyOp) -> Self { FeatureKind::Body(BodyDef { op, target: 0, tool: 0, plane: None, flip: false }) }
     pub fn new_curve() -> Self { FeatureKind::Curve(CurveDef { points: vec![], spline: true }) }
     pub fn new_sketch() -> Self { FeatureKind::Sketch(SketchDef { plane: None, sketch: Sketch::default() }) }
     pub fn new_hole() -> Self {
         FeatureKind::Hole(HoleDef { plane: None, x: Dim::v(0.0), y: Dim::v(0.0), ty: HoleType::Simple, diameter: Dim::v(10.0), through_all: false, depth: Dim::v(20.0), drill_tip: true, cb_diameter: Dim::v(18.0), cb_depth: Dim::v(6.0), cs_diameter: Dim::v(20.0), cs_angle: Dim::v(90.0), flip: false, standard: ThreadStd::Iso, size: "M6".into(), tapped: true, fit: HoleFit::Medium, thread_depth: Dim::v(12.0) })
     }
     pub fn new_round() -> Self { FeatureKind::Round(RoundDef { sets: vec![RoundSet::new(3.0)] }) }
-    pub fn new_chamfer() -> Self { FeatureKind::Chamfer(ChamferDef { edges: vec![], kind: ChamferKind::DxD, d1: Dim::v(2.0), d2: Dim::v(2.0), angle: Dim::v(45.0) }) }
+    pub fn new_chamfer() -> Self { FeatureKind::Chamfer(ChamferDef { edges: vec![], kind: ChamferKind::DxD, d1: Dim::v(2.0), d2: Dim::v(2.0), angle: Dim::v(45.0), corner: false }) }
     pub fn new_shell() -> Self { FeatureKind::Shell(ShellDef { faces: vec![], thickness: Dim::v(2.0) }) }
-    pub fn new_draft() -> Self { FeatureKind::Draft(DraftDef { faces: vec![], hinge: None, angle: Dim::v(5.0), flip: false }) }
+    pub fn new_draft() -> Self { FeatureKind::Draft(DraftDef { faces: vec![], hinge: None, angle: Dim::v(5.0), flip: false, angle2: None }) }
     pub fn new_pattern() -> Self {
         FeatureKind::Pattern(PatternDef { features: vec![], kind: PatternKind::Direction, dir1: AxisRef::WorldX, count1: Dim::v(3.0), spacing1: Dim::v(20.0), use_dir2: false, dir2: AxisRef::WorldZ, count2: Dim::v(2.0), spacing2: Dim::v(20.0), axis: AxisRef::WorldY, axis_count: Dim::v(6.0), axis_angle: Dim::v(60.0),
             sketch_plane: None, sketch: Sketch::default(), fill_grid: FillGrid::Square, fill_spacing: Dim::v(20.0), fill_margin: Dim::v(0.0), fill_rotation: Dim::v(0.0),
-            curve_count: Dim::v(5.0), curve_by_spacing: false, curve_spacing: Dim::v(20.0), curve_follow: false })
+            curve_count: Dim::v(5.0), curve_by_spacing: false, curve_spacing: Dim::v(20.0), curve_follow: false, table: vec![[20.0, 0.0, 0.0], [40.0, 0.0, 0.0]] })
     }
     pub fn new_mirror() -> Self { FeatureKind::Mirror(MirrorDef { plane: None, features: vec![] }) }
     pub fn new_plane() -> Self { FeatureKind::DatumPlane(DatumPlaneDef::builtin(PlaneKind::Offset)) }
@@ -423,6 +520,8 @@ impl FeatureKind {
             FeatureKind::Helix(d) => if d.remove { "Spiralzug (Schnitt)" } else { "Spiralzug" },
             FeatureKind::Thread(_) => "Kosmetisches Gewinde",
             FeatureKind::Curve(_) => "Bezugskurve",
+            FeatureKind::Surface(d) => d.op.name(),
+            FeatureKind::Body(d) => match d.op { BodyOp::New => "Körper", BodyOp::Split => "Körper teilen", _ => "Boolesche Operation" },
         }
     }
 
@@ -450,6 +549,8 @@ impl FeatureKind {
             FeatureKind::Helix(_) => "Spiralzug ",
             FeatureKind::Thread(_) => "Gewinde ",
             FeatureKind::Curve(_) => "Kurve ",
+            FeatureKind::Surface(d) => match d.op { SurfOp::Fill => "Füllen ", SurfOp::Offset => "Versatz ", SurfOp::Thicken => "Aufdicken ", SurfOp::Solidify => "Volumenkörper erzeugen ", SurfOp::Merge => "Zusammenführen ", SurfOp::Trim => "Trimmen ", SurfOp::Intersect => "Schnittpunkt ", SurfOp::Project => "Projizieren ", SurfOp::Extend => "Verlängern ", SurfOp::Split => "Teilen ", SurfOp::Copy => "Kopie ", SurfOp::Replace => "Ersetzen ", SurfOp::Boundary => "Berandungsverbund ", SurfOp::Style => "Stil ", SurfOp::Freestyle => "Freistil " },
+            FeatureKind::Body(d) => match d.op { BodyOp::New => "Körper ", BodyOp::Split => "Körper teilen ", _ => "Boolesche Operation " },
         }
     }
 
@@ -477,6 +578,8 @@ impl FeatureKind {
             FeatureKind::Helix(_) => "⌇",
             FeatureKind::Thread(_) => "≋",
             FeatureKind::Curve(_) => "∼",
+            FeatureKind::Surface(_) => "◇",
+            FeatureKind::Body(_) => "■",
         }
     }
 
@@ -493,6 +596,7 @@ impl FeatureKind {
 
     pub fn has_sketch(&self) -> bool {
         matches!(self, FeatureKind::Sketch(_) | FeatureKind::Extrude(_) | FeatureKind::Revolve(_) | FeatureKind::Sweep(_) | FeatureKind::Blend(_) | FeatureKind::Rib(_) | FeatureKind::Helix(_))
+            || matches!(self, FeatureKind::Surface(d) if d.op.needs_sketch())
     }
 
     pub fn sketch_plane(&self) -> Option<PlaneRef> {
@@ -505,6 +609,7 @@ impl FeatureKind {
             FeatureKind::Rib(d) => d.plane,
             FeatureKind::Helix(d) => d.plane,
             FeatureKind::Pattern(d) if matches!(d.kind, PatternKind::Fill | PatternKind::Curve) => d.sketch_plane,
+            FeatureKind::Surface(d) if d.op.needs_sketch() => d.plane,
             _ => None,
         }
     }
@@ -519,6 +624,8 @@ impl FeatureKind {
             FeatureKind::Rib(d) => d.plane = Some(r),
             FeatureKind::Helix(d) => d.plane = Some(r),
             FeatureKind::Pattern(d) => d.sketch_plane = Some(r),
+            FeatureKind::Surface(d) => d.plane = Some(r),
+            FeatureKind::Body(d) => d.plane = Some(r),
             _ => {}
         }
     }
@@ -543,6 +650,8 @@ impl FeatureKind {
             FeatureKind::Rib(d) => plane(&d.plane, &mut out),
             FeatureKind::Helix(d) => plane(&d.plane, &mut out),
             FeatureKind::Curve(d) => out.extend(&d.points),
+            FeatureKind::Surface(d) => { plane(&d.plane, &mut out); out.extend(&d.inputs); }
+            FeatureKind::Body(d) => { plane(&d.plane, &mut out); out.extend([d.target, d.tool].into_iter().filter(|b| *b != 0)); }
             _ => {}
         }
         out
@@ -607,6 +716,86 @@ pub struct ModelData {
     /// Named orientations saved in the part (Ansicht ▸ Neu orientieren ▸ Gespeicherte Orientierungen).
     #[serde(default = "default_views")]
     pub views: Vec<SavedView>,
+    /// Kombinations-Zustände (Anmerkungen erstellen): orientation and display kept together.
+    #[serde(default)]
+    pub combos: Vec<ComboState>,
+    /// Standard Alle as last updated (None: standard orientation, fitted)
+    #[serde(default)]
+    pub combo_default: Option<ComboState>,
+    /// 3D annotations (Anmerkungen erstellen) and the Anmerkungs-KEs grouping them.
+    #[serde(default)]
+    pub annots: Vec<Annot3>,
+    #[serde(default)]
+    pub annot_groups: Vec<AnnotGroup>,
+    /// body each feature adds to (missing = Körper 1); new features go into `default_body`
+    #[serde(default)]
+    pub feature_body: std::collections::HashMap<u64, u64>,
+    #[serde(default)]
+    pub default_body: u64,
+    /// Komponentenschnittstelle: placement references offered when the part is assembled
+    #[serde(default)]
+    pub interface: Vec<IfaceItem>,
+}
+
+/// One reference of the component interface and the constraint it takes part in.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct IfaceItem { pub ty: super::assembly::AsmCType, pub r: IfaceRef, pub name: String }
+
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+pub enum IfaceRef { Plane(u64), Axis(u64), Point(u64), Surface { face: FaceRef, planar: bool } }
+
+/// What a 3D annotation is attached to, kept by geometry so it survives regeneration.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub enum ARef {
+    /// a face, found again by a point on it and its normal
+    Face { p: glam::DVec3, n: glam::DVec3 },
+    /// an edge, found again as the one passing nearest this point
+    Edge { p: glam::DVec3 },
+    Plane(u64),
+    Axis(u64),
+    Point(u64),
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub enum AnnotKind {
+    /// driven dimension (Bemaßung) or reference dimension (Referenzbemaßung), optional ± tolerance (upper, lower)
+    Dim { reference: bool, tol: Option<(f64, f64)> },
+    /// ordinate dimension measured from a base plane
+    Ordinate { base: ARef },
+    Note { text: String },
+    Finish { kind: super::drawing::FinishKind, value: String },
+    Datum { letter: String },
+    DatumTarget { label: String },
+    Gtol { ch: super::drawing::GChar, diameter: bool, value: f64, mat: super::drawing::MatCond, datums: Vec<String> },
+}
+
+/// A 3D annotation: its kind, the geometry it refers to and where its text sits.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct Annot3 {
+    pub id: u64,
+    pub kind: AnnotKind,
+    pub refs: Vec<ARef>,
+    pub pos: glam::DVec3,
+    /// annotation plane it was placed on
+    pub plane: String,
+    /// Anmerkungs-KE it belongs to
+    pub group: Option<u64>,
+}
+
+/// Anmerkungs-KE (or Bezugsziel-Anmerkungs-KE): a named group of annotations in the model tree.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct AnnotGroup { pub id: u64, pub name: String, pub datum_target: bool }
+
+/// A Kombinations-Zustand: the view (orientation, centre, zoom) and display settings it restores.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct ComboState {
+    pub name: String,
+    pub rot: glam::DQuat,
+    pub target: glam::DVec3,
+    pub scale: f64,
+    /// index into the app's display styles
+    pub style: u8,
+    pub transparent: bool,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -642,6 +831,13 @@ impl ModelData {
             insert_index: None,
             family: FamilyTable::default(),
             views: default_views(),
+            combos: vec![],
+            combo_default: None,
+            annots: vec![],
+            annot_groups: vec![],
+            feature_body: Default::default(),
+            default_body: 0,
+            interface: vec![],
         }
     }
 

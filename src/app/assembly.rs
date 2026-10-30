@@ -4,7 +4,7 @@
 
 use super::featuretab::{collector, option_menu};
 use super::icons::{self, Icon};
-use super::ribbon::{group, icon_button, large, small, stack, theme::*};
+use super::ribbon::{group, icon_button, large, menu_entry, menu_spacing, small, stack, theme::*};
 use super::*;
 use crate::kernel::csg::CPolygon;
 use crate::model::assembly::{self as am, AsmCType, AsmConstraint, AsmRef, AssemblyData, Component, PartCache, PlaceStatus, Placement};
@@ -256,6 +256,16 @@ impl App {
         };
         let mut comp = Component::new(id, part, start);
         comp.constraints.push(AsmConstraint::new(if first { AsmCType::Default } else { AsmCType::Automatic }));
+        // Komponentenschnittstelle: the part brings its own references, only the partners are picked
+        let iface = pdata.interface.clone();
+        if !first && !iface.is_empty() {
+            use crate::model::features::IfaceRef;
+            comp.constraints = iface.iter().map(|it| {
+                let r = match it.r { IfaceRef::Plane(i) => AsmRef::Plane { comp: id, id: i }, IfaceRef::Axis(i) => AsmRef::Axis { comp: id, id: i }, IfaceRef::Point(i) => AsmRef::Point { comp: id, id: i }, IfaceRef::Surface { face, planar } => AsmRef::Surface { comp: id, face, planar } };
+                AsmConstraint { a: Some(r), ..AsmConstraint::new(it.ty) }
+            }).collect();
+        }
+        let iface_note = (!first && !iface.is_empty()).then(|| format!("Komponentenschnittstelle: {} Bedingung(en). Partner für „{}“ ({}) in der Baugruppe wählen.", iface.len(), iface[0].name, iface[0].ty.name()));
         a.place = Some(PlaceEditor { comp, is_new: true, active: 0, status: PlaceStatus::Packaged, side: None });
         self.tab = Tab::Context;
         self.dash_panel = None;
@@ -264,6 +274,7 @@ impl App {
         self.place_update();
         if first { self.say(format!("{} wird platziert: die erste Komponente liegt an der Standardposition. Zum Übernehmen OK klicken.", part), MsgKind::Prompt); }
         else { self.say(format!("{} wird platziert: eine Referenz an der Komponente wählen, dann die passende Referenz an der Baugruppe. Ziehen zum Verschieben (⇧ ziehen dreht).", part), MsgKind::Prompt); }
+        if let Some(n) = iface_note { self.say(n, MsgKind::Prompt); }
     }
 
     /// Model ▸ Create: a new empty part assembled at the default location, opened for editing.
@@ -430,6 +441,13 @@ impl App {
             PlaceStatus::Full | PlaceStatus::Assumed => self.say("Status: Vollständig bestimmt. Zum Abschließen OK klicken.", MsgKind::Success),
             PlaceStatus::Invalid(e) => self.say(format!("Bedingungen ungültig: {}. Typ ändern, umkehren oder andere Referenzen wählen.", e), MsgKind::Error),
             _ => {
+                // a constraint still open (from the component interface) comes next
+                if let Some(i) = ed.comp.constraints.iter().position(|c| !c.complete()) {
+                    ed.active = i;
+                    let ty = ed.comp.constraints[i].ty.name();
+                    self.say(format!("Status: {}. Partner für die Schnittstellen-Bedingung {} ({}) in der Baugruppe wählen.", st.text(), i + 1, ty), MsgKind::Prompt);
+                    return;
+                }
                 ed.comp.constraints.push(AsmConstraint::new(AsmCType::Automatic));
                 ed.active = ed.comp.constraints.len() - 1;
                 self.say(format!("Status: {}. Referenzen für die nächste Bedingung wählen.", st.text()), MsgKind::Prompt);
@@ -689,9 +707,10 @@ impl App {
     }
 
     pub fn comp_menu(&mut self, ui: &mut egui::Ui, id: u64) {
+        menu_spacing(ui);
         let Some(c) = self.component(id).cloned() else { return };
         let ids = if self.tree_selection.contains(&id) { self.tree_selection.clone() } else { vec![id] };
-        let item = |ui: &mut egui::Ui, icon: Icon, label: &str| small(ui, icon, label, true, false).clicked();
+        let item = |ui: &mut egui::Ui, icon: Icon, label: &str| menu_entry(ui, icon, label, true, false).clicked();
         if item(ui, Icon::EditDef, "Definition editieren") { self.edit_placement(id); ui.close_menu(); }
         if item(ui, Icon::Open, "Öffnen") { self.asm_open_part(id); ui.close_menu(); }
         ui.separator();
@@ -725,11 +744,12 @@ impl App {
             if top.on_hover_text("Eine Teiledatei in die Baugruppe einbauen").clicked() { self.assemble_from_file(); }
             if bot.clicked() { ui.memory_mut(|m| m.toggle_popup(id)); }
             egui::popup_below_widget(ui, id, &bot, egui::PopupCloseBehavior::CloseOnClick, |ui| {
+                menu_spacing(ui);
                 ui.set_min_width(200.0);
-                if small(ui, Icon::Assemble, "Zusammenbauen...", true, false).clicked() { self.assemble_from_file(); }
-                if small(ui, Icon::CreateComp, "Erzeugen...", true, false).clicked() { self.windows.create_comp = Some(self.next_part_name()); }
+                if menu_entry(ui, Icon::Assemble, "Zusammenbauen...", true, false).clicked() { self.assemble_from_file(); }
+                if menu_entry(ui, Icon::CreateComp, "Erzeugen...", true, false).clicked() { self.windows.create_comp = Some(self.next_part_name()); }
                 if let Some(c) = comp_sel.and_then(|id| self.component(id)).map(|c| c.part.clone()) {
-                    if small(ui, Icon::Assemble, &format!("{} wiederholen", c), true, false).clicked() { self.assemble_part(&c); }
+                    if menu_entry(ui, Icon::Assemble, &format!("{} wiederholen", c), true, false).clicked() { self.assemble_part(&c); }
                 }
             });
             if large(ui, Icon::CreateComp, "Erzeugen", free, false).on_hover_text("Ein neues Teil in der Baugruppe erzeugen").clicked() { self.windows.create_comp = Some(self.next_part_name()); }

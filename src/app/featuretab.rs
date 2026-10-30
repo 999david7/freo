@@ -2,7 +2,7 @@
 //! used for datum features and sketch setup.
 
 use super::icons::{self, Icon};
-use super::ribbon::{icon_button, large, small, stack, theme::*, RIB_H};
+use super::ribbon::{icon_button, large, menu_entry, menu_spacing, small, stack, theme::*, RIB_H};
 use super::*;
 use crate::model::expr::Vars;
 use eframe::egui::{self, pos2, vec2, Align2, Color32, FontId, Rect, Response, RichText, Sense, Stroke, StrokeKind};
@@ -102,9 +102,10 @@ pub(crate) fn option_menu<T: Copy + PartialEq>(ui: &mut egui::Ui, key: &str, val
     if resp.clicked() { ui.memory_mut(|m| m.toggle_popup(id)); }
     let mut changed = false;
     egui::popup_below_widget(ui, id, &resp, egui::PopupCloseBehavior::CloseOnClick, |ui| {
+        menu_spacing(ui);
         ui.set_min_width(150.0);
         for (v, ic, n) in opts {
-            if small(ui, *ic, n, true, *v == *value).clicked() { *value = *v; changed = true; }
+            if menu_entry(ui, *ic, n, true, *v == *value).clicked() { *value = *v; changed = true; }
         }
     });
     changed
@@ -158,10 +159,117 @@ impl App {
         let mut act = Act::None;
         let pick = ed.pick;
         let pn = |s: &App, r: &Option<PlaneRef>| s.plane_name(r);
+        // what surface and body features can refer to: earlier quilts, curves and bodies
+        let before: Vec<&Feature> = self.data.features.iter().take(ed.index.min(self.data.features.len())).filter(|x| x.id != f.id && !x.suppressed).collect();
+        let quilts: Vec<(u64, String)> = before.iter().filter(|x| matches!(&x.kind, FeatureKind::Surface(s) if s.op.makes_quilt())).map(|x| (x.id, x.name.clone())).collect();
+        let curves: Vec<(u64, String)> = before.iter().filter(|x| matches!(&x.kind, FeatureKind::Sketch(_) | FeatureKind::Curve(_)) || matches!(&x.kind, FeatureKind::Surface(s) if matches!(s.op, SurfOp::Intersect | SurfOp::Project))).map(|x| (x.id, x.name.clone())).collect();
+        let bodies: Vec<(u64, String)> = std::iter::once((0, "Körper 1".to_string())).chain(before.iter().filter(|x| matches!(&x.kind, FeatureKind::Body(b) if matches!(b.op, BodyOp::New | BodyOp::Split))).map(|x| (x.id, x.name.clone()))).collect();
         let left = ui.available_width();
         ui.allocate_ui_with_layout(vec2(left, super::ribbon::RIB_H + 22.0), egui::Layout::left_to_right(egui::Align::Min), |ui| {
             ui.spacing_mut().item_spacing.x = 0.0;
             match &mut f.kind {
+                FeatureKind::Surface(d) => {
+                    let op = d.op;
+                    let pick_list = |ui: &mut egui::Ui, id: &str, title: &str, cands: &[(u64, String)], sel: &mut Vec<u64>| -> bool {
+                        let mut ch = false;
+                        let text = if sel.is_empty() { format!("{} wählen", title) } else { format!("{} gewählt", sel.len()) };
+                        egui::ComboBox::from_id_salt(id).width(170.0).selected_text(text).show_ui(ui, |ui| {
+                            if cands.is_empty() { ui.label(RichText::new("Keine vorhanden").color(DIM_TEXT)); }
+                            for (cid, name) in cands {
+                                let mut on = sel.contains(cid);
+                                if ui.checkbox(&mut on, name).changed() { if on { sel.push(*cid); } else { sel.retain(|x| x != cid); } ch = true; }
+                            }
+                        });
+                        ch
+                    };
+                    group(ui, "Referenzen", |ui| {
+                        stack(ui, |ui| {
+                            if matches!(op, SurfOp::Offset | SurfOp::Thicken | SurfOp::Solidify | SurfOp::Merge | SurfOp::Trim | SurfOp::Split | SurfOp::Extend | SurfOp::Replace | SurfOp::Intersect) {
+                                labeled(ui, "Sammelfläche", |ui| { changed |= pick_list(ui, "sf_in", "Sammelfläche", &quilts, &mut d.inputs); });
+                            }
+                            if op == SurfOp::Boundary { labeled(ui, "Randkurven", |ui| { changed |= pick_list(ui, "sf_curves", "2 oder 4 Kurven", &curves, &mut d.inputs); }); }
+                            if matches!(op, SurfOp::Offset | SurfOp::Copy | SurfOp::Replace) {
+                                labeled(ui, "Flächen", |ui| { if collector(ui, &if d.faces.is_empty() { "Flächen wählen".to_string() } else { format!("{} Fläche(n)", d.faces.len()) }, pick == Some(PickTarget::Faces), 170.0).clicked() { act = Act::Pick(PickTarget::Faces); } });
+                            }
+                            if matches!(op, SurfOp::Trim | SurfOp::Split | SurfOp::Intersect | SurfOp::Style | SurfOp::Freestyle) {
+                                labeled(ui, "Ebene", |ui| { if collector(ui, &pn(self, &d.plane), pick == Some(PickTarget::Plane), 170.0).clicked() { act = Act::Pick(PickTarget::Plane); } });
+                            }
+                            if op.needs_sketch() {
+                                labeled(ui, "Skizzierebene", |ui| { if collector(ui, &pn(self, &d.plane), pick == Some(PickTarget::SketchPlane), 170.0).clicked() { act = Act::Pick(PickTarget::SketchPlane); } });
+                            }
+                        });
+                    });
+                    if op.needs_sketch() {
+                        group(ui, "Skizze", |ui| {
+                            let tip = if op == SurfOp::Fill { "Geschlossene Konturen skizzieren — sie werden zur ebenen Fläche" } else { "Kurven skizzieren, die auf das Modell projiziert werden" };
+                            if large(ui, Icon::Sketch, if d.sketch.is_empty() { "Definieren" } else { "Skizze\neditieren" }, d.plane.is_some(), false).on_hover_text(tip).clicked() { act = Act::Sketch(Slot::Main); }
+                        });
+                    }
+                    if matches!(op, SurfOp::Offset | SurfOp::Thicken | SurfOp::Extend | SurfOp::Trim | SurfOp::Split | SurfOp::Solidify) {
+                        group(ui, "Optionen", |ui| {
+                            stack(ui, |ui| {
+                                if matches!(op, SurfOp::Offset | SurfOp::Thicken | SurfOp::Extend) {
+                                    let l = match op { SurfOp::Thicken => "Dicke", SurfOp::Extend => "Länge", _ => "Abstand" };
+                                    labeled(ui, l, |ui| { changed |= dim_field(ui, &mut d.distance, &vars, 60.0); });
+                                }
+                                ui.horizontal(|ui| {
+                                    if op != SurfOp::Extend && op != SurfOp::Solidify && icon_button(ui, Icon::Flip, "Richtung / Seite umkehren", true, d.flip, 18.0).clicked() { d.flip = !d.flip; changed = true; }
+                                    if matches!(op, SurfOp::Thicken | SurfOp::Solidify) { changed |= ui.checkbox(&mut d.remove, "Material entfernen").changed(); }
+                                });
+                            });
+                        });
+                    }
+                    if op == SurfOp::Style {
+                        group(ui, "Steuerpunkte", |ui| {
+                            ui.vertical(|ui| {
+                                ui.horizontal(|ui| { ui.label("B"); changed |= ui.add(egui::DragValue::new(&mut d.size[0]).range(1.0..=10000.0)).changed(); ui.label("L"); changed |= ui.add(egui::DragValue::new(&mut d.size[1]).range(1.0..=10000.0)).changed(); });
+                                d.heights.resize(16, 0.0);
+                                for r in 0..4 { ui.horizontal(|ui| { for c in 0..4 { changed |= ui.add(egui::DragValue::new(&mut d.heights[r * 4 + c]).speed(0.5).max_decimals(1)).on_hover_text("Höhe des Steuerpunkts").changed(); } }); }
+                            });
+                        });
+                    }
+                    if op == SurfOp::Freestyle {
+                        group(ui, "Form", |ui| {
+                            ui.vertical(|ui| {
+                                ui.horizontal(|ui| { for (k, l) in ["B", "L", "H"].iter().enumerate() { ui.label(*l); changed |= ui.add(egui::DragValue::new(&mut d.size[k]).range(1.0..=10000.0)).changed(); } });
+                                ui.horizontal(|ui| { ui.label("Glättung"); changed |= ui.add(egui::Slider::new(&mut d.level, 0..=4)).changed(); });
+                            });
+                        });
+                    }
+                }
+                FeatureKind::Body(d) => {
+                    let body_box = |ui: &mut egui::Ui, id: &str, v: &mut u64| -> bool {
+                        let mut ch = false;
+                        let cur = bodies.iter().find(|b| b.0 == *v).map(|b| b.1.clone()).unwrap_or_else(|| "?".into());
+                        egui::ComboBox::from_id_salt(id).width(150.0).selected_text(cur).show_ui(ui, |ui| { for (bid, n) in &bodies { ch |= ui.selectable_value(v, *bid, n).changed(); } });
+                        ch
+                    };
+                    match d.op {
+                        BodyOp::New => { group(ui, "Körper", |ui| { ui.label(RichText::new("Ein neuer, leerer Körper.\nNeue KEs kommen in ihn hinein.").size(12.0).color(LABEL)); }); }
+                        BodyOp::Split => {
+                            group(ui, "Referenzen", |ui| {
+                                stack(ui, |ui| {
+                                    labeled(ui, "Körper", |ui| { changed |= body_box(ui, "bd_t", &mut d.target); });
+                                    labeled(ui, "Ebene", |ui| { if collector(ui, &pn(self, &d.plane), pick == Some(PickTarget::Plane), 150.0).clicked() { act = Act::Pick(PickTarget::Plane); } });
+                                    if icon_button(ui, Icon::Flip, "Seite des neuen Körpers umkehren", true, d.flip, 18.0).clicked() { d.flip = !d.flip; changed = true; }
+                                });
+                            });
+                        }
+                        _ => {
+                            group(ui, "Operation", |ui| {
+                                stack(ui, |ui| {
+                                    for (o, n) in [(BodyOp::Union, "Vereinigen"), (BodyOp::Subtract, "Subtrahieren"), (BodyOp::Intersect, "Schnittmenge")] { if ui.selectable_label(d.op == o, n).clicked() { d.op = o; changed = true; } }
+                                });
+                            });
+                            group(ui, "Körper", |ui| {
+                                stack(ui, |ui| {
+                                    labeled(ui, "Ändern", |ui| { changed |= body_box(ui, "bd_t", &mut d.target); });
+                                    labeled(ui, "Mit", |ui| { changed |= body_box(ui, "bd_o", &mut d.tool); });
+                                });
+                            });
+                        }
+                    }
+                }
                 FeatureKind::Extrude(d) => {
                     // Creo's Extrudieren tab: feature icon, Typ, Tiefe, Einstellungen; the section is
                     // defined from the Platzierung panel or by picking a plane / sketch directly
@@ -221,6 +329,14 @@ impl App {
                     });
                     group(ui, "Schnitt", |ui| {
                         if large(ui, Icon::SkRect, if d.section.is_empty() { "Querschnitt\nskizzieren" } else { "Querschnitt\neditieren" }, !d.trajectory.is_empty(), false).on_hover_text("Den Zugquerschnitt erzeugen oder editieren").clicked() { act = Act::Sketch(Slot::Section); }
+                        if d.mode == SweepMode::Blend && large(ui, Icon::SkRect, if d.section2.is_empty() { "Querschnitt 2\nskizzieren" } else { "Querschnitt 2\neditieren" }, !d.section.is_empty(), false).on_hover_text("Den Querschnitt am Ende der Leitkurve skizzieren").clicked() { act = Act::Sketch(Slot::Blend(1)); }
+                    });
+                    group(ui, "Typ", |ui| {
+                        stack(ui, |ui| {
+                            for (m, n, tip) in [(SweepMode::Normal, "Zug-KE", "Der Querschnitt folgt der Leitkurve"), (SweepMode::Blend, "Zug-Verbund", "Der Querschnitt geht entlang der Leitkurve in einen zweiten über"), (SweepMode::Volume, "Volumenzug", "Das Werkzeug behält seine Ausrichtung und wird entlang der Leitkurve bewegt")] {
+                                if ui.selectable_label(d.mode == m, n).on_hover_text(tip).clicked() { d.mode = m; changed = true; }
+                            }
+                        });
                     });
                     group(ui, "Einstellungen", |ui| { stack(ui, |ui| { changed |= toggle_small(ui, Icon::RemoveMaterial, "Material entfernen", &mut d.remove); }); });
                 }
@@ -366,7 +482,10 @@ impl App {
                         });
                     });
                     group(ui, "Sätze", |ui| {
-                        if collector(ui, &if d.edges.is_empty() { "Kanten wählen".to_string() } else { format!("{} Kante(n)", d.edges.len()) }, pick == Some(PickTarget::Edges), 150.0).clicked() { act = Act::Pick(PickTarget::Edges); }
+                        stack(ui, |ui| {
+                            if collector(ui, &if d.edges.is_empty() { "Kanten wählen".to_string() } else { format!("{} Kante(n)", d.edges.len()) }, pick == Some(PickTarget::Edges), 150.0).clicked() { act = Act::Pick(PickTarget::Edges); }
+                            changed |= toggle_small(ui, Icon::Chamfer, "Eckfase (Kanten treffen sich in der Ecke)", &mut d.corner);
+                        });
                     });
                 }
                 FeatureKind::Shell(d) => {
@@ -385,6 +504,11 @@ impl App {
                     group(ui, "Winkel", |ui| {
                         stack(ui, |ui| {
                             ui.horizontal(|ui| { changed |= dim_field(ui, &mut d.angle, &vars, 56.0); if icon_button(ui, Icon::Flip, "Formschrägenrichtung umkehren", true, d.flip, 18.0).clicked() { d.flip = !d.flip; changed = true; } });
+                            ui.horizontal(|ui| {
+                                let mut var = d.angle2.is_some();
+                                if ui.checkbox(&mut var, "Variabel bis").on_hover_text("Variable Zugschräge: der Winkel läuft über die Flächen (entlang der Scharnier-X-Richtung) bis zu diesem Wert").changed() { d.angle2 = if var { Some(Dim::v(10.0)) } else { None }; changed = true; }
+                                if let Some(a2) = &mut d.angle2 { changed |= dim_field(ui, a2, &vars, 56.0); }
+                            });
                         });
                     });
                 }
@@ -395,7 +519,26 @@ impl App {
                         if large(ui, Icon::PatternFill, "Füllen", true, d.kind == PatternKind::Fill).clicked() { d.kind = PatternKind::Fill; changed = true; }
                         if large(ui, Icon::PatternCurve, "Kurve", true, d.kind == PatternKind::Curve).clicked() { d.kind = PatternKind::Curve; changed = true; }
                     });
+                    if large(ui, Icon::FamilyTable, "Tabelle", true, d.kind == PatternKind::Table).on_hover_text("Jede Instanz mit eigener Verschiebung (Mustertabelle)").clicked() { d.kind = PatternKind::Table; changed = true; }
                     match d.kind {
+                        PatternKind::Table => {
+                            group(ui, "Mustertabelle", |ui| {
+                                ui.vertical(|ui| {
+                                    egui::ScrollArea::vertical().max_height(70.0).show(ui, |ui| {
+                                        let mut del = None;
+                                        for (i, r) in d.table.iter_mut().enumerate() {
+                                            ui.horizontal(|ui| {
+                                                ui.label(RichText::new(format!("{}", i + 2)).size(11.0).color(LABEL));
+                                                for (k, a) in ["X", "Y", "Z"].iter().enumerate() { ui.label(*a); changed |= ui.add(egui::DragValue::new(&mut r[k]).speed(0.5).max_decimals(2)).changed(); }
+                                                if ui.small_button("✕").on_hover_text("Instanz entfernen").clicked() { del = Some(i); }
+                                            });
+                                        }
+                                        if let Some(i) = del { d.table.remove(i); changed = true; }
+                                    });
+                                    if ui.small_button("+ Instanz").clicked() { let last = d.table.last().copied().unwrap_or([0.0; 3]); d.table.push([last[0] + 20.0, last[1], last[2]]); changed = true; }
+                                });
+                            });
+                        }
                         PatternKind::Direction => {
                             group(ui, "Erste Richtung", |ui| {
                                 stack(ui, |ui| {

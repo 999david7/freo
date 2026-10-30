@@ -1,7 +1,7 @@
 //! Navigator pane: Creo-style Model Tree and Folder Browser.
 
 use super::icons::{self, Icon};
-use super::ribbon::{icon_button, theme::*};
+use super::ribbon::{check_row, icon_button, menu_entry, menu_spacing, theme::*};
 use super::*;
 use eframe::egui::{self, pos2, vec2, Align2, Color32, FontId, Rect, Response, RichText, Sense, Stroke, StrokeKind};
 
@@ -136,9 +136,17 @@ impl App {
                         row_rects.push((r.rect, None));
                     }
                     Row::Body => {
-                        let has = !self.result.topo.polys.is_empty();
-                        let (r, _) = Self::paint_row(ui, depth, Icon::Body, if has { "Körper 1" } else { "Körper 1 (leer)" }, if has { TEXT } else { DIM_TEXT }, false, false, None);
-                        row_rects.push((r.rect, None));
+                        // every body; the default one (where new features go) in bold, a click makes a body the default
+                        let bodies = if self.result.bodies.is_empty() { vec![(0, self.result.topo.polys.len())] } else { self.result.bodies.clone() };
+                        for (bid, n) in bodies {
+                            let name = if bid == 0 { "Körper 1".to_string() } else { self.data.feature(bid).map(|f| f.name.clone()).unwrap_or_else(|| "Körper".into()) };
+                            let label = if n == 0 { format!("{} (leer)", name) } else { name.clone() };
+                            let def = self.data.default_body == bid;
+                            let (r, _) = Self::paint_row(ui, depth, Icon::Body, &label, if n > 0 { TEXT } else { DIM_TEXT }, def, false, None);
+                            row_rects.push((r.rect, None));
+                            let r = r.on_hover_text(if def { "Standardkörper — neue KEs kommen hierher" } else { "Klicken: als Standardkörper festlegen" });
+                            if r.clicked() && !def && !self.busy() { self.data.default_body = bid; self.dirty = true; self.say(format!("{} ist der Standardkörper.", name), MsgKind::Info); }
+                        }
                     }
                     Row::Insert => {
                         // Creo 10 shows the insert position as a green bar
@@ -212,7 +220,7 @@ impl App {
                         if r.clicked() { self.tree_click(fid, false); }
                         let r = r.on_hover_text("Doppelklick, um die Skizze zu editieren");
                         let mut edit = r.double_clicked();
-                        r.context_menu(|ui| { if super::ribbon::small(ui, Icon::Sketch, "Skizze editieren", true, false).clicked() { edit = true; ui.close_menu(); } });
+                        r.context_menu(|ui| { menu_spacing(ui); if menu_entry(ui, Icon::Sketch, "Skizze editieren", true, false).clicked() { edit = true; ui.close_menu(); } });
                         if edit && self.editor.is_none() {
                             self.edit_feature(fid);
                             if self.editor.is_some() { self.begin_sketch(slot); }
@@ -220,6 +228,7 @@ impl App {
                     }
                 }
             }
+            self.annot_tree_rows(ui);
             if cols {
                 let top = ui.min_rect().top();
                 let bot = ui.min_rect().bottom().max(ui.clip_rect().bottom());
@@ -244,10 +253,10 @@ impl App {
             let id = ui.id().with("tree_settings");
             if r.clicked() { ui.memory_mut(|m| m.toggle_popup(id)); }
             egui::popup_below_widget(ui, id, &r, egui::PopupCloseBehavior::CloseOnClickOutside, |ui| {
+                menu_spacing(ui);
                 ui.set_min_width(200.0);
-                ui.checkbox(&mut self.show_suppressed, "Unterdrückte Objekte anzeigen");
-                let mut cols = !self.creo.hide_cols;
-                if ui.checkbox(&mut cols, "Spalten BENENNUNG / SACHNUMMER").changed() { self.creo.hide_cols = !cols; }
+                if check_row(ui, Some(self.show_suppressed), None, "Unterdrückte Objekte anzeigen") { self.show_suppressed = !self.show_suppressed; }
+                if check_row(ui, Some(!self.creo.hide_cols), None, "Spalten BENENNUNG / SACHNUMMER") { self.creo.hide_cols = !self.creo.hide_cols; }
             });
             ui.add_space(6.0);
             if icon_button(ui, Icon::ExpandAll, "Alle erweitern", true, false, 18.0).clicked() {
@@ -297,8 +306,9 @@ impl App {
     }
 
     fn tree_context_menu(&mut self, ui: &mut egui::Ui, f: &Feature) {
+        menu_spacing(ui);
         let ids = if self.tree_selection.contains(&f.id) { self.tree_selection.clone() } else { vec![f.id] };
-        let item = |ui: &mut egui::Ui, icon: Icon, label: &str| super::ribbon::small(ui, icon, label, true, false).clicked();
+        let item = |ui: &mut egui::Ui, icon: Icon, label: &str| menu_entry(ui, icon, label, true, false).clicked();
         if item(ui, Icon::EditDims, "Bemaßungen editieren") { self.start_edit_dims(f.id); ui.close_menu(); }
         if item(ui, Icon::EditDef, "Definition editieren") { self.edit_feature(f.id); ui.close_menu(); }
         if item(ui, Icon::SkModify, "Umbenennen") { self.renaming = Some((f.id, f.name.clone())); ui.close_menu(); }
@@ -359,8 +369,9 @@ impl App {
                 let mut act = None;
                 let fx = self.creo.fs.clone();
                 r.context_menu(|ui| {
+                    menu_spacing(ui);
                     if assemble {
-                        if super::ribbon::small(ui, Icon::Assemble, "Zusammenbauen", !self.placing(), false).clicked() { self.assemble_path(path.clone()); ui.close_menu(); }
+                        if menu_entry(ui, Icon::Assemble, "Zusammenbauen", !self.placing(), false).clicked() { self.assemble_path(path.clone()); ui.close_menu(); }
                         ui.separator();
                     }
                     super::creo::fs_menu(ui, &dir, Some(&path), &fx, &mut act);

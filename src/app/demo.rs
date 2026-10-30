@@ -538,6 +538,20 @@ impl App {
             });
         }
         if n == 1 { if let Ok(scene) = std::env::var("FREO_DEMO") { self.demo_setup(&scene); } }
+        if n == 4 && std::env::var_os("FREO_DEMO_ANNOTS").is_some() { self.demo_annotations(ctx); }
+        if n == 4 {
+            use super::modelcmds::FileTask;
+            match std::env::var("FREO_DEMO_POPUP").as_deref() {
+                Ok("regen_mgr") => self.creo.regen_manager = true,
+                Ok("udf") => { self.tree_selection = self.data.features.iter().filter(|f| f.name.starts_with("Bohrung")).map(|f| f.id).collect(); self.open_file_task(FileTask::Udf); }
+                Ok("shrinkwrap") => self.open_file_task(FileTask::Shrinkwrap),
+                Ok("auto_round") => self.auto_round(),
+                Ok("surfaces") => self.demo_surfaces(),
+                Ok("phase2b") => self.demo_phase2b(),
+                Ok("paste") => { self.tree_selection = self.data.features.iter().filter(|f| f.name == "Bohrung 2").map(|f| f.id).collect(); self.copy_features(); self.paste_features(); }
+                _ => {}
+            }
+        }
         let Ok(shot) = std::env::var("FREO_SHOT") else { return };
         if n == 30 { ctx.send_viewport_cmd(egui::ViewportCommand::Screenshot(egui::UserData::default())); }
         if n < 200 { ctx.request_repaint(); }

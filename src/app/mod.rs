@@ -1,13 +1,18 @@
 //! Application state and controller logic.
 
+pub mod annot3d;
 pub mod assembly;
 pub mod creo;
 pub mod camera;
+pub mod combostates;
 pub mod demo;
 pub mod dims3d;
 pub mod drawing;
 pub mod drawui;
 pub mod gdt;
+pub mod gfxbar;
+pub mod modelcmds;
+pub mod modelgrid;
 pub mod featuretab;
 pub mod dialogs;
 pub mod export;
@@ -48,6 +53,10 @@ impl Filter {
     pub const ALL: [Filter; 5] = [Filter::Smart, Filter::Feature, Filter::Surface, Filter::Edge, Filter::Datum];
     pub fn name(&self) -> &'static str {
         match self { Filter::Smart => "Intelligent", Filter::Feature => "KE", Filter::Surface => "Fläche", Filter::Edge => "Kante", Filter::Datum => "Bezug" }
+    }
+    pub fn icon(&self) -> icons::Icon {
+        use icons::Icon;
+        match self { Filter::Smart => Icon::SkSelect, Filter::Feature => Icon::Extrude, Filter::Surface => Icon::SelFace, Filter::Edge => Icon::SelEdge, Filter::Datum => Icon::Plane }
     }
 }
 
@@ -290,6 +299,18 @@ impl App {
         for &(a, b) in &t.draw_edges {
             for v in [t.positions[a], t.positions[b]] { edges.extend_from_slice(&[v.x as f32, v.y as f32, v.z as f32]); }
         }
+        // Sammelflächen: Creo's purple sheets with their open edges (the shader lights both sides
+        // alike: a blue channel above 1.2 marks a quilt)
+        let qc = [1.25_f32, 0.78, 1.32];
+        for q in &r.quilts {
+            for p in &q.polys {
+                let n = p.plane.n;
+                for k in 1..p.v.len() - 1 {
+                    for &j in &[0, k, k + 1] { let v = p.v[j].p; solid.extend_from_slice(&[v.x as f32, v.y as f32, v.z as f32, n.x as f32, n.y as f32, n.z as f32, qc[0], qc[1], qc[2]]); }
+                }
+            }
+            for (a, b, _) in crate::model::surfaces::boundary(&q.polys) { for v in [a, b] { edges.extend_from_slice(&[v.x as f32, v.y as f32, v.z as f32]); } }
+        }
         self.buffers = Arc::new(ModelBuffers { generation: r.generation, solid, edges });
     }
 
@@ -389,6 +410,16 @@ impl App {
                 }
             }
             FeatureKind::DatumPlane(d) => d.reference = plane,
+            FeatureKind::Surface(d) => {
+                // selected quilts (or curves for a boundary blend), faces and plane become the references
+                let want_curves = d.op == SurfOp::Boundary;
+                d.inputs = self.tree_selection.iter().copied().filter(|id| self.data.feature(*id).is_some_and(|f| if want_curves {
+                    matches!(&f.kind, FeatureKind::Sketch(_) | FeatureKind::Curve(_)) || matches!(&f.kind, FeatureKind::Surface(s) if matches!(s.op, SurfOp::Intersect | SurfOp::Project))
+                } else { matches!(&f.kind, FeatureKind::Surface(s) if s.op.makes_quilt()) })).collect();
+                if matches!(d.op, SurfOp::Offset | SurfOp::Copy | SurfOp::Replace) { d.faces = faces.clone(); }
+                if !matches!(d.op, SurfOp::Merge | SurfOp::Extend | SurfOp::Thicken | SurfOp::Solidify | SurfOp::Offset | SurfOp::Copy | SurfOp::Replace | SurfOp::Boundary) { d.plane = plane; }
+            }
+            FeatureKind::Body(d) => { d.target = self.data.default_body; if d.op == BodyOp::Split { d.plane = plane; } }
             FeatureKind::Round(d) => d.sets[0].edges = edges,
             FeatureKind::Chamfer(d) => d.edges = edges,
             FeatureKind::Shell(d) => d.faces = faces,
@@ -560,6 +591,12 @@ impl App {
                 d.features.insert(i, f.clone());
                 d.next_id = d.next_id.max(f.id + 1);
                 if let Some(ii) = d.insert_index { d.insert_index = Some(ii + 1); }
+                // new features go into the default body; a new body becomes the default (Creo)
+                match &f.kind {
+                    FeatureKind::Body(b) if b.op == BodyOp::New => d.default_body = f.id,
+                    FeatureKind::Body(_) => {}
+                    _ => if d.default_body != 0 { d.feature_body.insert(f.id, d.default_body); },
+                }
             });
         } else {
             self.commit(&format!("{} neu definiert.", f.name), |d| {
@@ -727,6 +764,8 @@ impl App {
                     }
                     (FeatureKind::Mirror(d), Some(p), _) => { d.plane = Some(p); done = true; }
                     (FeatureKind::Draft(d), Some(p), _) => { d.hinge = Some(p); done = true; }
+                    (FeatureKind::Surface(d), Some(p), _) => { d.plane = Some(p); done = true; }
+                    (FeatureKind::Body(d), Some(p), _) => { d.plane = Some(p); done = true; }
                     _ => warn = Some("Eine Bezugsebene oder eine ebene Fläche wählen."),
                 }
             }
@@ -746,7 +785,7 @@ impl App {
             },
             PickTarget::Faces => match face {
                 Some(fr) => {
-                    let list = match &mut ed.feature.kind { FeatureKind::Shell(d) => Some(&mut d.faces), FeatureKind::Draft(d) => Some(&mut d.faces), _ => None };
+                    let list = match &mut ed.feature.kind { FeatureKind::Shell(d) => Some(&mut d.faces), FeatureKind::Draft(d) => Some(&mut d.faces), FeatureKind::Surface(d) => Some(&mut d.faces), _ => None };
                     if let Some(l) = list {
                         if let Some(i) = l.iter().position(|f| (f.point - fr.point).length() < 1e-6 && f.normal.dot(fr.normal) > 0.999) { l.remove(i); } else { l.push(fr); }
                     }
@@ -854,11 +893,13 @@ impl App {
             (FeatureKind::Revolve(d), _) => Some(d.sketch.clone()),
             (FeatureKind::Sketch(d), _) => Some(d.sketch.clone()),
             (FeatureKind::Sweep(d), Slot::Section) => Some(d.section.clone()),
+            (FeatureKind::Sweep(d), Slot::Blend(_)) => Some(d.section2.clone()),
             (FeatureKind::Sweep(d), _) => Some(d.trajectory.clone()),
             (FeatureKind::Blend(d), Slot::Blend(i)) => Some(d.sections.get(i).cloned().unwrap_or_default()),
             (FeatureKind::Blend(d), _) => d.sections.first().cloned(),
             (FeatureKind::Pattern(d), _) => Some(d.sketch.clone()),
             (FeatureKind::Rib(d), _) => Some(d.sketch.clone()),
+            (FeatureKind::Surface(d), _) => Some(d.sketch.clone()),
             (FeatureKind::Helix(d), Slot::Section) => Some(d.section.clone()),
             (FeatureKind::Helix(d), _) => Some(d.profile.clone()),
             _ => None,
@@ -885,6 +926,14 @@ impl App {
                 frame = regen::sweep_section_frame(&path);
                 title = "Zugquerschnitt".into();
             }
+            (FeatureKind::Sweep(d), Slot::Blend(_)) => {
+                let Ok((pts, _)) = d.trajectory.trajectory() else { self.say("Zuerst die Leitkurve skizzieren.", MsgKind::Warning); return };
+                if pts.len() < 2 { self.say("Zuerst die Leitkurve skizzieren.", MsgKind::Warning); return; }
+                let path: Vec<V3> = pts.iter().map(|p| frame.to_world(*p)).collect();
+                frame = regen::sweep_end_frame(&path);
+                for e in &d.section.entities { ghosts.push(d.section.sample(e, 64)); }
+                title = "Zug-Verbund — Querschnitt am Ende".into();
+            }
             (FeatureKind::Sweep(_), _) => title = "Zugleitkurve".into(),
             (FeatureKind::Helix(d), Slot::Section) => {
                 if d.profile.trajectory().is_err() { self.say("Zuerst das Spiralzugprofil skizzieren.", MsgKind::Warning); return; }
@@ -893,6 +942,7 @@ impl App {
             }
             (FeatureKind::Helix(_), _) => title = "Spiralzugprofil".into(),
             (FeatureKind::Rib(_), _) => title = "Rippenprofil".into(),
+            (FeatureKind::Surface(d), _) => title = format!("{} — Skizze", d.op.name()),
             (FeatureKind::Blend(d), Slot::Blend(i)) if d.rotational => {
                 if i > 0 {
                     let Some((ap, au)) = d.sections.first().and_then(|s| s.centerline_axis()) else { self.say("Im ersten Querschnitt eine Mittellinie als Drehachse skizzieren.", MsgKind::Warning); return };
@@ -923,6 +973,7 @@ impl App {
             (FeatureKind::Helix(_), Slot::Trajectory) => sketcher::Requirement::Helix,
             (FeatureKind::Blend(d), Slot::Blend(0)) if d.rotational => sketcher::Requirement::Revolve,
             (FeatureKind::Sketch(_), _) => sketcher::Requirement::Any,
+            (FeatureKind::Surface(d), _) if d.op == SurfOp::Project => sketcher::Requirement::Any,
             (FeatureKind::Pattern(d), _) if d.kind == PatternKind::Curve => sketcher::Requirement::Trajectory,
             _ => sketcher::Requirement::ClosedLoops,
         };
@@ -985,9 +1036,11 @@ impl App {
             (FeatureKind::Revolve(d), _) => d.sketch = s,
             (FeatureKind::Sketch(d), _) => d.sketch = s,
             (FeatureKind::Sweep(d), Slot::Section) => d.section = s,
+            (FeatureKind::Sweep(d), Slot::Blend(_)) => d.section2 = s,
             (FeatureKind::Sweep(d), _) => d.trajectory = s,
             (FeatureKind::Pattern(d), _) => d.sketch = s,
             (FeatureKind::Rib(d), _) => d.sketch = s,
+            (FeatureKind::Surface(d), _) => d.sketch = s,
             (FeatureKind::Helix(d), Slot::Section) => d.section = s,
             (FeatureKind::Helix(d), _) => d.profile = s,
             (FeatureKind::Blend(d), Slot::Blend(i)) => {

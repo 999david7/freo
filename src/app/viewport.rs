@@ -167,7 +167,9 @@ impl App {
             if let Some(fid) = self.tree_hover { if self.hover.is_none() { self.hover = Some(Pick::Feature(fid)); } }
             self.tree_hover_ext = match self.hover { Some(p) if hover_pos.is_some() => self.owner(p), _ => None };
             if resp.clicked() && !mods.alt {
-                let consumed = hover_pos.map(|hp| self.dims_click(hp)).unwrap_or(false);
+                let p0 = hover_pos.and_then(|hp| self.pick_at(local(hp)));
+                let consumed = hover_pos.is_some_and(|hp| self.annot_click(ui.ctx(), hp, local(hp), p0, mods.shift || mods.command))
+                    || hover_pos.map(|hp| self.dims_click(hp)).unwrap_or(false);
                 if !consumed {
                     let p = hover_pos.and_then(|hp| self.pick_at(local(hp)));
                     if self.edit_dims.is_some() {
@@ -305,7 +307,8 @@ impl App {
             view: self.camera.view(),
             model: self.buffers.clone(),
             color: tint,
-            opacity: if self.transparent { 0.45 } else if self.asm_view().is_some() { 1.0 } else { a.opacity },
+            // Transparenzsteuerung: Volumenkörper n % transparent (never fully invisible)
+            opacity: if self.transparent { (1.0 - self.creo.gfx.transp_pct[0] as f32 / 100.0).max(0.08) } else if self.asm_view().is_some() { 1.0 } else { a.opacity },
             style: self.style,
             section,
             hl_tris,
@@ -335,6 +338,8 @@ impl App {
         };
         for &e in &edges { chain_line(e, SEL32, 3.0); }
         if let Some(Pick::Edge(e)) = self.hover { if !edges.contains(&e) { chain_line(e, PRE32, 3.0); } }
+        self.draw_model_grid(&painter, &to_screen);
+        self.draw_annots(&painter, &to_screen);
         if self.show_tags {
             if self.show_planes {
                 for p in &r.planes {
@@ -386,55 +391,56 @@ impl App {
             s.draw(&painter);
         }
         if let Some(s) = &mut self.sketch { s.overlays(ui.ctx()); }
-        if self.edit_dims.is_some() { self.dims_overlay(ui.ctx(), &painter, rect); }
+        if self.edit_dims.is_some() && self.creo.gfx.annotations { self.dims_overlay(ui.ctx(), &painter, rect); }
         if self.hover.is_some() && self.sketch.is_none() { ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand); }
     }
 
     fn context_menu(&mut self, ui: &mut egui::Ui) {
+        menu_spacing(ui);
         use super::icons::Icon;
-        use super::ribbon::small;
+        use super::ribbon::{menu_entry, menu_spacing};
         let p: Option<Pick> = ui.ctx().data(|d| d.get_temp(egui::Id::new("ctx_pick"))).flatten();
         if self.in_asm() {
             if self.placing() {
-                if small(ui, Icon::Ok, "OK", true, false).clicked() { self.place_finish(); ui.close_menu(); }
-                if small(ui, Icon::Cancel, "Abbrechen", true, false).clicked() { self.place_cancel(); ui.close_menu(); }
+                if menu_entry(ui, Icon::Ok, "OK", true, false).clicked() { self.place_finish(); ui.close_menu(); }
+                if menu_entry(ui, Icon::Cancel, "Abbrechen", true, false).clicked() { self.place_cancel(); ui.close_menu(); }
             } else if let Some(o) = p.and_then(|p| self.owner(p)).filter(|o| self.component(*o).is_some()) {
                 self.comp_menu(ui, o);
             } else {
-                if small(ui, Icon::Assemble, "Zusammenbauen...", true, false).clicked() { ui.close_menu(); self.assemble_from_file(); }
-                if small(ui, Icon::CreateComp, "Erzeugen...", true, false).clicked() { ui.close_menu(); self.windows.create_comp = Some(self.asm.as_ref().map(|a| a.data.next_part_name()).unwrap_or_default()); }
+                if menu_entry(ui, Icon::Assemble, "Zusammenbauen...", true, false).clicked() { ui.close_menu(); self.assemble_from_file(); }
+                if menu_entry(ui, Icon::CreateComp, "Erzeugen...", true, false).clicked() { ui.close_menu(); self.windows.create_comp = Some(self.asm.as_ref().map(|a| a.data.next_part_name()).unwrap_or_default()); }
             }
             ui.separator();
-            if small(ui, Icon::SavedViews, "Standardausrichtung", true, false).clicked() { self.camera.rot = camera::StdView::Standard.rotation(); self.fit_pending = true; ui.close_menu(); }
-            if small(ui, Icon::Refit, "Einpassen", true, false).clicked() { self.fit_pending = true; ui.close_menu(); }
+            if menu_entry(ui, Icon::SavedViews, "Standardausrichtung", true, false).clicked() { self.camera.rot = camera::StdView::Standard.rotation(); self.fit_pending = true; ui.close_menu(); }
+            if menu_entry(ui, Icon::Refit, "Einpassen", true, false).clicked() { self.fit_pending = true; ui.close_menu(); }
             return;
         }
         let owner = p.and_then(|p| self.owner(p)).filter(|o| self.data.feature(*o).is_some());
         if self.editor.is_none() {
             let planar = self.plane_ref(&p.into_iter().collect::<Vec<_>>()).is_some();
             if planar {
-                if small(ui, Icon::Sketch, "Skizze", true, false).clicked() { self.start_feature(FeatureKind::new_sketch()); ui.close_menu(); }
-                if small(ui, Icon::Extrude, "Profil", true, false).clicked() { self.start_feature(FeatureKind::new_extrude()); ui.close_menu(); }
-                if small(ui, Icon::Revolve, "Drehen", true, false).clicked() { self.start_feature(FeatureKind::new_revolve()); ui.close_menu(); }
-                if small(ui, Icon::Hole, "Bohrung", true, false).clicked() { self.start_feature(FeatureKind::new_hole()); ui.close_menu(); }
-                if small(ui, Icon::Plane, "Versatzebene", true, false).clicked() { self.start_feature(FeatureKind::new_plane()); ui.close_menu(); }
+                if menu_entry(ui, Icon::Sketch, "Skizze", true, false).clicked() { self.start_feature(FeatureKind::new_sketch()); ui.close_menu(); }
+                if menu_entry(ui, Icon::Extrude, "Profil", true, false).clicked() { self.start_feature(FeatureKind::new_extrude()); ui.close_menu(); }
+                if menu_entry(ui, Icon::Revolve, "Drehen", true, false).clicked() { self.start_feature(FeatureKind::new_revolve()); ui.close_menu(); }
+                if menu_entry(ui, Icon::Hole, "Bohrung", true, false).clicked() { self.start_feature(FeatureKind::new_hole()); ui.close_menu(); }
+                if menu_entry(ui, Icon::Plane, "Versatzebene", true, false).clicked() { self.start_feature(FeatureKind::new_plane()); ui.close_menu(); }
                 ui.separator();
             }
             if matches!(p, Some(Pick::Edge(_))) {
-                if small(ui, Icon::Round, "Rundung", true, false).clicked() { self.start_feature(FeatureKind::new_round()); ui.close_menu(); }
-                if small(ui, Icon::Chamfer, "Fase", true, false).clicked() { self.start_feature(FeatureKind::new_chamfer()); ui.close_menu(); }
+                if menu_entry(ui, Icon::Round, "Rundung", true, false).clicked() { self.start_feature(FeatureKind::new_round()); ui.close_menu(); }
+                if menu_entry(ui, Icon::Chamfer, "Fase", true, false).clicked() { self.start_feature(FeatureKind::new_chamfer()); ui.close_menu(); }
                 ui.separator();
             }
             if let Some(o) = owner {
-                if small(ui, Icon::EditDims, "Bemaßungen editieren", true, false).clicked() { self.start_edit_dims(o); ui.close_menu(); }
-                if small(ui, Icon::EditDef, "Definition editieren", true, false).clicked() { self.edit_feature(o); ui.close_menu(); }
-                if small(ui, Icon::Suppress, "Unterdrücken", true, false).clicked() { self.set_suppressed(&[o], true); ui.close_menu(); }
-                if small(ui, Icon::Hide, "Ausblenden", true, false).clicked() { self.toggle_hidden(&[o]); ui.close_menu(); }
-                if small(ui, Icon::Delete, "Löschen", true, false).clicked() { self.delete_features(&[o]); ui.close_menu(); }
+                if menu_entry(ui, Icon::EditDims, "Bemaßungen editieren", true, false).clicked() { self.start_edit_dims(o); ui.close_menu(); }
+                if menu_entry(ui, Icon::EditDef, "Definition editieren", true, false).clicked() { self.edit_feature(o); ui.close_menu(); }
+                if menu_entry(ui, Icon::Suppress, "Unterdrücken", true, false).clicked() { self.set_suppressed(&[o], true); ui.close_menu(); }
+                if menu_entry(ui, Icon::Hide, "Ausblenden", true, false).clicked() { self.toggle_hidden(&[o]); ui.close_menu(); }
+                if menu_entry(ui, Icon::Delete, "Löschen", true, false).clicked() { self.delete_features(&[o]); ui.close_menu(); }
                 ui.separator();
             }
-        } else if small(ui, Icon::Ok, "OK", true, false).clicked() { self.finish_feature(); ui.close_menu(); }
-        if small(ui, Icon::SavedViews, "Standardausrichtung", true, false).clicked() { self.camera.rot = camera::StdView::Standard.rotation(); self.fit_pending = true; ui.close_menu(); }
-        if small(ui, Icon::Refit, "Einpassen", true, false).clicked() { self.fit_pending = true; ui.close_menu(); }
+        } else if menu_entry(ui, Icon::Ok, "OK", true, false).clicked() { self.finish_feature(); ui.close_menu(); }
+        if menu_entry(ui, Icon::SavedViews, "Standardausrichtung", true, false).clicked() { self.camera.rot = camera::StdView::Standard.rotation(); self.fit_pending = true; ui.close_menu(); }
+        if menu_entry(ui, Icon::Refit, "Einpassen", true, false).clicked() { self.fit_pending = true; ui.close_menu(); }
     }
 }

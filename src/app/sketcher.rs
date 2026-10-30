@@ -65,6 +65,10 @@ impl SkFilter {
     pub fn name(&self) -> &'static str {
         match self { SkFilter::All => "Alle Skizzierer", SkFilter::Geometry => "Skizzierer-Geometrie", SkFilter::Dimension => "Bemaßung", SkFilter::Constraint => "Bedingung" }
     }
+    pub fn icon(&self) -> super::icons::Icon {
+        use super::icons::Icon;
+        match self { SkFilter::All => Icon::SelAll, SkFilter::Geometry => Icon::SkLine, SkFilter::Dimension => Icon::SkDimension, SkFilter::Constraint => Icon::ConPerp }
+    }
 }
 
 impl Tool {

@@ -175,7 +175,8 @@ fn group_impl<R>(ui: &mut egui::Ui, title: &str, drop: bool, f: impl FnOnce(&mut
         let tw = text_w(ui, title, &font) + if drop { 16.0 } else { 0.0 };
         let w = inner.response.rect.width().max(tw + 12.0);
         let (r, resp) = ui.allocate_exact_size(vec2(w, 20.0), if drop { Sense::click() } else { Sense::hover() });
-        if drop && resp.hovered() { ui.painter().rect_filled(r.shrink2(vec2(2.0, 1.0)), 2.0, HOVER_BG); }
+        if drop && ui.memory(|m| m.is_popup_open(group_menu_id(&resp))) { ui.painter().rect_filled(r, 0.0, Color32::from_rgb(216, 222, 226)); }
+        else if drop && resp.hovered() { ui.painter().rect_filled(r.shrink2(vec2(2.0, 1.0)), 2.0, HOVER_BG); }
         let c = pos2(r.center().x - if drop { 7.0 } else { 0.0 }, r.center().y);
         ui.painter().text(c, Align2::CENTER_CENTER, title, font, LABEL);
         if drop { tri(ui.painter(), pos2(c.x + tw / 2.0 - 2.0, c.y + 1.0), LABEL); title_resp = Some(resp); }
@@ -264,14 +265,47 @@ pub fn drop_menu(ui: &egui::Ui, key: &str, resp: &Response, f: impl FnOnce(&mut 
     if resp.clicked() { ui.memory_mut(|m| m.toggle_popup(id)); }
     demo_popup(ui, id, key);
     egui::popup_below_widget(ui, id, resp, egui::PopupCloseBehavior::CloseOnClick, |ui| {
+        menu_spacing(ui);
         ui.set_min_width(190.0);
         f(ui)
     });
 }
 
-/// A menu entry: small icon + label (greyed when the command is not available).
+/// Popup id of the overflow menu under a group title (`group_impl` greys the title while it is open).
+fn group_menu_id(title: &Response) -> egui::Id { title.id.with("group_menu") }
+
+/// Creo's group overflow menu: hangs flush under the group title, exactly as wide as the group,
+/// square and without shadow.
+pub fn group_menu(ui: &mut egui::Ui, key: &str, title: &Response, f: impl FnOnce(&mut egui::Ui)) {
+    let id = group_menu_id(title);
+    if title.clicked() { ui.memory_mut(|m| m.toggle_popup(id)); }
+    demo_popup(ui, id, key);
+    ui.scope(|ui| {
+        let v = ui.visuals_mut();
+        v.menu_corner_radius = egui::CornerRadius::ZERO;
+        v.popup_shadow = egui::Shadow::NONE;
+        v.window_fill = Color32::WHITE;
+        v.window_stroke = Stroke::new(1.0_f32, Color32::from_rgb(200, 204, 208));
+        ui.spacing_mut().menu_margin = egui::Margin::ZERO;
+        egui::popup_below_widget(ui, id, title, egui::PopupCloseBehavior::CloseOnClick, |ui| {
+            menu_spacing(ui);
+            ui.set_min_width(title.rect.width() - 2.0);
+            f(ui)
+        });
+    });
+}
+
+/// Rows of every drop-down and right-click menu sit flush, as in Creo.
+pub fn menu_spacing(ui: &mut egui::Ui) { ui.spacing_mut().item_spacing.y = 0.0; }
+
+/// A menu row with an icon; the same look in every drop-down and right-click menu.
+pub fn menu_entry(ui: &mut egui::Ui, icon: Icon, label: &str, enabled: bool, selected: bool) -> Response {
+    menu_row(ui, Some(icon), label, "", enabled, selected)
+}
+
+/// A menu entry: icon + label (greyed when the command is not available).
 pub fn menu_item(ui: &mut egui::Ui, icon: Icon, label: &str, enabled: bool) -> bool {
-    small(ui, icon, label, enabled, false).clicked()
+    menu_entry(ui, icon, label, enabled, false).clicked()
 }
 
 /// Paints the ribbon body gradient behind the current panel.
@@ -289,6 +323,7 @@ pub fn ribbon_background(ui: &egui::Ui) {
 
 fn popup_menu<R>(ui: &egui::Ui, id: egui::Id, resp: &Response, f: impl FnOnce(&mut egui::Ui) -> R) -> Option<R> {
     egui::popup_below_widget(ui, id, resp, egui::PopupCloseBehavior::CloseOnClick, |ui| {
+        menu_spacing(ui);
         ui.set_min_width(170.0);
         f(ui)
     })
@@ -631,16 +666,17 @@ impl App {
             if top.clicked() { if asm { self.asm_regenerate(true) } else { self.regenerate(true) } }
             drop_menu(ui, "regen", &bot, |ui| {
                 if menu_item(ui, Icon::Regenerate, "Regenerieren", true) { if asm { self.asm_regenerate(true) } else { self.regenerate(true) } }
-                menu_item(ui, Icon::Settings, "Regenerierungsmanager", false);
+                if menu_item(ui, Icon::Settings, "Regenerierungsmanager", !asm) { self.creo.regen_manager = true; }
             });
             stack(ui, |ui| {
-                tiny(ui, Icon::Copy, "Kopieren", false, false, false);
-                tiny(ui, Icon::Paste, "Einfügen", false, false, true);
+                if tiny(ui, Icon::Copy, "Kopieren", sel && !asm, false, false).clicked() { self.copy_features(); }
+                let pr = tiny(ui, Icon::Paste, "Einfügen", free && !asm && !self.creo.clip_features.is_empty(), false, true);
+                if pr.clicked() { self.paste_features(); }
                 let r = tiny(ui, Icon::Delete, "Löschen", sel, false, true);
                 if r.clicked() { let ids = self.tree_selection.clone(); if asm { self.asm_delete(&ids) } else { self.delete_features(&ids) } }
             });
         });
-        drop_menu(ui, "ops", &title, |ui| {
+        group_menu(ui, "ops", &title, |ui| {
             if menu_item(ui, Icon::Undo, "Rückgängig", !self.undo.is_empty() && free && !asm) { self.do_undo(); }
             if menu_item(ui, Icon::Redo, "Wiederholen", !self.redo.is_empty() && free && !asm) { self.do_redo(); }
             if menu_item(ui, Icon::Suppress, "Unterdrücken", sel && !asm) { let ids = self.tree_selection.clone(); self.set_suppressed(&ids, true); }
@@ -662,22 +698,28 @@ impl App {
         let ((), t) = group_drop(ui, "Daten abrufen", |ui| {
             stack(ui, |ui| {
                 if tiny(ui, Icon::GetData, "Importieren (STEP, STL, OBJ)", free, false, false).clicked() { self.import_dialog(); }
-                tiny(ui, Icon::UdfLib, "Benutzerdefiniertes KE", false, false, false);
-                tiny(ui, Icon::PublishGeom, "Shrinkwrap", false, false, false);
+                if tiny(ui, Icon::UdfLib, "Benutzerdefiniertes KE", free, false, false).clicked() { self.open_file_task(super::modelcmds::FileTask::Udf); }
+                if tiny(ui, Icon::PublishGeom, "Shrinkwrap", free, false, false).clicked() { self.open_file_task(super::modelcmds::FileTask::Shrinkwrap); }
             });
         });
-        drop_menu(ui, "getdata", &t, |ui| {
+        group_menu(ui, "getdata", &t, |ui| {
             if menu_item(ui, Icon::GetData, "Importieren (STEP, STL, OBJ)...", free) { self.import_dialog(); }
-            menu_item(ui, Icon::Copy, "Kopiergeometrie", false);
+            if menu_item(ui, Icon::Copy, "Kopiergeometrie", free) { self.open_file_task(super::modelcmds::FileTask::CopyGeom); }
+            if menu_item(ui, Icon::UdfLib, "Benutzerdefiniertes KE", free) { self.open_file_task(super::modelcmds::FileTask::Udf); }
+            if menu_item(ui, Icon::PublishGeom, "Shrinkwrap", free) { self.open_file_task(super::modelcmds::FileTask::Shrinkwrap); }
         });
         let ((), t) = group_drop(ui, "Körper", |ui| {
             stack(ui, |ui| {
-                tiny(ui, Icon::Body, "Körper", false, false, false);
-                tiny(ui, Icon::Merge, "Boolesche Operationen", false, false, false);
-                tiny(ui, Icon::Trim, "Körper teilen", false, false, false);
+                if tiny(ui, Icon::Body, "Körper", free, false, false).on_hover_text("Einen neuen Körper erzeugen; neue KEs kommen in ihn").clicked() { self.new_body(); }
+                if tiny(ui, Icon::Merge, "Boolesche Operationen", free, false, false).on_hover_text("Zwei Körper vereinigen, subtrahieren oder schneiden").clicked() { self.start_feature(FeatureKind::new_body(BodyOp::Union)); }
+                if tiny(ui, Icon::Trim, "Körper teilen", free, false, false).on_hover_text("Einen Körper an einer Ebene in zwei Körper teilen").clicked() { self.start_feature(FeatureKind::new_body(BodyOp::Split)); }
             });
         });
-        drop_menu(ui, "bodies", &t, |ui| { menu_item(ui, Icon::Body, "Neuer Körper", false); });
+        group_menu(ui, "bodies", &t, |ui| {
+            if menu_item(ui, Icon::Body, "Neuer Körper", free) { self.new_body(); }
+            if menu_item(ui, Icon::Merge, "Boolesche Operationen", free) { self.start_feature(FeatureKind::new_body(BodyOp::Union)); }
+            if menu_item(ui, Icon::Trim, "Körper teilen", free) { self.start_feature(FeatureKind::new_body(BodyOp::Split)); }
+        });
         let ((), t) = group_drop(ui, "Bezug", |ui| {
             if large(ui, Icon::Plane, "Ebene", free, false).on_hover_text("Eine Bezugsebene erzeugen").clicked() { self.start_feature(FeatureKind::new_plane()); }
             stack(ui, |ui| {
@@ -687,7 +729,7 @@ impl App {
             });
             if large(ui, Icon::Sketch, "Skizze", free, false).on_hover_text("Eine skizzierte Bezugskurve erzeugen").clicked() { self.start_feature(FeatureKind::new_sketch()); }
         });
-        drop_menu(ui, "datum", &t, |ui| {
+        group_menu(ui, "datum", &t, |ui| {
             if menu_item(ui, Icon::Sketch, "Kurve durch Skizze", free) { self.start_feature(FeatureKind::new_sketch()); }
             if menu_item(ui, Icon::CurvePoints, "Kurve durch Punkte", free) { self.start_feature(FeatureKind::new_curve()); }
         });
@@ -700,12 +742,12 @@ impl App {
                 drop_menu(ui, "sweep", &arr, |ui| {
                     if menu_item(ui, Icon::Sweep, "Zug-KE", free) { self.start_feature(FeatureKind::new_sweep()); }
                     if menu_item(ui, Icon::HelicalSweep, "Spiralzug-KE", free) { self.start_feature(FeatureKind::new_helix()); }
-                    menu_item(ui, Icon::Sweep, "Volumenzug-KE", false);
+                    if menu_item(ui, Icon::Sweep, "Volumenzug-KE", free) { self.start_sweep(SweepMode::Volume); }
                 });
-                small(ui, Icon::SweptBlend, "Zug-Verbund", false, false);
+                if small(ui, Icon::SweptBlend, "Zug-Verbund", free, false).on_hover_text("Ein Querschnitt, der entlang der Leitkurve in einen zweiten übergeht").clicked() { self.start_sweep(SweepMode::Blend); }
             });
         });
-        drop_menu(ui, "shapes", &t, |ui| {
+        group_menu(ui, "shapes", &t, |ui| {
             if menu_item(ui, Icon::Blend, "Verbund", free) { self.start_feature(FeatureKind::new_blend()); }
             if menu_item(ui, Icon::RotBlend, "Rotationsverbund", free) { self.start_feature(FeatureKind::new_rotational_blend()); }
         });
@@ -716,13 +758,13 @@ impl App {
                 if m.clicked() { self.start_feature(FeatureKind::new_round()); }
                 drop_menu(ui, "round", &arr, |ui| {
                     if menu_item(ui, Icon::Round, "Rundung", solid) { self.start_feature(FeatureKind::new_round()); }
-                    menu_item(ui, Icon::Round, "Automatische Rundung", false);
+                    if menu_item(ui, Icon::Round, "Automatische Rundung", solid) { self.auto_round(); }
                 });
                 let (m, arr) = small_drop(ui, Icon::Chamfer, "Fase", solid, false);
                 if m.clicked() { self.start_feature(FeatureKind::new_chamfer()); }
                 drop_menu(ui, "chamfer", &arr, |ui| {
                     if menu_item(ui, Icon::Chamfer, "Kantenfase", solid) { self.start_feature(FeatureKind::new_chamfer()); }
-                    menu_item(ui, Icon::Chamfer, "Eckfase", false);
+                    if menu_item(ui, Icon::Chamfer, "Eckfase", solid) { let mut k = FeatureKind::new_chamfer(); if let FeatureKind::Chamfer(c) = &mut k { c.corner = true; } self.start_feature(k); self.say("Eckfase: zwei Kanten wählen, die sich in der Ecke treffen.", MsgKind::Prompt); }
                 });
             });
             stack(ui, |ui| {
@@ -730,7 +772,7 @@ impl App {
                 if m.clicked() { self.start_feature(FeatureKind::new_draft()); }
                 drop_menu(ui, "draft", &arr, |ui| {
                     if menu_item(ui, Icon::Draft, "Schräge", solid) { self.start_feature(FeatureKind::new_draft()); }
-                    menu_item(ui, Icon::Draft, "Variable Zugschräge", false);
+                    if menu_item(ui, Icon::Draft, "Variable Zugschräge", solid) { let mut k = FeatureKind::new_draft(); if let FeatureKind::Draft(c) = &mut k { c.angle2 = Some(Dim::v(10.0)); } self.start_feature(k); }
                 });
                 if small(ui, Icon::Shell, "Schale", solid, false).clicked() { self.start_feature(FeatureKind::new_shell()); }
                 let (m, arr) = small_drop(ui, Icon::Rib, "Rippe", solid, false);
@@ -738,19 +780,19 @@ impl App {
                 drop_menu(ui, "rib", &arr, |ui| { if menu_item(ui, Icon::Rib, "Profilrippe", solid) { self.start_feature(FeatureKind::new_rib()); } });
             });
         });
-        drop_menu(ui, "engineering", &t, |ui| { if menu_item(ui, Icon::CosmThread, "Kosmetisches Gewinde", solid) { self.start_feature(FeatureKind::new_thread()); } });
+        group_menu(ui, "engineering", &t, |ui| { if menu_item(ui, Icon::CosmThread, "Kosmetisches Gewinde", solid) { self.start_feature(FeatureKind::new_thread()); } });
         let ((), t) = group_drop(ui, "Editieren", |ui| {
             let (top, bot) = split(ui, Icon::Pattern, "Muster", free, false);
             if top.clicked() { self.start_feature(FeatureKind::new_pattern()); }
             drop_menu(ui, "pattern", &bot, |ui| {
                 if menu_item(ui, Icon::Pattern, "Muster", free) { self.start_feature(FeatureKind::new_pattern()); }
-                menu_item(ui, Icon::Pattern, "Geometriemuster", false);
-                menu_item(ui, Icon::FamilyTable, "Mustertabelle bearbeiten", false);
+                if menu_item(ui, Icon::Pattern, "Geometriemuster", free) { self.geometry_pattern(); }
+                if menu_item(ui, Icon::FamilyTable, "Mustertabelle bearbeiten", free) { self.pattern_table(); }
             });
-            let cells: [[(Icon, &str, bool); 4]; 3] = [
-                [(Icon::Mirror, "Spiegeln", free), (Icon::Extend, "Verlängern", false), (Icon::Project3d, "Projizieren", false), (Icon::Offset, "Versatz", false)],
-                [(Icon::Merge, "Zusammenführen", false), (Icon::Trim, "Trimmen", false), (Icon::Intersect, "Schnittpunkt", false), (Icon::Thicken, "Aufdicken", false)],
-                [(Icon::Solidify, "Volumenkörper erzeugen", false), (Icon::BoundaryBlend, "Teilen", false), (Icon::FillSurf, "Ersetzen", false), (Icon::Copy, "Bearbeitbare Kopie", false)],
+            let cells: [[(Icon, &str, Option<SurfOp>); 4]; 3] = [
+                [(Icon::Mirror, "Spiegeln", None), (Icon::Extend, "Verlängern", Some(SurfOp::Extend)), (Icon::Project3d, "Projizieren", Some(SurfOp::Project)), (Icon::Offset, "Versatz", Some(SurfOp::Offset))],
+                [(Icon::Merge, "Zusammenführen", Some(SurfOp::Merge)), (Icon::Trim, "Trimmen", Some(SurfOp::Trim)), (Icon::Intersect, "Schnittpunkt", Some(SurfOp::Intersect)), (Icon::Thicken, "Aufdicken", Some(SurfOp::Thicken))],
+                [(Icon::Solidify, "Volumenkörper erzeugen", Some(SurfOp::Solidify)), (Icon::BoundaryBlend, "Teilen", Some(SurfOp::Split)), (Icon::FillSurf, "Ersetzen", Some(SurfOp::Replace)), (Icon::Copy, "Bearbeitbare Kopie", Some(SurfOp::Copy))],
             ];
             ui.vertical(|ui| {
                 ui.spacing_mut().item_spacing.y = 2.0;
@@ -758,27 +800,33 @@ impl App {
                 for row in cells {
                     ui.horizontal(|ui| {
                         ui.spacing_mut().item_spacing.x = 1.0;
-                        for (ic, tip, en) in row {
-                            if tiny(ui, ic, tip, en, false, false).clicked() && ic == Icon::Mirror { self.start_feature(FeatureKind::new_mirror()); }
+                        for (ic, tip, op) in row {
+                            if tiny(ui, ic, tip, free, false, false).clicked() {
+                                match op { Some(op) => self.start_feature(FeatureKind::new_surface(op)), None => self.start_feature(FeatureKind::new_mirror()) }
+                            }
                         }
                     });
                 }
             });
         });
-        drop_menu(ui, "edit", &t, |ui| { if menu_item(ui, Icon::Mirror, "Spiegeln", free) { self.start_feature(FeatureKind::new_mirror()); } });
+        group_menu(ui, "edit", &t, |ui| { if menu_item(ui, Icon::Mirror, "Spiegeln", free) { self.start_feature(FeatureKind::new_mirror()); } });
         let ((), t) = group_drop(ui, "Flächen", |ui| {
-            large(ui, Icon::BoundaryBlend, "Berandungsverbund", false, false);
+            if large(ui, Icon::BoundaryBlend, "Berandungsverbund", free, false).on_hover_text("Eine Fläche zwischen zwei oder vier Randkurven").clicked() { self.start_feature(FeatureKind::new_surface(SurfOp::Boundary)); }
             stack(ui, |ui| {
-                tiny(ui, Icon::FillSurf, "Füllen", false, false, false);
-                tiny(ui, Icon::Style, "Stil", false, false, false);
-                tiny(ui, Icon::Freestyle, "Freistil", false, false, false);
+                if tiny(ui, Icon::FillSurf, "Füllen", free, false, false).clicked() { self.start_feature(FeatureKind::new_surface(SurfOp::Fill)); }
+                if tiny(ui, Icon::Style, "Stil", free, false, false).clicked() { self.start_feature(FeatureKind::new_surface(SurfOp::Style)); }
+                if tiny(ui, Icon::Freestyle, "Freistil", free, false, false).clicked() { self.start_feature(FeatureKind::new_surface(SurfOp::Freestyle)); }
             });
         });
-        drop_menu(ui, "surfaces", &t, |ui| { menu_item(ui, Icon::FillSurf, "Füllen", false); });
-        let ((), t) = group_drop(ui, "Modellabsicht", |ui| {
-            large(ui, Icon::CompInterface, "Komponentenschnittstelle", false, false);
+        group_menu(ui, "surfaces", &t, |ui| {
+            for (ic, op) in [(Icon::FillSurf, SurfOp::Fill), (Icon::BoundaryBlend, SurfOp::Boundary), (Icon::Style, SurfOp::Style), (Icon::Freestyle, SurfOp::Freestyle)] {
+                if menu_item(ui, ic, op.name(), free) { self.start_feature(FeatureKind::new_surface(op)); }
+            }
         });
-        drop_menu(ui, "intent", &t, |ui| {
+        let ((), t) = group_drop(ui, "Modellabsicht", |ui| {
+            if large(ui, Icon::CompInterface, "Komponentenschnittstelle", !self.in_asm(), self.creo.iface_dialog).on_hover_text("Platzierungsreferenzen festlegen, die das Teil in Baugruppen mitbringt").clicked() { self.creo.iface_dialog = !self.creo.iface_dialog; }
+        });
+        group_menu(ui, "intent", &t, |ui| {
             if menu_item(ui, Icon::Parameters, "Parameter", true) { self.windows.parameters = true; }
             if menu_item(ui, Icon::Relations, "Beziehungen", true) { self.windows.relations = true; }
             if menu_item(ui, Icon::FamilyTable, "Familientabelle", true) { self.windows.family = true; }
@@ -793,7 +841,7 @@ impl App {
                 tiny(ui, Icon::Curvature, "Alle ausblenden", false, false, false);
             });
         });
-        drop_menu(ui, "manage", &t, |ui| { menu_item(ui, Icon::Delete, "Alle temporären löschen", false); });
+        group_menu(ui, "manage", &t, |ui| { menu_item(ui, Icon::Delete, "Alle temporären löschen", false); });
         group(ui, "Benutzerdefiniert", |ui| {
             stack(ui, |ui| {
                 tiny(ui, Icon::FamilyTable, "Excel-Analyse", false, false, false);
@@ -818,7 +866,7 @@ impl App {
                 small(ui, Icon::Thickness, "Dicke", false, false);
             });
         });
-        drop_menu(ui, "report", &t, |ui| { if menu_item(ui, Icon::ModelInfo, "Modellinfo", true) { self.windows.info = true; } });
+        group_menu(ui, "report", &t, |ui| { if menu_item(ui, Icon::ModelInfo, "Modellinfo", true) { self.windows.info = true; } });
         group(ui, "Messen", |ui| {
             let (top, bot) = split(ui, Icon::Measure, "Messen", true, self.measure);
             if top.clicked() { self.toggle_measure(); }
@@ -843,7 +891,7 @@ impl App {
             });
             stack(ui, |ui| { small_drop(ui, Icon::Curvature, "Krümmung", false, false); });
         });
-        drop_menu(ui, "inspect", &t, |ui| { menu_item(ui, Icon::Curvature, "Abschnitt", false); });
+        group_menu(ui, "inspect", &t, |ui| { menu_item(ui, Icon::Curvature, "Abschnitt", false); });
         group(ui, "Konstruktionsstudie", |ui| {
             large(ui, Icon::DimBound, "Bemaßungsberandungen", false, false);
             stack(ui, |ui| {
@@ -889,7 +937,7 @@ impl App {
                 tiny(ui, Icon::Scene, "Szenen", false, false, true);
             });
         });
-        drop_menu(ui, "appearance", &t, |ui| { if menu_item(ui, Icon::Appearance, "Darstellungs-Manager", true) { self.windows.appearance = true; } });
+        group_menu(ui, "appearance", &t, |ui| { if menu_item(ui, Icon::Appearance, "Darstellungs-Manager", true) { self.windows.appearance = true; } });
         let ((), t) = group_drop(ui, "Orientierung", |ui| {
             if large(ui, Icon::Refit, "Neu\neinpassen", true, false).clicked() { self.push_view(); self.fit_pending = true; }
             large(ui, Icon::ZoomSel, "Auf Auswahl\nzoomen", false, false);
@@ -902,23 +950,20 @@ impl App {
             let (top, bot) = split(ui, Icon::SavedViews, "Gespeicherte\nOrientierungen", true, false);
             let id = ui.id().with("saved_views");
             if top.clicked() || bot.clicked() { ui.memory_mut(|m| m.toggle_popup(id)); }
-            popup_menu(ui, id, &bot, |ui| {
-                for v in StdView::ALL { if ui.button(v.name()).clicked() { self.push_view(); self.camera.rot = v.rotation(); self.fit_pending = true; } }
-                for v in self.data.views.clone() { if ui.button(&v.name).clicked() { self.push_view(); self.camera.rot = v.rot; self.fit_pending = true; } }
-            });
+            popup_menu(ui, id, &bot, |ui| { if self.views_menu(ui) { self.normal_view(); } });
             if large(ui, Icon::Csys, "Standardorientierung", true, false).clicked() { self.push_view(); self.camera.rot = StdView::Standard.rotation(); self.fit_pending = true; }
             if large(ui, Icon::ViewBack, "Zurück", self.creo.prev_view.is_some(), false).clicked() {
                 if let Some(c) = self.creo.prev_view.take() { let cur = self.camera.clone(); self.camera = c; self.creo.prev_view = Some(cur); }
             }
         });
-        drop_menu(ui, "orient", &t, |ui| {
+        group_menu(ui, "orient", &t, |ui| {
             if menu_item(ui, Icon::Perspective, "Perspektivansicht", true) { self.camera.perspective = !self.camera.perspective; }
             if menu_item(ui, Icon::SpinCenter, "Drehmittelpunkt", true) { self.show_spin = !self.show_spin; }
         });
         let ((), t) = group_drop(ui, "Modelldarstellung", |ui| {
             stack(ui, |ui| {
                 let r = tiny(ui, style_icon(self.style), "Anzeigestil", true, false, true);
-                drop_menu(ui, "style", &r, |ui| { for st in Style::ALL { if small(ui, style_icon(st), st.name(), true, self.style == st).clicked() { self.style = st; } } });
+                drop_menu(ui, "style", &r, |ui| self.style_menu(ui));
                 if tiny(ui, Icon::Section, "Schnitt", true, self.section.is_some(), true).clicked() { self.toggle_section(); }
                 if tiny(ui, Icon::SavedViews, "Ansichtsmanager", true, false, true).clicked() { self.windows.controls = false; }
             });
@@ -927,7 +972,7 @@ impl App {
                 if tiny(ui, Icon::Perspective, "Perspektive", true, self.camera.perspective, false).clicked() { self.camera.perspective = !self.camera.perspective; }
             });
         });
-        drop_menu(ui, "display", &t, |ui| { for st in Style::ALL { if small(ui, style_icon(st), st.name(), true, self.style == st).clicked() { self.style = st; } } });
+        group_menu(ui, "display", &t, |ui| self.style_menu(ui));
         if let Some(mut s) = self.section {
             group(ui, "Schnitt", |ui| {
                 stack(ui, |ui| {
@@ -967,13 +1012,9 @@ impl App {
                 });
             });
         });
-        drop_menu(ui, "showdisp", &t, |ui| {
-            ui.checkbox(&mut self.show_planes, "Ebenenanzeige");
-            ui.checkbox(&mut self.show_axes, "Achsenanzeige");
-            ui.checkbox(&mut self.show_points, "Punktanzeige");
-            ui.checkbox(&mut self.show_csys, "KoordSys-Anzeige");
-            ui.checkbox(&mut self.show_curves, "Kurvenanzeige");
-            ui.checkbox(&mut self.show_tags, "Bezugsbeschriftungen");
+        group_menu(ui, "showdisp", &t, |ui| {
+            check_list(ui, &mut [(Icon::Plane, "Ebenenanzeige", &mut self.show_planes), (Icon::Axis, "Achsenanzeige", &mut self.show_axes), (Icon::Point, "Punktanzeige", &mut self.show_points),
+                (Icon::Csys, "KoordSys-Anzeige", &mut self.show_csys), (Icon::CurvePoints, "Kurvenanzeige", &mut self.show_curves), (Icon::PlaneTags, "Bezugsbeschriftungen", &mut self.show_tags)]);
         });
         let ((), t) = group_drop(ui, "Fenster", |ui| {
             stack(ui, |ui| {
@@ -982,7 +1023,7 @@ impl App {
             });
             stack(ui, |ui| { tiny(ui, Icon::Windows, "Fenster", false, false, true); });
         });
-        drop_menu(ui, "windows", &t, |ui| { if menu_item(ui, Icon::FullScreen, "Vollbild", true) { ui.ctx().send_viewport_cmd(egui::ViewportCommand::Fullscreen(true)); } });
+        group_menu(ui, "windows", &t, |ui| { if menu_item(ui, Icon::FullScreen, "Vollbild", true) { ui.ctx().send_viewport_cmd(egui::ViewportCommand::Fullscreen(true)); } });
     }
 
     fn tools_ribbon(&mut self, ui: &mut egui::Ui) {
@@ -1003,9 +1044,9 @@ impl App {
                 tiny(ui, Icon::Settings, "Konfiguration", false, false, true);
             });
         });
-        drop_menu(ui, "investigate", &t, |ui| { if menu_item(ui, Icon::ModelInfo, "Modellinfo", true) { self.windows.info = true; } });
+        group_menu(ui, "investigate", &t, |ui| { if menu_item(ui, Icon::ModelInfo, "Modellinfo", true) { self.windows.info = true; } });
         let ((), t) = group_drop(ui, "Modellabsicht", |ui| {
-            large(ui, Icon::CompInterface, "Komponentenschnittstelle", false, false);
+            if large(ui, Icon::CompInterface, "Komponentenschnittstelle", !self.in_asm(), self.creo.iface_dialog).on_hover_text("Platzierungsreferenzen festlegen, die das Teil in Baugruppen mitbringt").clicked() { self.creo.iface_dialog = !self.creo.iface_dialog; }
             large(ui, Icon::PublishGeom, "Publiziergeometrie", false, false);
             if large(ui, Icon::FamilyTable, "Familientabelle", true, self.windows.family).on_hover_text("Instanzen dieses Teils in einer Tabelle definieren").clicked() { self.windows.family = !self.windows.family; }
             stack(ui, |ui| {
@@ -1014,7 +1055,7 @@ impl App {
                 if small(ui, Icon::Relations, "Beziehungen", true, self.windows.relations).clicked() { self.windows.relations = !self.windows.relations; }
             });
         });
-        drop_menu(ui, "intent2", &t, |ui| { if menu_item(ui, Icon::Parameters, "Parameter", true) { self.windows.parameters = true; } });
+        group_menu(ui, "intent2", &t, |ui| { if menu_item(ui, Icon::Parameters, "Parameter", true) { self.windows.parameters = true; } });
         group(ui, "Dienstprogramme", |ui| {
             stack(ui, |ui| {
                 small(ui, Icon::UdfLib, "UDF-Bibliothek", false, false);
@@ -1076,7 +1117,7 @@ impl App {
                 if tiny(ui, Icon::SketchView, "Skizzenansicht: Skizzierebene parallel zum Bildschirm ausrichten", true, false, false).clicked() { sketch_view = true; }
             });
         });
-        drop_menu(ui, "sk_setup", &title, |ui| {
+        group_menu(ui, "sk_setup", &title, |ui| {
             ui.spacing_mut().item_spacing.y = 0.0;
             if menu_row(ui, Some(Icon::SketchSetup), "Skizzen-Setup", "", true, false).clicked() { setup = true; }
             if menu_row(ui, Some(Icon::References), "Referenzen", "", true, false).clicked() { s.refs_open = true; }
@@ -1119,7 +1160,7 @@ impl App {
                 if menu_row(ui, Some(Icon::SelAll), "Alle", "Strg+Alt+A", true, false).clicked() { s.select_all(true); }
             });
         });
-        drop_menu(ui, "sk_ops", &title, |ui| {
+        group_menu(ui, "sk_ops", &title, |ui| {
             ui.spacing_mut().item_spacing.y = 0.0;
             ui.set_min_width(360.0);
             if menu_row(ui, None, "Löschen", "Entf", !s.selection.is_empty(), false).clicked() { s.delete_selection(); }
@@ -1201,7 +1242,7 @@ impl App {
                 });
             }
         });
-        drop_menu(ui, "sk_cons", &title, |ui| {
+        group_menu(ui, "sk_cons", &title, |ui| {
             ui.spacing_mut().item_spacing.y = 0.0;
             ui.set_min_width(240.0);
             for (c, ic, n) in cons.iter().flatten() { if menu_row(ui, Some(*ic), n, "", true, tool == Tool::Con(*c)).clicked() { set = Some(Tool::Con(*c)); } }
@@ -1217,7 +1258,7 @@ impl App {
         let (_, title) = group_drop(ui, "Prüfen", |ui| {
             if large(ui, Icon::Requirements, "KE-\nAnforderungen", true, s.requirements_open).on_hover_text("Prüfen, ob die Skizze die Anforderungen des KEs erfüllt").clicked() { s.requirements_open = !s.requirements_open; }
         });
-        drop_menu(ui, "sk_check", &title, |ui| {
+        group_menu(ui, "sk_check", &title, |ui| {
             ui.spacing_mut().item_spacing.y = 0.0;
             ui.set_min_width(420.0);
             for (ic, n, v) in [(Icon::HlOverlap, "Überlappende Geometrie hervorheben", &mut s.hl_overlap), (Icon::HlIntersect, "Sich schneidende Geometrie hervorheben", &mut s.hl_intersect), (Icon::HlBranch, "Geometrieabzweigungen hervorheben", &mut s.hl_branch), (Icon::OpenEnds, "Offene Enden hervorheben", &mut s.open_ends), (Icon::ShadeLoops, "Geschlossene Schleifen schattieren", &mut s.shade)] {

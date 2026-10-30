@@ -5,7 +5,7 @@
 
 use super::drawing::*;
 use super::icons::{self, Icon};
-use super::ribbon::{group, icon_button, large, small, stack, theme::*};
+use super::ribbon::{group, icon_button, large, menu_entry, menu_spacing, small, stack, theme::*};
 use super::*;
 use crate::model::drawing::*;
 use eframe::egui::{self, pos2, vec2, Align2, Color32, FontId, Pos2, Rect, RichText, Sense, Shape, Stroke};
@@ -1086,8 +1086,9 @@ impl App {
     }
 
     fn drawing_context_menu(&mut self, ui: &mut egui::Ui) {
+        menu_spacing(ui);
         let h: Option<DSel> = ui.ctx().data(|d| d.get_temp(egui::Id::new("dwg_ctx"))).flatten();
-        let item = |ui: &mut egui::Ui, icon: Icon, label: &str| small(ui, icon, label, true, false).clicked();
+        let item = |ui: &mut egui::Ui, icon: Icon, label: &str| menu_entry(ui, icon, label, true, false).clicked();
         match h {
             Some(DSel::View(id)) => {
                 if item(ui, Icon::EditDef, "Eigenschaften") { self.open_view_dialog(id, false); ui.close_menu(); }

@@ -202,6 +202,7 @@ impl App {
             FeatureKind::Pattern(d) => {
                 let src = d.features.first().and_then(|s| self.result.tools.get(s)).map(|t| crate::kernel::csg::bbox(&t.polys).center()).unwrap_or(V3::ZERO);
                 match d.kind {
+                    PatternKind::Table => {}
                     PatternKind::Direction => {
                         let dir = match d.dir1 { AxisRef::WorldX => V3::X, AxisRef::WorldY => V3::Y, AxisRef::WorldZ => V3::Z, AxisRef::Axis(id) => self.result.axis(id).map(|a| a.dir).unwrap_or(V3::X) };
                         let e = src + dir * v(&d.spacing1);

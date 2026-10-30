@@ -35,7 +35,7 @@ pub enum Icon {
     SysColors, ModelDisplay, Trail, LastSession, FullScreen, Globe, BgWhite, BgStd, BgDark, Pdf3d, ImportParams,
     MassCalc, Note3d, Sheetmetal, Collapse, ExpandAll, Columns, Filter, Settings, PlaneTags, Customize,
     HelicalSweep, RotBlend, CosmThread, CurvePoints,
-    DispReflect, Reorient, NormalView, SkCheck, SkLock, HlOverlap, HlIntersect, HlBranch,
+    DispReflect, Reorient, NormalView, ViewStandard, ViewFront, ViewRear, ViewTop, ViewBottom, ViewLeft, ViewRight, SelFace, SelEdge, AnnotFlat, AnnotFront, AnnotTop, AnnotRight, AnnotBack, AnnotBottom, AnnotLeft, ModelGrid, AnnotMove, AnnotReattach, ComboNew, ComboUpdate, RenderOpts, DisplayStyle, TranspControl, TranspSolid, TranspQuilt, TranspFacet, ViewManager, CappedSection, PlaneShow, AxisShow, PointShow, CsysShow, AnnotShow, SimPause, AnimOptions, SkCheck, SkLock, HlOverlap, HlIntersect, HlBranch,
     SkLineTangent, SkCenterlineTangent, SkSlantRect, SkParallelogram, SkCircleConc, SkCircle3T, SkArc3T, SkArcConc,
     SkConic, SkEllipseAxis, SkFilletTrim, SkFilletEllip, SkChamferTrim, SelChain, SelAll, SkReplace, SkConvert,
     InfoIntersect, InfoTangent, InfoEntity,
@@ -64,6 +64,11 @@ const GTOP: Color32 = rgb(232, 236, 240);
 const GLEFT: Color32 = rgb(196, 203, 211);
 const GRIGHT: Color32 = rgb(160, 169, 179);
 const GLINE: Color32 = rgb(70, 78, 88);
+// light-blue "glass" of the view and display commands
+const GL_T: Color32 = rgb(224, 243, 252);
+const GL_L: Color32 = rgb(180, 222, 243);
+const GL_R: Color32 = rgb(118, 188, 226);
+const GL_O: Color32 = rgb(58, 122, 164);
 
 type P = (f32, f32);
 
@@ -145,13 +150,79 @@ impl Ic<'_> {
         self.poly(&[up(o), up(ox), up(oxz), up(oz)], pal[0], Some(pal[3]));
     }
     fn iso(&self, o: P, a: f32, b: f32, h: f32) { self.iso_pal(o, a, b, h, [YT, YL, YR, YO]); }
+    fn glass_cube(&self, o: P, a: f32) { self.iso_pal(o, a, a, a, [GL_T, GL_L, GL_R, GL_O]); }
+    /// Small chequered badge (transparency) with its top-left corner at `o`.
+    fn checker(&self, o: P) {
+        let c = 1.8;
+        for i in 0..3 { for j in 0..3 {
+            let col = if (i + j) % 2 == 0 { rgb(70, 74, 80) } else { WHITE };
+            let (x, y) = (o.0 + i as f32 * c, o.1 + j as f32 * c);
+            self.poly(&[(x, y), (x + c, y), (x + c, y + c), (x, y + c)], col, None);
+        } }
+        self.closed(&[o, (o.0 + 3.0 * c, o.1), (o.0 + 3.0 * c, o.1 + 3.0 * c), (o.0, o.1 + 3.0 * c)], 0.6, rgb(70, 74, 80));
+    }
+    /// Creo's annotation-plane gallery icon: a light-blue glass cube with the plane as a dark panel
+    /// pulled out of its face (same face numbering as `view_cube`; 3–5 sit behind the cube).
+    fn annot_cube(&self, face: Option<u8>) {
+        let (o, a) = ((8.0, 12.6), 4.6);
+        let x = (0.866 * a, -0.5 * a);
+        let z = (-0.866 * a, -0.5 * a);
+        let ox = (o.0 + x.0, o.1 + x.1);
+        let oz = (o.0 + z.0, o.1 + z.1);
+        let oxz = (ox.0 + z.0, ox.1 + z.1);
+        let up = |q: P| (q.0, q.1 - a);
+        let panel = face.map(|f| {
+            let (pts, d): ([P; 4], P) = match f {
+                0 => ([oz, o, up(o), up(oz)], (-0.866, 0.5)),
+                1 => ([o, ox, up(ox), up(o)], (0.866, 0.5)),
+                2 => ([up(o), up(ox), up(oxz), up(oz)], (0.0, -1.0)),
+                3 => ([ox, oxz, up(oxz), up(ox)], (0.866, -0.5)),
+                4 => ([oz, oxz, up(oxz), up(oz)], (-0.866, -0.5)),
+                _ => ([o, ox, oxz, oz], (0.0, 1.0)),
+            };
+            // shrink a little about the face centre, then push out along the face normal
+            let c = (pts.iter().map(|p| p.0).sum::<f32>() / 4.0, pts.iter().map(|p| p.1).sum::<f32>() / 4.0);
+            pts.map(|p| (c.0 + (p.0 - c.0) * 0.92 + d.0 * 2.6, c.1 + (p.1 - c.1) * 0.92 + d.1 * 2.6))
+        });
+        let (dark, edge) = (rgb(38, 102, 128), rgb(24, 70, 92));
+        let behind = matches!(face, Some(3..=5));
+        if let (true, Some(pn)) = (behind, &panel) { self.poly(pn, dark, Some(edge)); }
+        self.iso_pal(o, a, a, a, [rgb(214, 240, 250), rgb(176, 222, 244), rgb(92, 178, 222), rgb(132, 186, 214)]);
+        // glass highlight along the front edge
+        self.path(&[o, up(o)], 0.8, rgb(240, 250, 255));
+        if let (false, Some(pn)) = (behind, &panel) { self.poly(pn, dark, Some(edge)); }
+    }
+    /// Grey orientation cube as in the standard orientation (FRONT left, RIGHT right, TOP up) with
+    /// the face the view looks at in blue: 0 front, 1 right, 2 top, 3 back, 4 left, 5 bottom (3–5 seen through the cube).
+    fn view_cube(&self, face: Option<u8>) {
+        let (o, a) = ((8.0, 15.0), 5.4);
+        let x = (0.866 * a, -0.5 * a);
+        let z = (-0.866 * a, -0.5 * a);
+        let ox = (o.0 + x.0, o.1 + x.1);
+        let oz = (o.0 + z.0, o.1 + z.1);
+        let oxz = (ox.0 + z.0, ox.1 + z.1);
+        let up = |q: P| (q.0, q.1 - a);
+        const HL: Color32 = rgb(84, 150, 232);
+        if let Some(f @ 3..=5) = face {
+            // hidden face first, then the near faces see-through with dashed hidden edges
+            let back = match f { 3 => [ox, oxz, up(oxz), up(ox)], 4 => [oz, oxz, up(oxz), up(oz)], _ => [o, ox, oxz, oz] };
+            self.poly(&back, HL, Some(BLUE));
+            for (p, q) in [(oxz, ox), (oxz, oz), (oxz, up(oxz))] { self.dashed(p, q, 0.8, GLINE, 1.4, 1.0); }
+            self.closed(&[o, ox, up(ox), up(o)], 0.9, GLINE);
+            self.closed(&[oz, o, up(o), up(oz)], 0.9, GLINE);
+            self.closed(&[up(o), up(ox), up(oxz), up(oz)], 0.9, GLINE);
+            return;
+        }
+        let pal = |i: u8, c: Color32| if face == Some(i) { HL } else { c };
+        self.iso_pal(o, a, a, a, [pal(2, GTOP), pal(0, GLEFT), pal(1, GRIGHT), GLINE]);
+    }
     fn iso_top_center(o: P, a: f32, b: f32, h: f32) -> P {
         (o.0 + 0.866 * (a - b) * 0.5, o.1 - 0.5 * (a + b) * 0.5 - h)
     }
     fn plane(&self, pts: [P; 4]) { self.poly(&pts, TAN, Some(BROWN)); }
     fn magnifier(&self, sign: Option<bool>) {
-        self.path(&[(10.0, 10.0), (14.5, 14.5)], 2.4, DARK);
-        self.circle((7.0, 7.0), 5.0, rgb(226, 238, 252), Some((1.4, DARK)));
+        self.path(&[(10.0, 10.0), (14.5, 14.5)], 2.6, rgb(52, 60, 70));
+        self.circle((7.0, 7.0), 5.2, rgb(236, 247, 253), Some((1.4, GL_O)));
         match sign {
             Some(true) => { self.path(&[(4.5, 7.0), (9.5, 7.0)], 1.5, BLUE); self.path(&[(7.0, 4.5), (7.0, 9.5)], 1.5, BLUE); }
             Some(false) => self.path(&[(4.5, 7.0), (9.5, 7.0)], 1.5, BLUE),
@@ -169,6 +240,20 @@ impl Ic<'_> {
         self.path(&up, 1.2, DARK);
         self.path(&lo, 1.2, DARK);
         self.circle((8.0, 8.0), 2.4, BLUE, Some((0.8, DARK)));
+    }
+    /// Small eye centred at `c` (display toggles of the graphics toolbar).
+    fn mini_eye(&self, c: P) {
+        let up = self.arc((c.0, c.1 + 2.2), 3.6, 3.4, 25.0, 155.0);
+        let lo = self.arc((c.0, c.1 - 2.2), 3.6, 3.4, 205.0, 335.0);
+        self.path(&up, 1.0, DARK);
+        self.path(&lo, 1.0, DARK);
+        self.circle(c, 1.3, DARK, None);
+    }
+    /// `base` shrunk into the upper left with an eye at the lower right, as Creo's "…-Anzeige" icons.
+    fn with_eye(&self, base: Icon) {
+        let r = Rect::from_min_size(self.o, egui::vec2(12.5 * self.s, 12.5 * self.s));
+        paint(self.p, r, base, self.en);
+        self.mini_eye((11.8, 12.6));
     }
     fn hole_section(&self, kind: u8) {
         self.poly(&[(1.5, 4.0), (5.5, 4.0), (5.5, 14.0), (1.5, 14.0)], GLEFT, Some(GLINE));
@@ -395,23 +480,25 @@ pub fn paint(p: &Painter, rect: Rect, icon: Icon, enabled: bool) {
             k.poly(&[(6.0, 5.5), (11.0, 8.0), (6.0, 10.5)], GREEN, None);
         }
         Refit => {
-            k.dashed((2.0, 2.0), (14.0, 2.0), 1.0, MID, 2.0, 1.2);
-            k.dashed((14.0, 2.0), (14.0, 14.0), 1.0, MID, 2.0, 1.2);
-            k.dashed((14.0, 14.0), (2.0, 14.0), 1.0, MID, 2.0, 1.2);
-            k.dashed((2.0, 14.0), (2.0, 2.0), 1.0, MID, 2.0, 1.2);
-            k.iso((8.0, 13.0), 3.6, 3.6, 3.6);
+            // magnifier framing a small square
+            k.magnifier(None);
+            k.closed(&[(4.7, 4.7), (9.3, 4.7), (9.3, 9.3), (4.7, 9.3)], 1.0, GL_O);
         }
         ZoomIn => k.magnifier(Some(true)),
         ZoomOut => k.magnifier(Some(false)),
         Repaint => {
-            k.path(&[(9.0, 7.0), (14.0, 2.0)], 2.2, rgb(150, 100, 40));
-            k.poly(&[(7.0, 6.0), (10.0, 9.0), (8.8, 10.2), (5.8, 7.2)], MID, Some(DARK));
-            k.poly(&[(5.8, 7.2), (8.8, 10.2), (4.0, 15.0), (1.5, 12.5)], rgb(60, 140, 220), Some(DARK));
+            // glass pane redrawn by a diagonal stroke
+            k.poly(&[(1.5, 3.5), (12.5, 3.5), (12.5, 14.5), (1.5, 14.5)], GL_T, Some(GL_O));
+            k.poly(&[(1.5, 3.5), (12.5, 3.5), (1.5, 14.5)], GL_L, None);
+            k.closed(&[(1.5, 3.5), (12.5, 3.5), (12.5, 14.5), (1.5, 14.5)], 0.9, GL_O);
+            k.path(&[(3.5, 12.5), (14.5, 1.5)], 1.8, rgb(34, 80, 126));
+            k.poly(&[(2.4, 13.6), (3.0, 11.4), (4.6, 13.0)], rgb(34, 80, 126), None);
         }
         SavedViews => {
-            k.iso_pal((8.0, 15.0), 5.0, 5.0, 5.0, [WHITE, rgb(150, 190, 240), WHITE, DARK]);
-            k.circle((12.5, 3.5), 2.6, WHITE, Some((1.0, DARK)));
-            k.circle((12.5, 3.5), 1.0, BLUE, None);
+            // glass cube with a small list sheet
+            k.glass_cube((7.0, 14.5), 4.8);
+            k.poly(&[(9.8, 8.6), (15.0, 8.6), (15.0, 15.2), (9.8, 15.2)], WHITE, Some(MID));
+            for y in [10.4, 12.0, 13.6] { k.path(&[(11.0, y), (13.8, y)], 0.7, MID); }
         }
         DispShadedEdges => k.iso_pal((8.0, 15.0), 5.2, 5.2, 5.2, [GTOP, GLEFT, GRIGHT, rgb(20, 20, 24)]),
         DispShaded => k.iso_pal((8.0, 15.0), 5.2, 5.2, 5.2, [GTOP, GLEFT, GRIGHT, GRIGHT]),
@@ -433,17 +520,20 @@ pub fn paint(p: &Painter, rect: Rect, icon: Icon, enabled: bool) {
             }
         }
         DatumDisplay => {
-            k.plane([(1.0, 11.0), (4.0, 5.0), (12.0, 5.0), (9.0, 11.0)]);
-            k.dashed((12.5, 15.0), (12.5, 1.0), 1.2, BROWN, 2.2, 1.0);
-            k.path(&[(2.0, 13.0), (5.0, 16.0)], 1.2, BROWN);
-            k.path(&[(5.0, 13.0), (2.0, 16.0)], 1.2, BROWN);
+            // datum axis, points and a coordinate system in datum brown
+            k.dashed((4.0, 13.0), (10.5, 1.0), 1.1, BROWN, 2.0, 1.0);
+            for c in [(2.6, 3.4), (12.6, 6.0)] { k.path(&[(c.0 - 1.6, c.1 - 1.6), (c.0 + 1.6, c.1 + 1.6)], 1.1, BROWN); k.path(&[(c.0 + 1.6, c.1 - 1.6), (c.0 - 1.6, c.1 + 1.6)], 1.1, BROWN); }
+            k.arrow((9.0, 14.5), (15.2, 14.5), 1.0, BROWN, 2.4);
+            k.arrow((9.0, 14.5), (9.0, 8.8), 1.0, BROWN, 2.4);
         }
         SpinCenter => {
-            let c = (8.0, 9.0);
-            k.path(&[c, (14.5, 12.5)], 1.6, RED);
-            k.path(&[c, (8.0, 1.5)], 1.6, GREEN);
-            k.path(&[c, (1.5, 12.5)], 1.6, BLUE);
-            k.circle(c, 1.4, DARK, None);
+            // pivot node with three coloured branches
+            let c = (7.0, 9.0);
+            for e in [(3.0, 3.5), (13.5, 10.5), (4.5, 14.5)] { k.path(&[c, e], 1.3, rgb(70, 78, 88)); }
+            k.circle((3.0, 3.5), 2.1, rgb(48, 112, 210), None);
+            k.circle((13.5, 10.5), 2.1, rgb(222, 70, 60), None);
+            k.circle((4.5, 14.5), 1.7, rgb(40, 160, 150), None);
+            k.circle(c, 1.5, rgb(70, 78, 88), None);
         }
         Section => {
             k.iso((8.0, 15.0), 5.0, 5.0, 5.0);
@@ -451,9 +541,12 @@ pub fn paint(p: &Painter, rect: Rect, icon: Icon, enabled: bool) {
             for i in 0..3 { let t = i as f32 * 1.4; k.path(&[(8.6 + t, 13.8 - t * 0.6), (8.6 + t, 10.6 - t * 0.6)], 0.6, rgb(150, 60, 30)); }
         }
         Perspective => {
-            k.closed(&[(5.5, 5.5), (10.5, 5.5), (10.5, 10.5), (5.5, 10.5)], 1.0, DARK);
-            k.closed(&[(1.0, 1.0), (15.0, 1.0), (15.0, 15.0), (1.0, 15.0)], 1.0, MID);
-            for (a1, b1) in [((1.0, 1.0), (5.5, 5.5)), ((15.0, 1.0), (10.5, 5.5)), ((15.0, 15.0), (10.5, 10.5)), ((1.0, 15.0), (5.5, 10.5))] { k.path(&[a1, b1], 0.8, MID); }
+            // glass box drawn with converging edges
+            let (f0, f1, f2, f3) = ((1.5, 6.5), (10.0, 6.5), (10.0, 15.0), (1.5, 15.0));
+            let (b0, b1, b2) = ((6.5, 1.5), (13.5, 1.5), (13.5, 8.8));
+            k.poly(&[f0, f1, b1, b0], GL_T, Some(GL_O));
+            k.poly(&[f1, b1, b2, f2], GL_R, Some(GL_O));
+            k.poly(&[f0, f1, f2, f3], GL_L, Some(GL_O));
         }
         Appearance => {
             k.circle((8.0, 8.5), 6.5, rgb(66, 130, 214), Some((0.8, rgb(30, 70, 140))));
@@ -495,14 +588,105 @@ pub fn paint(p: &Painter, rect: Rect, icon: Icon, enabled: bool) {
             k.path(&[(9.5, 5.5), (12.0, 4.2)], 1.2, WHITE);
         }
         Reorient => {
-            k.iso_pal((7.0, 14.5), 4.6, 4.6, 4.6, [GTOP, GLEFT, GRIGHT, GLINE]);
-            let a = k.arc((8.0, 8.0), 6.5, 6.5, 20.0, 160.0);
-            k.path(&a, 1.2, BLUE);
-            k.head(a[0], a[2], 2.6, BLUE);
+            // glass box with an arrow coming down onto it
+            k.poly(&[(5.0, 7.0), (11.0, 7.0), (11.0, 15.0), (5.0, 15.0)], GL_L, Some(GL_O));
+            k.poly(&[(5.0, 7.0), (7.5, 4.5), (13.5, 4.5), (11.0, 7.0)], GL_T, Some(GL_O));
+            k.poly(&[(11.0, 7.0), (13.5, 4.5), (13.5, 12.5), (11.0, 15.0)], GL_R, Some(GL_O));
+            k.arrow((3.0, 0.8), (3.0, 7.5), 1.2, rgb(40, 46, 54), 2.6);
         }
         NormalView => {
-            k.poly(&[(2.0, 4.0), (10.0, 4.0), (10.0, 14.0), (2.0, 14.0)], rgb(220, 234, 250), Some(BLUE));
-            k.arrow((15.0, 9.0), (10.6, 9.0), 1.4, GREEN_D, 3.0);
+            // glass box seen face-on, arrow pointing at the face
+            k.poly(&[(1.5, 6.0), (8.5, 6.0), (8.5, 14.5), (1.5, 14.5)], GL_L, Some(GL_O));
+            k.poly(&[(1.5, 6.0), (4.0, 3.5), (11.0, 3.5), (8.5, 6.0)], GL_T, Some(GL_O));
+            k.poly(&[(8.5, 6.0), (11.0, 3.5), (11.0, 12.0), (8.5, 14.5)], GL_R, Some(GL_O));
+            k.arrow((15.8, 10.5), (11.6, 10.5), 1.2, rgb(40, 46, 54), 2.6);
+        }
+        DisplayStyle => k.glass_cube((8.0, 15.2), 5.6),
+        ModelGrid => {
+            // lattice of grid lines with one numbered balloon
+            for t in [3.0, 6.5, 10.0, 13.5] { k.path(&[(t, 1.5), (t, 14.5)], 0.9, rgb(70, 76, 84)); k.path(&[(1.5, t), (14.5, t)], 0.9, rgb(70, 76, 84)); }
+        }
+        TranspSolid => { k.glass_cube((6.5, 13.0), 4.6); k.checker((10.0, 9.5)); }
+        TranspQuilt => {
+            // curved sheet
+            let top = k.arc((6.5, 9.0), 5.5, 3.0, 20.0, 160.0);
+            let mut pts: Vec<P> = top.iter().map(|q| (q.0, q.1 - 1.0)).collect();
+            pts.extend(top.iter().rev().map(|q| (q.0, q.1 + 4.5)));
+            k.poly(&pts, rgb(196, 170, 232), Some(rgb(120, 80, 170)));
+            k.checker((10.0, 9.5));
+        }
+        TranspFacet => {
+            k.poly(&[(1.0, 2.0), (11.0, 2.0), (11.0, 12.0), (1.0, 12.0)], GL_T, Some(GL_O));
+            for (a1, b1) in [((1.0, 2.0), (11.0, 12.0)), ((6.0, 2.0), (11.0, 7.0)), ((1.0, 7.0), (6.0, 12.0)), ((6.0, 2.0), (6.0, 12.0)), ((1.0, 7.0), (11.0, 7.0))] { k.path(&[a1, b1], 0.8, GL_O); }
+            k.checker((10.0, 9.5));
+        }
+        TranspControl => {
+            k.poly(&[(2.0, 2.0), (14.0, 2.0), (2.0, 14.0)], GL_L, None);
+            k.dashed((6.0, 14.0), (14.0, 6.0), 0.7, GL_O, 1.2, 1.0);
+            k.dashed((10.0, 14.0), (14.0, 10.0), 0.7, GL_O, 1.2, 1.0);
+            k.closed(&[(2.0, 2.0), (14.0, 2.0), (14.0, 14.0), (2.0, 14.0)], 1.0, GL_O);
+            k.path(&[(2.0, 14.0), (14.0, 2.0)], 1.0, GL_O);
+        }
+        ViewStandard => k.view_cube(None),
+        ViewFront => k.view_cube(Some(0)),
+        ViewRight => k.view_cube(Some(1)),
+        ViewTop => k.view_cube(Some(2)),
+        ViewRear => k.view_cube(Some(3)),
+        ViewLeft => k.view_cube(Some(4)),
+        ViewBottom => k.view_cube(Some(5)),
+        RenderOpts => {
+            // two shaded spheres
+            k.circle((10.0, 7.0), 5.6, rgb(120, 124, 130), None);
+            k.circle((9.0, 6.0), 3.8, rgb(170, 174, 180), None);
+            k.circle((8.0, 5.0), 1.8, rgb(232, 234, 238), None);
+            k.circle((4.0, 12.0), 3.2, rgb(90, 94, 100), None);
+            k.circle((3.4, 11.4), 1.4, rgb(190, 194, 198), None);
+        }
+        ViewManager => {
+            k.poly(&[(1.0, 1.5), (12.5, 1.5), (12.5, 12.0), (1.0, 12.0)], WHITE, Some(MID));
+            k.poly(&[(1.0, 1.5), (12.5, 1.5), (12.5, 4.0), (1.0, 4.0)], LIGHT, Some(MID));
+            for y in [6.7, 9.3] { k.path(&[(1.0, y), (12.5, y)], 0.7, MID); }
+            k.path(&[(5.0, 1.5), (5.0, 12.0)], 0.7, MID);
+            // camera
+            k.poly(&[(7.5, 10.0), (15.0, 10.0), (15.0, 15.0), (7.5, 15.0)], DARK, None);
+            k.poly(&[(9.5, 8.8), (12.0, 8.8), (12.6, 10.0), (8.9, 10.0)], DARK, None);
+            k.circle((11.2, 12.5), 1.5, rgb(200, 206, 214), None);
+        }
+        CappedSection => {
+            // cylinder cut flat, the cap shaded
+            k.poly(&[(1.5, 6.0), (11.5, 3.0), (14.5, 9.5), (4.5, 12.5)], GL_L, Some(GL_O));
+            let e: Vec<P> = (0..=24).map(|i| { let t = (i as f32 / 24.0) * std::f32::consts::TAU; (3.0 + 1.6 * t.cos(), 9.25 + 3.3 * t.sin()) }).collect();
+            k.poly(&e, GL_T, Some(GL_O));
+        }
+        PlaneShow => k.with_eye(Plane),
+        AxisShow => k.with_eye(Axis),
+        PointShow => k.with_eye(Point),
+        CsysShow => k.with_eye(Csys),
+        AnnotShow => {
+            k.poly(&[(1.0, 1.5), (12.0, 1.5), (12.0, 7.5), (1.0, 7.5)], rgb(250, 244, 222), Some(MID));
+            k.path(&[(9.0, 7.5), (8.0, 10.5)], 1.0, DARK);
+            k.mini_eye((11.5, 12.5));
+        }
+        SimPause => {
+            k.poly(&[(3.5, 2.0), (6.5, 2.0), (6.5, 14.0), (3.5, 14.0)], DARK, None);
+            k.poly(&[(9.5, 2.0), (12.5, 2.0), (12.5, 14.0), (9.5, 14.0)], DARK, None);
+        }
+        AnimOptions => {
+            let cols = [rgb(230, 50, 60), rgb(250, 150, 40), rgb(250, 220, 60), rgb(80, 190, 80), rgb(60, 150, 230), rgb(140, 80, 210)];
+            for (i, c) in cols.iter().enumerate() { let x = 1.5 + i as f32 * 2.2; k.poly(&[(x, 3.0), (x + 2.3, 3.0), (x + 2.3, 13.0), (x, 13.0)], *c, None); }
+            k.closed(&[(1.5, 3.0), (14.7, 3.0), (14.7, 13.0), (1.5, 13.0)], 0.8, MID);
+        }
+        AnnotFlat => k.annot_cube(None),
+        AnnotFront => k.annot_cube(Some(0)),
+        AnnotRight => k.annot_cube(Some(1)),
+        AnnotTop => k.annot_cube(Some(2)),
+        AnnotBack => k.annot_cube(Some(3)),
+        AnnotLeft => k.annot_cube(Some(4)),
+        AnnotBottom => k.annot_cube(Some(5)),
+        SelFace =>k.iso_pal((8.0, 15.0), 5.4, 5.4, 5.4, [rgb(110, 205, 120), GLEFT, GRIGHT, GLINE]),
+        SelEdge => {
+            k.iso_pal((8.0, 15.0), 5.4, 5.4, 5.4, [GTOP, GLEFT, GRIGHT, GLINE]);
+            k.path(&[(8.0, 9.6), (8.0, 15.0)], 2.0, GREEN);
         }
         SkCheck => {
             k.closed(&[(2.0, 4.0), (11.0, 4.0), (11.0, 12.0), (2.0, 12.0)], 1.3, SK);
@@ -1157,6 +1341,34 @@ pub fn paint(p: &Painter, rect: Rect, icon: Icon, enabled: bool) {
             k.circle((8.0, 9.5), 3.3, MID, Some((1.0, WHITE)));
             k.circle((2.8, 2.6), 2.0, rgb(250, 200, 40), None);
         }
+        AnnotMove => {
+            // note box with four-way arrows
+            k.poly(&[(1.0, 1.5), (9.0, 1.5), (9.0, 6.5), (1.0, 6.5)], rgb(250, 244, 222), Some(MID));
+            let c = (10.5, 10.5);
+            for (dx, dy) in [(1.0, 0.0), (-1.0, 0.0), (0.0, 1.0), (0.0, -1.0)] { k.arrow(c, (c.0 + dx * 5.0, c.1 + dy * 5.0), 1.0, rgb(40, 46, 54), 2.2); }
+        }
+        AnnotReattach => {
+            // note box with a leader and a chain link
+            k.poly(&[(1.0, 1.5), (9.0, 1.5), (9.0, 6.5), (1.0, 6.5)], rgb(250, 244, 222), Some(MID));
+            k.path(&[(5.0, 6.5), (8.0, 11.0)], 1.0, DARK);
+            k.ring((10.0, 12.0), 2.4, 1.2, rgb(40, 120, 210));
+            k.ring((13.0, 12.0), 2.4, 1.2, rgb(40, 120, 210));
+        }
+        ComboNew | ComboUpdate => {
+            // camera, with a spark (new) or two turning arrows (update)
+            k.poly(&[(2.0, 6.0), (15.0, 6.0), (15.0, 15.0), (2.0, 15.0)], rgb(64, 68, 74), None);
+            k.poly(&[(6.0, 4.2), (10.5, 4.2), (11.5, 6.0), (5.0, 6.0)], rgb(64, 68, 74), None);
+            k.circle((8.5, 10.5), 3.3, rgb(150, 156, 164), Some((1.1, rgb(226, 230, 234))));
+            k.circle((8.0, 10.0), 1.1, rgb(226, 230, 234), None);
+            if icon == ComboNew {
+                k.poly(&[(3.2, 0.6), (4.0, 2.6), (6.0, 3.2), (4.0, 3.8), (3.2, 5.8), (2.4, 3.8), (0.4, 3.2), (2.4, 2.6)], rgb(250, 196, 40), Some(rgb(200, 140, 20)));
+            } else {
+                let a1 = k.arc((5.0, 3.6), 3.0, 2.6, 20.0, 160.0);
+                k.path(&a1, 1.2, rgb(40, 120, 210));
+                k.head(a1[a1.len() - 1], a1[a1.len() - 4], 2.2, rgb(40, 120, 210));
+                k.head(a1[0], a1[3], 2.2, rgb(40, 120, 210));
+            }
+        }
         AnnotPlane => {
             k.poly(&[(1.0, 10.0), (4.0, 4.0), (15.0, 4.0), (12.0, 10.0)], rgb(130, 200, 240), Some(BLUE));
             k.poly(&[(4.0, 4.0), (7.0, 1.0), (15.0, 1.0), (15.0, 4.0)], rgb(80, 150, 220), None);
@@ -1266,10 +1478,20 @@ pub fn paint(p: &Painter, rect: Rect, icon: Icon, enabled: bool) {
             k.path(&[(8.5, 8.0), (14.0, 8.0)], 2.2, GREEN);
             k.path(&[(10.0, 3.5), (13.0, 2.0)], 2.2, GREEN);
         }
-        Simulate | SimResults => {
+        Simulate => {
+            // triangle in result colours with a play badge
+            let (a, b, c) = ((7.0, 1.5), (13.0, 12.5), (1.0, 12.5));
+            let mid = |p: P, q: P| ((p.0 + q.0) / 2.0, (p.1 + q.1) / 2.0);
+            for (p, q, col) in [(a, mid(a, b), rgb(232, 64, 56)), (mid(a, b), b, rgb(246, 176, 40)), (b, mid(b, c), rgb(238, 220, 60)), (mid(b, c), c, rgb(70, 180, 80)), (c, mid(c, a), rgb(48, 140, 220)), (mid(c, a), a, rgb(120, 80, 200))] {
+                k.path(&[p, q], 1.8, col);
+            }
+            k.circle((12.0, 12.0), 3.4, rgb(214, 50, 46), None);
+            k.poly(&[(10.9, 10.2), (14.0, 12.0), (10.9, 13.8)], WHITE, None);
+        }
+        SimResults => {
             k.poly(&[(8.0, 1.5), (14.5, 14.0), (1.5, 14.0)], LIGHT, Some(MID));
             k.poly(&[(8.0, 5.5), (11.5, 12.0), (4.5, 12.0)], WHITE, None);
-            if icon == SimResults { k.poly(&[(1.5, 9.0), (6.0, 9.0), (6.0, 14.0), (1.5, 14.0)], rgb(240, 120, 60), None); }
+            k.poly(&[(1.5, 9.0), (6.0, 9.0), (6.0, 14.0), (1.5, 14.0)], rgb(240, 120, 60), None);
         }
         Flow => {
             k.circle((8.0, 8.0), 7.0, rgb(240, 250, 255), Some((1.0, BLUE)));
@@ -1401,8 +1623,15 @@ fn tri_icon(k: &Ic) { k.poly(&[(4.0, 6.0), (12.0, 6.0), (8.0, 11.0)], DARK, None
 
 /// Icon used in the model tree for a feature kind.
 pub fn for_feature(k: &crate::model::features::FeatureKind) -> Icon {
-    use crate::model::features::FeatureKind as F;
+    use crate::model::features::{BodyOp, FeatureKind as F, SurfOp};
     match k {
+        F::Surface(d) => match d.op {
+            SurfOp::Fill | SurfOp::Replace => Icon::FillSurf, SurfOp::Offset => Icon::Offset, SurfOp::Thicken => Icon::Thicken, SurfOp::Solidify => Icon::Solidify,
+            SurfOp::Merge => Icon::Merge, SurfOp::Trim => Icon::Trim, SurfOp::Intersect => Icon::Intersect, SurfOp::Project => Icon::Project3d,
+            SurfOp::Extend => Icon::Extend, SurfOp::Split | SurfOp::Boundary => Icon::BoundaryBlend, SurfOp::Copy => Icon::Copy,
+            SurfOp::Style => Icon::Style, SurfOp::Freestyle => Icon::Freestyle,
+        },
+        F::Body(d) => match d.op { BodyOp::New => Icon::Body, BodyOp::Split => Icon::Trim, _ => Icon::Merge },
         F::DatumPlane(_) => Icon::Plane,
         F::DatumAxis(_) => Icon::Axis,
         F::DatumPoint(_) => Icon::Point,

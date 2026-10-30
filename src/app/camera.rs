@@ -16,6 +16,14 @@ impl StdView {
             StdView::Bottom => "UNTEN - BOTTOM", StdView::Left => "LINKS - LEFT", StdView::Right => "RECHTS - RIGHT",
         }
     }
+    pub fn icon(&self) -> super::icons::Icon {
+        use super::icons::Icon;
+        match self {
+            StdView::Standard | StdView::Default => Icon::ViewStandard,
+            StdView::Front => Icon::ViewFront, StdView::Back => Icon::ViewRear, StdView::Top => Icon::ViewTop,
+            StdView::Bottom => Icon::ViewBottom, StdView::Left => Icon::ViewLeft, StdView::Right => Icon::ViewRight,
+        }
+    }
     pub fn rotation(&self) -> DQuat {
         use std::f64::consts::FRAC_PI_2;
         match self {

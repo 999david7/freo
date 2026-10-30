@@ -96,7 +96,8 @@ void main() {
         vec3 env = mix(vec3(0.30, 0.33, 0.38), vec3(0.97, 0.98, 1.0), smoothstep(-0.25, 0.35, r.y));
         c = mix(c, env * (0.55 + 0.45 * u_color.rgb * v_col), 0.32) + vec3(pow(max(dot(n, h), 0.0), 96.0) * 0.55);
     }
-    if (!gl_FrontFacing) c = vec3(0.85, 0.45, 0.35) * (0.4 + d * 0.6);
+    // back faces show as section colour; quilts (blue channel above 1.2) look the same from both sides
+    if (!gl_FrontFacing && v_col.b < 1.2) c = vec3(0.85, 0.45, 0.35) * (0.4 + d * 0.6);
     frag = vec4(c, u_color.a);
 }"#;
 

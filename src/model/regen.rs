@@ -31,6 +31,10 @@ pub enum Op { Add, Cut }
 #[derive(Clone)]
 pub struct ToolBody { pub polys: Vec<CPolygon>, pub op: Op }
 
+/// A Sammelfläche: the open sheet a surface feature made.
+#[derive(Clone)]
+pub struct Quilt { pub feature: u64, pub polys: Vec<CPolygon> }
+
 #[derive(Clone, Default)]
 pub struct RegenResult {
     pub polys: Vec<CPolygon>,
@@ -49,6 +53,10 @@ pub struct RegenResult {
     /// sketch / placement plane of each feature as it was resolved during regeneration
     pub frames: HashMap<u64, Frame>,
     pub rolled_back: HashSet<u64>,
+    /// quilts still shown (consumed ones are hidden, as in Creo)
+    pub quilts: Vec<Quilt>,
+    /// bodies in order: (body id — 0 for Körper 1, else the creating feature — and polygon count)
+    pub bodies: Vec<(u64, usize)>,
     pub time: f64,
     pub generation: u64,
 }
@@ -79,6 +87,11 @@ struct Regen<'a> {
     planes: HashMap<u64, PlaneInfo>,
     axes: HashMap<u64, AxisInfo>,
     auto_axis: usize,
+    quilts: Vec<(u64, Vec<CPolygon>)>,
+    consumed: HashSet<u64>,
+    /// all bodies; the current one's polygons live in `polys`
+    bodies: Vec<(u64, Vec<CPolygon>)>,
+    cur: usize,
 }
 
 /// Regenerates the model as shown (the active family table instance, or the generic).
@@ -90,15 +103,28 @@ pub fn run(data: &ModelData) -> RegenResult {
 pub fn run_features(data: &ModelData, features: &[Feature], stop: Option<usize>) -> RegenResult {
     let t0 = std::time::Instant::now();
     let (vars, perr) = data.evaluate_parameters();
-    let mut r = Regen { data, vars: vars.clone(), polys: vec![], topo: None, tags: TagAllocator::default(), res: RegenResult::default(), planes: HashMap::new(), axes: HashMap::new(), auto_axis: 0 };
+    let mut r = Regen { data, vars: vars.clone(), polys: vec![], topo: None, tags: TagAllocator::default(), res: RegenResult::default(), planes: HashMap::new(), axes: HashMap::new(), auto_axis: 0, quilts: vec![], consumed: HashSet::new(), bodies: vec![(0, vec![])], cur: 0 };
     r.res.vars = vars;
     r.res.param_errors = perr;
     for (i, f) in features.iter().enumerate() {
         if stop.map(|s| i >= s).unwrap_or(false) { r.res.rolled_back.insert(f.id); continue; }
         if f.suppressed { continue; }
+        // each solid feature works on its own body
+        if !matches!(f.kind, FeatureKind::Body(_)) {
+            // a feature being created (not yet in the model) goes into the default body
+            let b = data.feature_body.get(&f.id).copied().unwrap_or(if data.feature(f.id).is_none() { data.default_body } else { 0 });
+            let i = r.bodies.iter().position(|x| x.0 == b).unwrap_or(0);
+            r.switch_body(i);
+        }
         if let Err(e) = r.apply(f) { r.res.errors.insert(f.id, e); }
     }
     let _ = r.data;
+    r.sync_out();
+    r.res.bodies = r.bodies.iter().map(|b| (b.0, b.1.len())).collect();
+    let all: Vec<CPolygon> = r.bodies.iter_mut().flat_map(|b| std::mem::take(&mut b.1)).collect();
+    r.bodies = vec![(0, vec![])];
+    r.set_polys(all);
+    r.res.quilts = r.quilts.iter().filter(|q| !r.consumed.contains(&q.0)).map(|q| Quilt { feature: q.0, polys: q.1.clone() }).collect();
     let topo = r.topo();
     let mut res = r.res;
     res.polys = r.polys;
@@ -111,6 +137,15 @@ pub fn run_features(data: &ModelData, features: &[Feature], stop: Option<usize>)
     res.time = t0.elapsed().as_secs_f64();
     res.generation = next_generation();
     res
+}
+
+/// Frame of the Zug-Verbund's second section: the sweep's moving frame at the trajectory end.
+pub fn sweep_end_frame(path: &[V3]) -> Frame {
+    let start = sweep_section_frame(path);
+    let rings = builders::sweep_rings(path, false, &start);
+    let r = &rings[rings.len() - 1];
+    let o = r(V2::ZERO);
+    Frame { origin: o, x: safe_norm(r(V2::new(1.0, 0.0)) - o, V3::X), y: safe_norm(r(V2::new(0.0, 1.0)) - o, V3::Y) }
 }
 
 pub fn sweep_section_frame(path: &[V3]) -> Frame {
@@ -225,12 +260,192 @@ pub fn hole_profile(d: &HoleDef, vars: &Vars, through: f64) -> Result<Vec<V2>, S
 impl<'a> Regen<'a> {
     fn topo(&mut self) -> Arc<Topology> {
         if let Some(t) = &self.topo { return t.clone(); }
-        let t = Arc::new(Topology::new(&self.polys));
+        // faces of every body can be referenced
+        let t = if self.bodies.len() > 1 {
+            let mut all: Vec<CPolygon> = self.bodies.iter().enumerate().filter(|(i, _)| *i != self.cur).flat_map(|(_, b)| b.1.iter().cloned()).collect();
+            all.extend(self.polys.iter().cloned());
+            Arc::new(Topology::new(&all))
+        } else { Arc::new(Topology::new(&self.polys)) };
         self.topo = Some(t.clone());
         t
     }
 
     fn set_polys(&mut self, p: Vec<CPolygon>) { self.polys = p; self.topo = None; }
+
+    fn sync_out(&mut self) { self.bodies[self.cur].1 = std::mem::take(&mut self.polys); self.topo = None; }
+    fn sync_in(&mut self) { self.polys = std::mem::take(&mut self.bodies[self.cur].1); self.topo = None; }
+    fn switch_body(&mut self, i: usize) { if i != self.cur && i < self.bodies.len() { self.sync_out(); self.cur = i; self.sync_in(); } }
+    fn body_index(&self, id: u64) -> Result<usize, String> { self.bodies.iter().position(|b| b.0 == id).ok_or("Der Körper fehlt oder ist unterdrückt.".into()) }
+
+    /// The polygons of the given quilt features, marking them consumed when `consume`.
+    fn quilt_inputs(&mut self, ids: &[u64], consume: bool) -> Result<Vec<CPolygon>, String> {
+        let mut out = vec![];
+        for id in ids {
+            let found: Vec<CPolygon> = self.quilts.iter().filter(|q| q.0 == *id).flat_map(|q| q.1.iter().cloned()).collect();
+            if found.is_empty() { return Err("Eine gewählte Sammelfläche fehlt oder ist verbraucht.".into()); }
+            out.extend(found);
+            if consume { self.consumed.insert(*id); }
+        }
+        if out.is_empty() { return Err("Eine Sammelfläche wählen.".into()); }
+        Ok(out)
+    }
+
+    /// The solid's polygons on the given faces.
+    fn face_polys(&mut self, faces: &[FaceRef]) -> Result<Vec<CPolygon>, String> {
+        let t = self.topo();
+        let mut out = vec![];
+        for f in faces {
+            let i = t.match_face(f.point, f.normal).ok_or("Eine gewählte Fläche wurde nicht gefunden.")?;
+            for &pi in &t.faces[i].polys {
+                let pts: Vec<V3> = t.polys[pi].iter().map(|&k| t.positions[k]).collect();
+                if let Some(mut p) = crate::model::surfaces::poly(&pts, t.tags[pi]) { if p.plane.n.dot(t.faces[i].normal) < 0.0 { p.flip(); } out.push(p); }
+            }
+        }
+        if out.is_empty() { return Err("Flächen wählen.".into()); }
+        Ok(out)
+    }
+
+    fn apply_surface(&mut self, d: &SurfaceDef, fid: u64) -> Result<(), String> {
+        use crate::model::surfaces as sf;
+        let tag = self.tags.next(fid);
+        let sg = if d.flip { -1.0 } else { 1.0 };
+        match d.op {
+            SurfOp::Fill => {
+                let frame = self.plane(&d.plane)?;
+                let s = self.prepare(&d.sketch)?;
+                let regions: Vec<(Vec<V2>, Vec<Vec<V2>>)> = s.profile_regions()?.into_iter().map(|r| (r.outer.pts, r.holes.into_iter().map(|h| h.pts).collect())).collect();
+                let q = sf::fill(&regions, &frame, tag);
+                if q.is_empty() { return Err("Eine geschlossene Skizze zeichnen.".into()); }
+                self.quilts.push((fid, q));
+            }
+            SurfOp::Offset => {
+                let src = if d.inputs.is_empty() { self.face_polys(&d.faces)? } else { self.quilt_inputs(&d.inputs, false)? };
+                let q = sf::offset(&src, self.e(&d.distance)? * sg).into_iter().map(|mut p| { p.tag = tag; p }).collect();
+                self.quilts.push((fid, q));
+            }
+            SurfOp::Thicken => {
+                let src = self.quilt_inputs(&d.inputs, true)?;
+                let t = self.e(&d.distance)?;
+                if t <= 0.0 { return Err("Die Dicke muss positiv sein.".into()); }
+                let solid = csg::orient_outward(sf::thicken(&src, t * sg, None, tag).into_iter().map(|mut p| { p.tag = tag; p }).collect());
+                self.apply_tool(solid, d.remove, fid)?;
+            }
+            SurfOp::Solidify => {
+                let src = self.quilt_inputs(&d.inputs, true)?;
+                if !sf::is_closed(&src) { return Err("Die Sammelfläche ist nicht geschlossen — zuerst zusammenführen oder Aufdicken verwenden.".into()); }
+                let solid = csg::orient_outward(src.into_iter().map(|mut p| { p.tag = tag; p }).collect());
+                self.apply_tool(solid, d.remove, fid)?;
+            }
+            SurfOp::Merge => {
+                if d.inputs.len() < 2 { return Err("Zwei Sammelflächen wählen.".into()); }
+                let q = self.quilt_inputs(&d.inputs, true)?;
+                self.quilts.push((fid, q));
+            }
+            SurfOp::Trim | SurfOp::Split => {
+                let src = self.quilt_inputs(&d.inputs, true)?;
+                let frame = self.plane(&d.plane)?;
+                let (n, w) = (frame.z(), frame.z().dot(frame.origin));
+                let keep = sf::clip(&src, n, w, !d.flip);
+                if keep.is_empty() { return Err("Die Ebene schneidet die Sammelfläche nicht.".into()); }
+                self.quilts.push((fid, keep));
+                if d.op == SurfOp::Split { self.quilts.push((fid, sf::clip(&src, n, w, d.flip))); }
+            }
+            SurfOp::Intersect => {
+                let frame = self.plane(&d.plane)?;
+                let src = if d.inputs.is_empty() { self.polys.clone() } else { self.quilt_inputs(&d.inputs, false)? };
+                let segs = sf::section(&src, frame.z(), frame.z().dot(frame.origin));
+                if segs.is_empty() { return Err("Die Ebene schneidet die Geometrie nicht.".into()); }
+                self.res.curves.push(CurveInfo { feature: fid, polylines: segs });
+            }
+            SurfOp::Project => {
+                use crate::sketch::sketch::SkKind;
+                let frame = self.plane(&d.plane)?;
+                let s = self.prepare(&d.sketch)?;
+                let t = self.topo();
+                let mut lines = vec![];
+                for e in s.entities.iter().filter(|e| !matches!(e.kind, SkKind::Point | SkKind::Csys | SkKind::Text) && !e.construction) {
+                    let pts: Vec<V3> = s.sample(e, 64).iter().filter_map(|p| {
+                        let w = frame.to_world(*p);
+                        t.ray_first_hit(w, -frame.z(), 1e-6).map(|h| w - frame.z() * h).or_else(|| t.ray_first_hit(w, frame.z(), 1e-6).map(|h| w + frame.z() * h))
+                    }).collect();
+                    if pts.len() >= 2 { lines.push(pts); }
+                }
+                if lines.is_empty() { return Err("Die Skizze trifft beim Projizieren keine Fläche.".into()); }
+                self.res.curves.push(CurveInfo { feature: fid, polylines: lines });
+            }
+            SurfOp::Extend => {
+                let src = self.quilt_inputs(&d.inputs, true)?;
+                self.quilts.push((fid, sf::extend(&src, self.e(&d.distance)?, tag)));
+            }
+            SurfOp::Copy => {
+                let q = self.face_polys(&d.faces)?.into_iter().map(|mut p| { p.tag = tag; p }).collect();
+                self.quilts.push((fid, q));
+            }
+            SurfOp::Replace => {
+                let faces = self.face_polys(&d.faces)?;
+                let target = self.quilt_inputs(&d.inputs, true)?;
+                let (n, w) = (target[0].plane.n, target[0].plane.w);
+                let nf = faces[0].plane.n;
+                let c = faces.iter().map(|p| p.centroid()).fold(V3::ZERO, |a, b| a + b) / faces.len() as f64;
+                let den = n.dot(nf);
+                if den.abs() < 1e-6 { return Err("Die Ersatzfläche ist zur Fläche parallel ausgerichtet.".into()); }
+                let dist = (w - n.dot(c)) / den;
+                let prism = csg::orient_outward(sf::thicken(&faces, 0.0, Some(nf * dist), tag).into_iter().map(|mut p| { p.tag = tag; p }).collect());
+                self.apply_tool(prism, dist < 0.0, fid)?;
+            }
+            SurfOp::Boundary => {
+                let mut curves = vec![];
+                for id in &d.inputs {
+                    for c in self.res.curves.iter().filter(|c| c.feature == *id) { curves.extend(c.polylines.iter().filter(|l| l.len() >= 2).cloned()); }
+                }
+                if curves.len() < 2 { return Err("Zwei oder vier Randkurven (Skizzen oder Kurven) wählen.".into()); }
+                curves.truncate(if curves.len() >= 4 { 4 } else { 2 });
+                self.quilts.push((fid, sf::boundary_blend(&curves, tag)));
+            }
+            SurfOp::Style => {
+                let frame = self.plane(&d.plane)?;
+                self.quilts.push((fid, sf::style_patch(&frame, d.size[0], d.size[1], &d.heights, tag)));
+            }
+            SurfOp::Freestyle => {
+                let frame = self.plane(&d.plane)?;
+                self.quilts.push((fid, sf::freestyle(&frame, d.size, d.level, tag)));
+            }
+        }
+        Ok(())
+    }
+
+    fn apply_body(&mut self, d: &BodyDef, fid: u64) -> Result<(), String> {
+        self.sync_out();
+        let r = (|| -> Result<(), String> {
+            match d.op {
+                BodyOp::New => self.bodies.push((fid, vec![])),
+                BodyOp::Union | BodyOp::Subtract | BodyOp::Intersect => {
+                    let (ti, oi) = (self.body_index(d.target)?, self.body_index(d.tool)?);
+                    if ti == oi { return Err("Zwei verschiedene Körper wählen.".into()); }
+                    let (a, b) = (self.bodies[ti].1.clone(), std::mem::take(&mut self.bodies[oi].1));
+                    if b.is_empty() { return Err("Der zweite Körper ist leer.".into()); }
+                    self.bodies[ti].1 = match d.op { BodyOp::Union => csg::union(&a, &b), BodyOp::Subtract => csg::subtract(&a, &b), _ => csg::intersect(&a, &b) };
+                }
+                BodyOp::Split => {
+                    let ti = self.body_index(d.target)?;
+                    let mut frame = self.plane(&d.plane)?;
+                    if d.flip { frame = Frame { origin: frame.origin, x: frame.x, y: -frame.y }; }
+                    let body = self.bodies[ti].1.clone();
+                    if body.is_empty() { return Err("Der Körper ist leer.".into()); }
+                    let big = csg::bbox(&body).diagonal() * 2.0 + 10.0;
+                    let tag = self.tags.next(fid);
+                    let hs = crate::model::surfaces::half_space(&frame, big, tag);
+                    let (keep, cut) = (csg::subtract(&body, &hs), csg::intersect(&body, &hs));
+                    if keep.is_empty() || cut.is_empty() { return Err("Die Ebene teilt den Körper nicht.".into()); }
+                    self.bodies[ti].1 = keep;
+                    self.bodies.push((fid, cut));
+                }
+            }
+            Ok(())
+        })();
+        self.sync_in();
+        r
+    }
 
     fn plane(&mut self, r: &Option<PlaneRef>) -> Result<Frame, String> {
         match r {
@@ -443,7 +658,21 @@ impl<'a> Regen<'a> {
                 let sf = sweep_section_frame(&path);
                 let sec = self.prepare(&d.section)?;
                 let regions = sec.profile_regions()?;
-                let tool = builders::sweep(&regions, &path, closed, &sf, &mut self.tags, fid);
+                let tool = match d.mode {
+                    SweepMode::Normal => builders::sweep(&regions, &path, closed, &sf, &mut self.tags, fid),
+                    SweepMode::Volume => {
+                        // the tool keeps the start orientation and only moves along the trajectory
+                        let rings: Vec<Box<dyn Fn(V2) -> V3>> = path.iter().map(|p| { let o = *p; let (x, y) = (sf.x, sf.y); Box::new(move |q: V2| o + x * q.x + y * q.y) as Box<dyn Fn(V2) -> V3> }).collect();
+                        builders::loft(&regions, &rings, closed, &mut self.tags, fid)
+                    }
+                    SweepMode::Blend => {
+                        if closed { return Err("Ein Zug-Verbund braucht eine offene Leitkurve.".into()); }
+                        let sec2 = self.prepare(&d.section2)?;
+                        let r2 = sec2.profile_regions().map_err(|_| "Den zweiten Querschnitt am Ende der Leitkurve skizzieren.".to_string())?;
+                        let tag = self.tags.next(fid);
+                        swept_blend(&regions[0].outer.pts, &r2[0].outer.pts, &path, &sf, tag)?
+                    }
+                };
                 self.apply_tool(tool, d.remove, fid)?;
                 self.add_curves(&traj, &frame, fid);
             }
@@ -521,6 +750,12 @@ impl<'a> Regen<'a> {
                 let d2 = match d.kind { ChamferKind::DxD => d1, ChamferKind::D1xD2 => self.e(&d.d2)?, ChamferKind::AnglexD => d1 * self.e(&d.angle)?.to_radians().tan() };
                 if d1 <= 0.0 || d2 <= 0.0 { return Err("Fasenabstände müssen positiv sein.".into()); }
                 let t = self.topo();
+                if d.corner {
+                    // Eckfase: cut off the corner where the chosen edges meet
+                    let tag = self.tags.next(fid);
+                    let tool = corner_tool(&t, &d.edges, d1, tag)?;
+                    return self.apply_tool(tool, true, fid);
+                }
                 let mut cur = self.polys.clone();
                 for e in &d.edges {
                     let ci = t.match_chain(e).ok_or("Eine Kantenreferenz wurde nicht gefunden.")?;
@@ -549,7 +784,12 @@ impl<'a> Regen<'a> {
                 let t = self.topo();
                 let pull = if d.flip { -hinge.z() } else { hinge.z() };
                 let mut drafted: HashMap<usize, (V3, f64)> = HashMap::new();
-                for fr in &d.faces {
+                // Variable Zugschräge: the angle runs from `angle` to `angle2` across the faces along the hinge x direction
+                let ang2 = match &d.angle2 { Some(a) => Some(self.e(a)?.to_radians()), None => None };
+                let xs: Vec<f64> = d.faces.iter().map(|f| f.point.dot(hinge.x)).collect();
+                let (x0, x1) = (xs.iter().cloned().fold(f64::INFINITY, f64::min), xs.iter().cloned().fold(f64::NEG_INFINITY, f64::max));
+                for (k, fr) in d.faces.iter().enumerate() {
+                    let ang = match ang2 { Some(a2) if x1 > x0 + 1e-9 => ang + (a2 - ang) * (xs[k] - x0) / (x1 - x0), Some(a2) => (ang + a2) / 2.0, None => ang };
                     let fi = t.match_face(fr.point, fr.normal).ok_or("Eine Formschrägenfläche wurde nicht gefunden.")?;
                     let (n, w) = (t.faces[fi].normal, t.faces[fi].offset);
                     let dd = n.cross(hinge.z());
@@ -583,6 +823,10 @@ impl<'a> Regen<'a> {
                         let n = self.e(&d.axis_count)?.round().max(1.0) as usize;
                         let step = self.e(&d.axis_angle)?.to_radians();
                         for k in 1..n { xf.push(Xform::rotation(a, safe_norm(u, V3::Y), step * k as f64)); }
+                    }
+                    PatternKind::Table => {
+                        if d.table.is_empty() { return Err("Die Mustertabelle ist leer.".into()); }
+                        for r in &d.table { xf.push(Xform::translation(V3::new(r[0], r[1], r[2]))); }
                     }
                     PatternKind::Fill | PatternKind::Curve => {
                         let fr = self.plane(&d.sketch_plane).map_err(|_| "Zuerst den Füllbereich / die Kurve auf einer Ebene skizzieren.".to_string())?;
@@ -703,6 +947,8 @@ impl<'a> Regen<'a> {
                 let frame = csys_frame(o, self.e(&d.rx)?, self.e(&d.ry)?, self.e(&d.rz)?);
                 self.res.csys.push(CsysInfo { id: fid, name: f.name.clone(), frame });
             }
+            FeatureKind::Surface(d) => { let d = d.clone(); self.apply_surface(&d, fid)?; }
+            FeatureKind::Body(d) => { let d = d.clone(); self.apply_body(&d, fid)?; }
             FeatureKind::Curve(d) => {
                 if d.points.len() < 2 { return Err("Mindestens zwei Bezugspunkte wählen.".into()); }
                 let pts: Vec<V3> = d.points.iter().map(|id| self.res.points.iter().find(|p| p.id == *id).map(|p| p.p).ok_or("Ein Bezugspunkt der Kurve fehlt.")).collect::<Result<_, _>>()?;
@@ -892,4 +1138,83 @@ pub fn catmull_rom3(p: &[V3], per_seg: usize) -> Vec<V3> {
     }
     out.push(p[n - 1]);
     out
+}
+
+/// Zug-Verbund: section `a` at the start of `path` blending into section `b` at its end.
+fn swept_blend(a: &[V2], b: &[V2], path: &[V3], start: &Frame, tag: u32) -> Result<Vec<CPolygon>, String> {
+    use crate::model::surfaces as sf;
+    const N: usize = 48;
+    let rings = builders::sweep_rings(path, false, start);
+    // both loops resampled from the point nearest their +x direction, wound the same way
+    let prep = |l: &[V2]| -> Vec<V2> {
+        let c = l.iter().fold(V2::ZERO, |s, p| s + *p) / l.len() as f64;
+        let area: f64 = (0..l.len()).map(|i| { let (p, q) = (l[i], l[(i + 1) % l.len()]); p.x * q.y - q.x * p.y }).sum();
+        let mut pts: Vec<V2> = if area < 0.0 { l.iter().rev().copied().collect() } else { l.to_vec() };
+        let ang = |p: V2| { let v = p - c; v.y.atan2(v.x).abs() };
+        let k = (0..pts.len()).min_by(|i, j| ang(pts[*i]).partial_cmp(&ang(pts[*j])).unwrap()).unwrap_or(0);
+        pts.rotate_left(k);
+        pts.push(pts[0]);
+        let p3: Vec<V3> = pts.iter().map(|p| V3::new(p.x, p.y, 0.0)).collect();
+        let mut r: Vec<V2> = sf::resample(&p3, N + 1).iter().map(|p| V2::new(p.x, p.y)).collect();
+        r.pop();
+        r
+    };
+    if a.len() < 3 || b.len() < 3 { return Err("Beide Querschnitte müssen geschlossen sein.".into()); }
+    let (sa, sb) = (prep(a), prep(b));
+    let n = rings.len();
+    let stations: Vec<Vec<V3>> = (0..n).map(|k| {
+        let t = k as f64 / (n - 1).max(1) as f64;
+        (0..N).map(|i| rings[k](sa[i] * (1.0 - t) + sb[i] * t)).collect()
+    }).collect();
+    let mut out = vec![];
+    for k in 0..n - 1 {
+        for i in 0..N {
+            let j = (i + 1) % N;
+            let q = [stations[k][i], stations[k][j], stations[k + 1][j], stations[k + 1][i]];
+            out.extend(sf::tris(&q, tag, V3::ZERO).into_iter());
+        }
+    }
+    // caps face back along the path at the start and forward at the end; the side quads keep
+    // the sections' common winding, so one global flip makes the solid point outward
+    let (d0, d1) = (path[1] - path[0], path[n - 1] - path[n - 2]);
+    for (st, sec, facing) in [(&stations[0], &sa, -d0), (&stations[n - 1], &sb, d1)] {
+        for t in crate::kernel::triangulate::triangulate(sec, &[]) {
+            if let Some(mut p) = sf::poly(&[st[t[0]], st[t[1]], st[t[2]]], tag) { if p.plane.n.dot(facing) < 0.0 { p.flip(); } out.push(p); }
+        }
+    }
+    let side_out = { let p = &out[0]; let c = stations[0].iter().chain(stations[1].iter()).fold(V3::ZERO, |s, q| s + *q) / (2 * N) as f64; p.plane.n.dot(p.centroid() - c) >= 0.0 };
+    // flip the sides if they point inward
+    let caps = 2 * (N - 2);
+    let k = out.len() - caps.min(out.len());
+    if !side_out { for p in out.iter_mut().take(k) { p.flip(); } }
+    Ok(out)
+}
+
+/// Eckfase: a tetrahedron cutting the corner shared by the given edges, `d` along each edge.
+fn corner_tool(t: &Topology, edges: &[EdgeRef], d: f64, tag: u32) -> Result<Vec<CPolygon>, String> {
+    use crate::model::surfaces as sf;
+    if edges.len() < 2 { return Err("Zwei Kanten wählen, die sich in der Ecke treffen.".into()); }
+    let chains: Vec<usize> = edges.iter().map(|e| t.match_chain(e).ok_or("Eine Kantenreferenz wurde nicht gefunden.".to_string())).collect::<Result<_, _>>()?;
+    let ends = |ci: usize| { let c = &t.chains[ci]; [c.points[0], *c.points.last().unwrap()] };
+    let tol = (t.bbox.diagonal() * 1e-5).max(1e-6);
+    let corner = ends(chains[0]).into_iter().find(|v| chains[1..].iter().all(|c| ends(*c).iter().any(|w| (*w - *v).length() < tol))).ok_or("Die gewählten Kanten treffen sich nicht in einer Ecke.")?;
+    // every edge at the corner (also ones not picked), and the point d along each
+    let mut pts = vec![];
+    for (ci, c) in t.chains.iter().enumerate() {
+        if c.closed { continue; }
+        let [s, e] = ends(ci);
+        let walk: Vec<V3> = if (s - corner).length() < tol { c.points.clone() } else if (e - corner).length() < tol { c.points.iter().rev().copied().collect() } else { continue };
+        let mut left = d;
+        let mut p = walk[0];
+        for w in walk.windows(2) { let l = (w[1] - w[0]).length(); if l >= left { p = w[0] + (w[1] - w[0]) * (left / l); left = 0.0; break; } left -= l; p = w[1]; }
+        if left > 1e-9 { return Err("Der Fasenabstand ist länger als eine Kante an der Ecke.".into()); }
+        pts.push(p);
+    }
+    if pts.len() < 3 { return Err("An der Ecke treffen keine drei Kanten zusammen.".into()); }
+    let m = (pts[0] + pts[1] + pts[2]) / 3.0;
+    let apex = corner + (corner - m) * 0.25;
+    let faces = [[apex, pts[0], pts[1]], [apex, pts[1], pts[2]], [apex, pts[2], pts[0]], [pts[0], pts[1], pts[2]]];
+    let c = (apex + pts[0] + pts[1] + pts[2]) / 4.0;
+    let tool: Vec<CPolygon> = faces.iter().filter_map(|f| { let mut p = sf::poly(f, tag)?; if p.plane.n.dot(p.centroid() - c) < 0.0 { p.flip(); } Some(p) }).collect();
+    Ok(tool)
 }

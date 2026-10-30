@@ -86,7 +86,7 @@ fn main() {
     let mut sec = Sketch::circle(8.0, 0.0, 0.0);
     let c = sec.add_point(V2::ZERO);
     sec.add_circle(c, 5.0);
-    m.features.push(feat(10, "Sweep 1", FeatureKind::Sweep(SweepDef { plane: Some(PlaneRef::Datum(FRONT_ID)), trajectory: t, section: sec, remove: false })));
+    m.features.push(feat(10, "Sweep 1", FeatureKind::Sweep(SweepDef { plane: Some(PlaneRef::Datum(FRONT_ID)), trajectory: t, section: sec, remove: false, mode: SweepMode::Normal, section2: Sketch::default() })));
     report("06_sweep_pipe", &regen::run(&m), &out);
 
     let mut m = ModelData::new_part("BLEND");

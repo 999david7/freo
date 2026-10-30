@@ -5,7 +5,7 @@
 
 use super::camera::{Camera, StdView};
 use super::icons::{self, Icon};
-use super::ribbon::{drop_menu, group, group_drop, large, menu_item, small, split, stack, theme::*, tiny};
+use super::ribbon::{group, group_drop, group_menu, large, menu_entry, menu_item, menu_row, menu_spacing, small, split, stack, theme::*, tiny};
 use super::*;
 use eframe::egui::{self, pos2, vec2, Align2, Color32, FontId, Rect, RichText, Sense, Stroke};
 use std::path::{Path, PathBuf};
@@ -227,6 +227,81 @@ pub enum FsAction {
 /// "Neuer Ordner" / "Umbenennen" name prompt.
 pub struct NameDialog { pub parent: PathBuf, pub name: String, pub rename: Option<PathBuf>, pub error: Option<String>, pub focus: bool }
 
+/// An annotation plane of the Anmerkungen-erstellen tab.
+#[derive(Clone)]
+pub struct AnnotPlane {
+    pub name: String,
+    /// orientation the plane faces; None for FLAT TO SCREEN
+    pub rot: Option<glam::DQuat>,
+    pub icon: Icon,
+    /// Galeriedarstellung: shown in the ribbon gallery
+    pub gallery: bool,
+    /// one of Creo's seven standard planes (cannot be renamed or deleted)
+    pub builtin: bool,
+}
+
+/// Annotation planes plus the gallery and Anmerkungsebenen-Manager state.
+pub struct AnnotPlanes {
+    pub list: Vec<AnnotPlane>,
+    pub active: usize,
+    /// row of the gallery shown in the ribbon
+    pub row: usize,
+    /// gallery folded out to show every plane
+    pub gallery_open: bool,
+    /// Anmerkungsebenen-Manager open: (selected row, name being edited)
+    pub manager: Option<(usize, Option<String>)>,
+    /// Modell bei Festlegung neu orientieren
+    pub reorient: bool,
+    /// Ebenenraster anzeigen / Rasterabstand
+    pub grid: bool,
+    pub grid_step: f64,
+    pub grid_text: String,
+}
+
+impl Default for AnnotPlanes {
+    fn default() -> Self {
+        let std = [("FLAT TO SCREEN", None, Icon::AnnotFlat), ("FRONT", Some(StdView::Front), Icon::AnnotFront), ("TOP", Some(StdView::Top), Icon::AnnotTop),
+            ("RIGHT", Some(StdView::Right), Icon::AnnotRight), ("BACK", Some(StdView::Back), Icon::AnnotBack), ("BOTTOM", Some(StdView::Bottom), Icon::AnnotBottom),
+            ("LEFT", Some(StdView::Left), Icon::AnnotLeft)];
+        let list = std.into_iter().map(|(n, v, icon)| AnnotPlane { name: n.into(), rot: v.map(|v| v.rotation()), icon, gallery: true, builtin: true }).collect();
+        AnnotPlanes { list, active: 0, row: 0, gallery_open: false, manager: None, reorient: false, grid: true, grid_step: 0.1, grid_text: format!("{:.6}", 0.1) }
+    }
+}
+
+const GALLERY_COLS: usize = 4;
+const TILE_W: f32 = 84.0;
+
+/// Creo's check box: white square with a dark tick, label to the right. Returns true when toggled.
+pub(super) fn creo_check(ui: &mut egui::Ui, value: &mut bool, label: &str) -> bool {
+    let font = FontId::proportional(14.0);
+    let w = ui.fonts(|fo| fo.layout_no_wrap(label.to_string(), font.clone(), TEXT).size().x);
+    let (r, resp) = ui.allocate_exact_size(vec2(w + 34.0, 24.0), Sense::click());
+    let b = Rect::from_center_size(pos2(r.left() + 10.0, r.center().y), vec2(15.0, 15.0));
+    check_box(ui.painter(), b, *value);
+    ui.painter().text(pos2(r.left() + 30.0, r.center().y), Align2::LEFT_CENTER, label, font, TEXT);
+    if resp.clicked() { *value = !*value; }
+    resp.clicked()
+}
+
+pub(super) fn check_box(p: &egui::Painter, b: Rect, on: bool) {
+    p.rect_filled(b, 1.0, Color32::WHITE);
+    p.rect_stroke(b, 1.0, Stroke::new(1.0_f32, Color32::from_rgb(90, 96, 104)), egui::StrokeKind::Inside);
+    if on { p.add(egui::Shape::line(vec![b.left_center() + vec2(3.0, 0.0), b.center_bottom() + vec2(-1.0, -3.5), b.right_top() + vec2(-3.0, 3.0)], Stroke::new(1.8_f32, Color32::from_rgb(40, 44, 50)))); }
+}
+
+/// Creo's titled group box (a frame with its caption set into the top border).
+pub(super) fn fieldset(ui: &mut egui::Ui, title: &str, f: impl FnOnce(&mut egui::Ui)) {
+    let top = ui.cursor().top();
+    let inner = egui::Frame::NONE.inner_margin(egui::Margin { left: 10, right: 10, top: 22, bottom: 10 }).show(ui, |ui| { ui.set_width(ui.available_width()); f(ui) });
+    let r = Rect::from_min_max(pos2(inner.response.rect.left(), top + 8.0), inner.response.rect.right_bottom());
+    let p = ui.painter();
+    p.rect_stroke(r, 2.0, Stroke::new(1.0_f32, Color32::from_rgb(204, 208, 214)), egui::StrokeKind::Inside);
+    let font = FontId::proportional(14.0);
+    let w = ui.fonts(|fo| fo.layout_no_wrap(title.to_string(), font.clone(), TEXT).size().x);
+    p.rect_filled(Rect::from_min_size(pos2(r.left() + 12.0, top), vec2(w + 8.0, 16.0)), 0.0, ui.visuals().window_fill);
+    p.text(pos2(r.left() + 16.0, top + 8.0), Align2::LEFT_CENTER, title, font, TEXT);
+}
+
 /// Clipboard and undo state the right-click menu shows.
 #[derive(Clone, Default)]
 pub struct FsCtx { pub clip: Option<(PathBuf, bool)>, pub trashed: Option<(PathBuf, PathBuf)> }
@@ -235,8 +310,9 @@ fn short(p: &Path) -> String { p.file_name().map(|s| s.to_string_lossy().to_stri
 
 /// Right-click menu for folder lists: `dir` is the folder shown, `item` the entry clicked (if any).
 pub fn fs_menu(ui: &mut egui::Ui, dir: &Path, item: Option<&Path>, fx: &FsCtx, out: &mut Option<FsAction>) {
+    menu_spacing(ui);
     let mut act = |ui: &mut egui::Ui, icon: Icon, label: &str, enabled: bool, a: FsAction| {
-        if small(ui, icon, label, enabled, false).clicked() { *out = Some(a); ui.close_menu(); }
+        if menu_entry(ui, icon, label, enabled, false).clicked() { *out = Some(a); ui.close_menu(); }
     };
     if let Some(p) = item {
         act(ui, if p.is_dir() { Icon::FolderItem } else { Icon::Open }, "Öffnen", true, FsAction::Enter(p.to_path_buf()));
@@ -412,7 +488,22 @@ pub struct UiState {
     pub search: Option<String>,
     pub ref_viewer: bool,
     pub player: bool,
-    pub annot_plane: u8,
+    pub annot: AnnotPlanes,
+    /// Grafiksymbolleiste customization
+    pub gfx: super::gfxbar::GfxBar,
+    /// Modellraster as applied, and its dialog while open
+    pub grid: super::modelgrid::ModelGrid,
+    pub grid_dialog: Option<super::modelgrid::GridDialog>,
+    /// active Kombinations-Zustand (index into ModelData::combos); None = Standard Alle
+    pub combo_active: Option<usize>,
+    /// 3D annotation commands, selection and dialogs
+    pub annot3: super::annot3d::Annot3Ui,
+    /// Kopieren / Einfügen
+    pub clip_features: Vec<Feature>,
+    /// UDF / Kopiergeometrie / Shrinkwrap dialog
+    pub file_task: Option<super::modelcmds::FileTaskDialog>,
+    pub regen_manager: bool,
+    pub iface_dialog: bool,
     pub open: Option<OpenDialog>,
     pub export: Option<ExportDialog>,
     pub creo_file: Option<CreoFileInfo>,
@@ -475,9 +566,9 @@ impl App {
             large(ui, Icon::ModelDisplay, "Modelldarstellung", false, false);
             large(ui, Icon::SysColors, "Systemfarbeffekt", false, false);
         });
-        drop_menu(ui, "home_settings", &t, |ui| { if menu_item(ui, Icon::Options, "Maus- und Tastatursteuerung", true) { self.windows.controls = true; } });
+        group_menu(ui, "home_settings", &t, |ui| { if menu_item(ui, Icon::Options, "Maus- und Tastatursteuerung", true) { self.windows.controls = true; } });
         let ((), t) = group_drop(ui, "Dienstprogramme", |ui| { large(ui, Icon::Trail, "Traildatei\nabspielen", false, false); });
-        drop_menu(ui, "home_utils", &t, |ui| { if menu_item(ui, Icon::Recent, "Meldungsprotokoll", true) { self.windows.messages = true; } });
+        group_menu(ui, "home_utils", &t, |ui| { if menu_item(ui, Icon::Recent, "Meldungsprotokoll", true) { self.windows.messages = true; } });
         group(ui, "Anwendungen", |ui| { large(ui, Icon::Moldbase, "Expert\nMoldbase", false, false); });
     }
 
@@ -715,52 +806,217 @@ impl App {
         });
     }
 
-    pub fn annot3d_ribbon(&mut self, ui: &mut egui::Ui) {
-        group_drop(ui, "Kombinations-Zustände", |ui| {
-            large(ui, Icon::ComboState, "Neu", false, false);
-            large(ui, Icon::ComboState, "Aktualisieren", false, false);
-        });
-        let ((), _) = group_drop(ui, "Anmerkungsebenen", |ui| {
-            let tiles: [(&str, Option<StdView>); 4] = [("FLAT TO\nSCREEN", None), ("FRONT", Some(StdView::Front)), ("TOP", Some(StdView::Top)), ("RIGHT", Some(StdView::Right))];
-            for (i, (label, view)) in tiles.into_iter().enumerate() {
-                let sel = self.creo.annot_plane == i as u8;
-                let (rect, resp) = ui.allocate_exact_size(vec2(84.0, super::ribbon::RIB_H), Sense::click());
+    /// One tile of the Anmerkungsebenen gallery; a click activates that plane. Returns true when clicked.
+    fn annot_tile(&mut self, ui: &mut egui::Ui, i: usize) -> bool {
+        let pl = &self.creo.annot.list[i];
+        let (name, icon) = (pl.name.clone(), pl.icon);
+        let sel = self.creo.annot.active == i;
+        let (rect, resp) = ui.allocate_exact_size(vec2(TILE_W, super::ribbon::RIB_H), Sense::click());
+        let p = ui.painter();
+        if sel { p.rect_filled(rect.shrink(1.0), 0.0, Color32::from_rgb(236, 238, 240)); p.rect_stroke(rect.shrink(1.0), 0.0, Stroke::new(1.0_f32, BORDER), egui::StrokeKind::Inside); }
+        else if resp.hovered() { p.rect_filled(rect.shrink(1.0), 0.0, HOVER_BG); }
+        icons::paint(p, Rect::from_center_size(pos2(rect.center().x, rect.top() + 26.0), vec2(34.0, 34.0)), icon, true);
+        // Creo breaks FLAT TO SCREEN after the second word
+        let label = if name == "FLAT TO SCREEN" { "FLAT TO\nSCREEN".to_string() } else { name };
+        for (k, l) in label.lines().enumerate() { p.text(pos2(rect.center().x, rect.top() + 58.0 + k as f32 * 15.0), Align2::CENTER_CENTER, l, FontId::proportional(12.0), TEXT); }
+        let clicked = resp.on_hover_text("Anmerkungsebene festlegen").clicked();
+        if clicked { self.set_annot_plane(i); }
+        clicked
+    }
+
+    /// Makes plane `i` the active annotation plane; with "Modell bei Festlegung neu orientieren" the model turns to face it.
+    fn set_annot_plane(&mut self, i: usize) {
+        self.creo.annot.active = i;
+        let pl = self.creo.annot.list[i].clone();
+        if let (true, Some(q)) = (self.creo.annot.reorient, pl.rot) { self.push_view(); self.camera.rot = q; self.fit_pending = true; }
+        self.say(format!("Anmerkungsebene {} ist festgelegt.", pl.name), MsgKind::Info);
+    }
+
+    /// Anmerkungsebenen-Manager as in Creo: Einstellen / Neu / Editieren / Löschen, the plane list with
+    /// its Galeriedarstellung switch, Modellverhalten and the annotation plane grid.
+    pub fn annot_manager(&mut self, ctx: &egui::Context) {
+        let Some((mut sel, mut edit)) = self.creo.annot.manager.clone() else { return };
+        let (mut open, mut close) = (true, false);
+        let (mut set, mut new, mut delete) = (false, false, false);
+        let n = self.creo.annot.list.len();
+        sel = sel.min(n - 1);
+        let builtin = self.creo.annot.list[sel].builtin;
+        egui::Window::new("Anmerkungsebenen-Manager").id(egui::Id::new("annot_manager")).title_bar(false).collapsible(false).resizable(false).default_pos(pos2(420.0, 120.0)).show(ctx, |ui| {
+            if dialog_header(ui, "Anmerkungsebenen-Manager") { open = false; }
+            ui.set_width(460.0);
+            ui.add_space(14.0);
+            ui.horizontal(|ui| {
+                ui.spacing_mut().item_spacing.x = 16.0;
+                let b = |t: &str| egui::Button::new(RichText::new(t).size(14.0)).min_size(vec2(80.0, 30.0));
+                if ui.add_enabled(self.creo.annot.active != sel, b("Einstellen")).on_hover_text("Die gewählte Ebene als aktive Anmerkungsebene festlegen").clicked() { set = true; }
+                if ui.add(b("Neu")).on_hover_text("Eine Anmerkungsebene aus der aktuellen Ansicht erzeugen").clicked() { new = true; }
+                if ui.add_enabled(!builtin && edit.is_none(), b("Editieren")).on_hover_text("Die gewählte Ebene umbenennen").clicked() { edit = Some(self.creo.annot.list[sel].name.clone()); }
+                if ui.add_enabled(!builtin, b("Löschen")).clicked() { delete = true; }
+            });
+            ui.add_space(8.0);
+            // plane list: Namen | Galeriedarstellung
+            egui::Frame::NONE.fill(Color32::WHITE).stroke(Stroke::new(1.0_f32, BORDER)).inner_margin(2.0).show(ui, |ui| {
+                ui.spacing_mut().item_spacing.y = 0.0;
+                let w = ui.available_width();
+                let split = w * 0.57;
+                let (head, _) = ui.allocate_exact_size(vec2(w, 30.0), Sense::hover());
                 let p = ui.painter();
-                if sel { p.rect_filled(rect.shrink(1.0), 0.0, Color32::from_rgb(236, 238, 240)); p.rect_stroke(rect.shrink(1.0), 0.0, Stroke::new(1.0_f32, BORDER), egui::StrokeKind::Inside); }
-                else if resp.hovered() { p.rect_filled(rect.shrink(1.0), 0.0, HOVER_BG); }
-                icons::paint(p, Rect::from_center_size(pos2(rect.center().x, rect.top() + 26.0), vec2(30.0, 30.0)), Icon::AnnotPlane, true);
-                for (k, l) in label.lines().enumerate() { p.text(pos2(rect.center().x, rect.top() + 58.0 + k as f32 * 15.0), Align2::CENTER_CENTER, l, FontId::proportional(12.0), TEXT); }
-                if resp.on_hover_text("Anmerkungsebene aktivieren").clicked() {
-                    self.creo.annot_plane = i as u8;
-                    if let Some(v) = view { self.push_view(); self.camera.rot = v.rotation(); self.fit_pending = true; }
+                p.line_segment([pos2(head.left() + split, head.top()), pos2(head.left() + split, head.bottom())], Stroke::new(1.0_f32, BORDER));
+                p.line_segment([head.left_bottom(), head.right_bottom()], Stroke::new(1.0_f32, BORDER));
+                p.text(pos2(head.left() + 10.0, head.center().y), Align2::LEFT_CENTER, "Namen", FontId::proportional(14.0), TEXT);
+                p.text(pos2(head.left() + split + (w - split) / 2.0, head.center().y), Align2::CENTER_CENTER, "Galeriedarstellung", FontId::proportional(14.0), TEXT);
+                for i in 0..n {
+                    let (r, resp) = ui.allocate_exact_size(vec2(w, 33.0), Sense::click());
+                    let name_r = Rect::from_min_max(r.min, pos2(r.left() + split, r.bottom())).shrink2(vec2(2.0, 1.0));
+                    let box_r = Rect::from_center_size(pos2(r.left() + split + (w - split) / 2.0, r.center().y), vec2(15.0, 15.0));
+                    let box_hit = ui.interact(box_r.expand(4.0), ui.id().with(("annot_gallery_box", i)), Sense::click());
+                    let p = ui.painter().clone();
+                    p.rect_filled(r.shrink2(vec2(2.0, 1.0)), 0.0, Color32::from_rgb(246, 243, 253));
+                    if i == sel { p.rect_filled(name_r, 0.0, Color32::from_rgb(178, 226, 250)); }
+                    p.line_segment([r.left_bottom(), r.right_bottom()], Stroke::new(1.0_f32, Color32::from_rgb(232, 230, 238)));
+                    p.line_segment([pos2(r.left() + split, r.top()), pos2(r.left() + split, r.bottom())], Stroke::new(1.0_f32, Color32::from_rgb(232, 230, 238)));
+                    let (pname, on) = (self.creo.annot.list[i].name.clone(), self.creo.annot.list[i].gallery);
+                    if i == sel && edit.is_some() {
+                        let mut child = ui.new_child(egui::UiBuilder::new().max_rect(name_r.shrink2(vec2(4.0, 3.0))));
+                        let te = child.add(egui::TextEdit::singleline(edit.as_mut().unwrap()).desired_width(name_r.width() - 10.0));
+                        te.request_focus();
+                        if te.lost_focus() {
+                            if ui.input(|inp| inp.key_pressed(egui::Key::Escape)) { edit = None; }
+                            else {
+                                let v = edit.take().unwrap().trim().to_uppercase();
+                                if !v.is_empty() && !self.creo.annot.list.iter().enumerate().any(|(k, o)| k != i && o.name == v) { self.creo.annot.list[i].name = v; }
+                                else if !v.is_empty() { self.say(format!("Eine Anmerkungsebene namens {} gibt es schon.", v), MsgKind::Warning); }
+                            }
+                        }
+                    } else {
+                        let font = FontId::proportional(14.5);
+                        p.text(pos2(name_r.left() + 6.0, r.center().y), Align2::LEFT_CENTER, &pname, font, if i == self.creo.annot.active { Color32::BLACK } else { TEXT });
+                    }
+                    check_box(&p, box_r, on);
+                    if box_hit.clicked() { self.creo.annot.list[i].gallery = !on; }
+                    else if resp.clicked() && !(i == sel && edit.is_some()) { if i != sel { edit = None; } sel = i; }
+                    if resp.double_clicked() { set = true; }
                 }
-            }
-        });
-        let one = self.tree_selection.first().copied().filter(|id| self.data.feature(*id).is_some() && self.tree_selection.len() == 1);
-        group_drop(ui, "Anmerkungen verwalten", |ui| {
-            if large(ui, Icon::ShowAnnot, "Anmerkungen\nanzeigen", one.is_some(), self.edit_dims.is_some()).on_hover_text("Die Bemaßungen des gewählten KE anzeigen").clicked() {
-                if let Some(id) = one { self.start_edit_dims(id); }
-            }
-            stack(ui, |ui| { tiny(ui, Icon::Flip, "Verschieben", false, false, false); tiny(ui, Icon::Flip, "Neu verbinden", false, false, false); tiny(ui, Icon::Delete, "Entfernen", false, false, false); });
-        });
-        group_drop(ui, "Anmerkungen", |ui| {
-            let rows: [[(Icon, &str); 3]; 3] = [
-                [(Icon::DwgDim, "Bemaßung"), (Icon::DimBound, "Ordinatenbemaßung"), (Icon::DimTol, "Toleranz")],
-                [(Icon::SwitchDims, "Referenzbemaßung"), (Icon::Cleanup, "Bemaßungen bereinigen"), (Icon::SurfFinish, "Oberflächengüte")],
-                [(Icon::DatumFeature, "Bezugssymbol"), (Icon::Note3d, "Notiz"), (Icon::GeomTol, "Geometrische Toleranz")],
-            ];
-            ui.vertical(|ui| {
-                ui.spacing_mut().item_spacing.y = 2.0;
-                ui.add_space(2.0);
-                for row in rows { ui.horizontal(|ui| { ui.spacing_mut().item_spacing.x = 1.0; for (ic, t) in row { tiny(ui, ic, t, false, false, false); } }); }
+                ui.allocate_space(vec2(w, (300.0 - n as f32 * 33.0).max(20.0)));
+            });
+            ui.add_space(12.0);
+            fieldset(ui, "Modellverhalten", |ui| { creo_check(ui, &mut self.creo.annot.reorient, "Modell bei Festlegung neu orientieren"); });
+            ui.add_space(10.0);
+            fieldset(ui, "Anmerkungsebenen-Raster", |ui| {
+                creo_check(ui, &mut self.creo.annot.grid, "Ebenenraster anzeigen");
+                ui.add_space(10.0);
+                ui.horizontal(|ui| {
+                    ui.label(RichText::new("Rasterabstand").size(14.0));
+                    ui.add_space(14.0);
+                    let r = ui.add_enabled(self.creo.annot.grid, egui::TextEdit::singleline(&mut self.creo.annot.grid_text).desired_width(90.0).margin(vec2(8.0, 8.0)));
+                    if r.lost_focus() {
+                        match self.creo.annot.grid_text.trim().replace(',', ".").parse::<f64>() {
+                            Ok(v) if v > 0.0 => self.creo.annot.grid_step = v,
+                            _ => self.say("Der Rasterabstand muss eine positive Zahl sein.", MsgKind::Warning),
+                        }
+                        self.creo.annot.grid_text = format!("{:.6}", self.creo.annot.grid_step);
+                    }
+                });
+            });
+            ui.add_space(14.0);
+            ui.separator();
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                if ui.add(egui::Button::new(RichText::new("Schließen").size(14.0)).min_size(vec2(100.0, 30.0))).clicked() { close = true; }
             });
         });
-        group_drop(ui, "Anmerkungs-KEs", |ui| {
-            large(ui, Icon::AnnotFeature, "Anmerkungs-\nKE", false, false);
-            large(ui, Icon::DatumTarget, "Bezugsziel-\nAnmerkungs-KE", false, false);
+        if new {
+            let used = |k: usize| self.creo.annot.list.iter().any(|p| p.name == format!("APLANE_{}", k));
+            let k = (1..).find(|k| !used(*k)).unwrap();
+            self.creo.annot.list.push(AnnotPlane { name: format!("APLANE_{}", k), rot: Some(self.camera.rot), icon: Icon::AnnotPlane, gallery: true, builtin: false });
+            sel = self.creo.annot.list.len() - 1;
+            edit = Some(self.creo.annot.list[sel].name.clone());
+            self.say("Neue Anmerkungsebene aus der aktuellen Ansicht. Namen eingeben, Enter bestätigt.", MsgKind::Prompt);
+        }
+        if delete && !self.creo.annot.list[sel].builtin {
+            let gone = self.creo.annot.list.remove(sel);
+            if self.creo.annot.active == sel { self.creo.annot.active = 0; } else if self.creo.annot.active > sel { self.creo.annot.active -= 1; }
+            sel = sel.min(self.creo.annot.list.len() - 1);
+            edit = None;
+            self.say(format!("Anmerkungsebene {} gelöscht.", gone.name), MsgKind::Info);
+        }
+        if set { self.set_annot_plane(sel); }
+        self.creo.annot.manager = if close || !open { None } else { Some((sel, edit)) };
+    }
+    pub fn annot3d_ribbon(&mut self, ui: &mut egui::Ui) {
+        let ((), t) = group_drop(ui, "Kombinations-Zustände", |ui| {
+            if super::ribbon::rich_tip(large(ui, Icon::ComboNew, "Neu", !self.in_asm(), false), Icon::ComboNew, "Neu", "Neuen Kombinations-Zustand erzeugen und aktivieren.").clicked() { self.combo_new(); }
+            let can_update = !self.in_asm();
+            if super::ribbon::rich_tip(large(ui, Icon::ComboUpdate, "Aktualisieren", can_update, false), Icon::ComboUpdate, "Aktualisieren", "Den aktiven Kombinations-Zustand mit der aktuellen Ansicht aktualisieren.").clicked() { self.combo_update(); }
         });
-        group(ui, "Abfrage", |ui| { large(ui, Icon::Probe, "", false, false); });
-        group_drop(ui, "Bezüge", |ui| { stack(ui, |ui| { tiny(ui, Icon::Plane, "Ebene", false, false, false); tiny(ui, Icon::Axis, "Achse", false, false, false); tiny(ui, Icon::Curvature, "Kurve", false, false, false); }); });
+        group_menu(ui, "combo_states", &t, |ui| { if menu_item(ui, Icon::ModelGrid, "Modellraster", true) { self.open_model_grid(); } });
+        if std::env::var("FREO_DEMO_POPUP").is_ok_and(|v| v.starts_with("model_grid")) && self.creo.grid_dialog.is_none() {
+            self.open_model_grid();
+            if let Some(d) = &mut self.creo.grid_dialog { d.draft.shown = true; if std::env::var("FREO_DEMO_POPUP").as_deref() == Ok("model_grid2") { d.tab = 1; } }
+        }
+        let mut gallery = Rect::NOTHING;
+        let mut more_clicked = false;
+        // gallery shows the planes with Galeriedarstellung on
+        let shown: Vec<usize> = (0..self.creo.annot.list.len()).filter(|i| self.creo.annot.list[*i].gallery).collect();
+        let ((), title) = group_drop(ui, "Anmerkungsebenen", |ui| {
+            let rows = shown.len().div_ceil(GALLERY_COLS).max(1);
+            let row = self.creo.annot.row.min(rows - 1);
+            let start = ui.cursor().min;
+            for k in row * GALLERY_COLS..(row + 1) * GALLERY_COLS {
+                if let Some(&i) = shown.get(k) { self.annot_tile(ui, i); } else { ui.allocate_exact_size(vec2(TILE_W, super::ribbon::RIB_H), Sense::hover()); }
+            }
+            // Creo's gallery strip: scroll up, scroll down, fold out
+            let (strip, _) = ui.allocate_exact_size(vec2(16.0, super::ribbon::RIB_H), Sense::hover());
+            ui.painter().rect_stroke(strip, 0.0, Stroke::new(1.0_f32, BORDER), egui::StrokeKind::Inside);
+            let h = strip.height() / 3.0;
+            let arrow = |k: usize, enabled: bool, tip: &str| {
+                let r = Rect::from_min_size(strip.min + vec2(0.0, k as f32 * h), vec2(strip.width(), h)).shrink(1.0);
+                let resp = ui.interact(r, ui.id().with(("annot_gallery", k)), if enabled { Sense::click() } else { Sense::hover() }).on_hover_text(tip);
+                let p = ui.painter();
+                if enabled && resp.hovered() { p.rect_filled(r, 0.0, HOVER_BG); }
+                let col = if enabled { Color32::from_rgb(70, 74, 80) } else { Color32::from_rgb(190, 194, 198) };
+                let c = r.center();
+                let tri = |up: bool, c: egui::Pos2| { let s = if up { -1.0 } else { 1.0 }; vec![c + vec2(-3.5, -2.0 * s), c + vec2(3.5, -2.0 * s), c + vec2(0.0, 2.0 * s)] };
+                match k {
+                    0 => { p.add(egui::Shape::convex_polygon(tri(true, c), col, Stroke::NONE)); }
+                    1 => { p.add(egui::Shape::convex_polygon(tri(false, c), col, Stroke::NONE)); }
+                    _ => {
+                        p.line_segment([c + vec2(-3.5, -3.5), c + vec2(3.5, -3.5)], Stroke::new(1.2_f32, col));
+                        p.add(egui::Shape::convex_polygon(tri(false, c + vec2(0.0, 1.0)), col, Stroke::NONE));
+                    }
+                }
+                resp.clicked()
+            };
+            if arrow(0, row > 0, "Vorherige Zeile") { self.creo.annot.row = row - 1; }
+            if arrow(1, row + 1 < rows, "Nächste Zeile") { self.creo.annot.row = row + 1; }
+            if arrow(2, true, "Mehr") { self.creo.annot.gallery_open = !self.creo.annot.gallery_open; more_clicked = true; }
+            gallery = Rect::from_min_max(start, strip.right_bottom());
+        });
+        group_menu(ui, "annot_planes", &title, |ui| {
+            if menu_item(ui, Icon::FamilyTable, "Anmerkungsebenen-Manager", true) { self.creo.annot.manager = Some((self.creo.annot.active, None)); }
+        });
+        if std::env::var("FREO_DEMO_POPUP").as_deref() == Ok("annot_gallery") { self.creo.annot.gallery_open = true; }
+        if std::env::var("FREO_DEMO_POPUP").as_deref() == Ok("annot_manager") && self.creo.annot.manager.is_none() { self.creo.annot.manager = Some((1, None)); }
+        if self.creo.annot.gallery_open {
+            let area = egui::Area::new(egui::Id::new("annot_gallery_fold")).fixed_pos(gallery.left_top()).order(egui::Order::Foreground).show(ui.ctx(), |ui| {
+                egui::Frame::popup(ui.style()).inner_margin(2.0).show(ui, |ui| {
+                    menu_spacing(ui);
+                    ui.spacing_mut().item_spacing.x = 0.0;
+                    ui.set_max_width(GALLERY_COLS as f32 * TILE_W);
+                    let mut picked = false;
+                    for row in shown.chunks(GALLERY_COLS) {
+                        ui.horizontal(|ui| { for &i in row { picked |= self.annot_tile(ui, i); } });
+                    }
+                    ui.separator();
+                    if menu_row(ui, Some(Icon::FamilyTable), "Anmerkungsebenen-Manager", "", true, false).clicked() {
+                        self.creo.annot.manager = Some((self.creo.annot.active, None));
+                        picked = true;
+                    }
+                    if picked { self.creo.annot.gallery_open = false; }
+                });
+            });
+            if area.response.clicked_elsewhere() && !more_clicked { self.creo.annot.gallery_open = false; }
+        }
+        self.annot3_ribbon_groups(ui);
     }
 
     pub fn flex_ribbon(&mut self, ui: &mut egui::Ui) {
@@ -954,7 +1210,8 @@ impl App {
                                         if r.double_clicked() { load = Some(p.clone()); }
                                         let r = r.on_hover_text(p.display().to_string());
                                         r.context_menu(|ui| {
-                                            if small(ui, Icon::FolderItem, "Enthaltenden Ordner öffnen", true, false).clicked() { goto = Some(parent.clone()); ui.close_menu(); }
+                                            menu_spacing(ui);
+                                            if menu_entry(ui, Icon::FolderItem, "Enthaltenden Ordner öffnen", true, false).clicked() { goto = Some(parent.clone()); ui.close_menu(); }
                                             ui.separator();
                                             fs_menu(ui, &parent, Some(&p), &fx, &mut fs_act);
                                         });
@@ -1483,6 +1740,12 @@ impl App {
     // ---------------- Werkzeuge dialogs ----------------
 
     pub fn tool_windows(&mut self, ctx: &egui::Context) {
+        self.annot_manager(ctx);
+        self.model_grid_dialog(ctx);
+        self.annot3_windows(ctx);
+        self.file_task_dialog(ctx);
+        self.regen_manager(ctx);
+        self.interface_dialog(ctx);
         if let Some(mut q) = self.creo.search.take() {
             let mut open = true;
             egui::Window::new("Suchwerkzeug").open(&mut open).collapsible(false).default_width(320.0).show(ctx, |ui| {

@@ -4,7 +4,7 @@
 use super::camera::StdView;
 use super::icons::{self, Icon};
 use super::render::Style;
-use super::ribbon::{icon_button, style_icon, theme::*};
+use super::ribbon::{icon_button, menu_row, menu_spacing, style_icon, theme::*};
 use super::sketcher::Outcome;
 use super::*;
 use eframe::egui::{self, pos2, vec2, Align2, Color32, FontId, Rect, RichText, Stroke};
@@ -106,10 +106,17 @@ impl App {
                     let label = self.filter_label();
                     egui::Frame::NONE.fill(Color32::WHITE).stroke(Stroke::new(1.0_f32, BORDER)).show(ui, |ui| {
                         let cb = egui::ComboBox::from_id_salt("filter").width(150.0).height(300.0).selected_text(RichText::new(label).size(13.0));
+                        super::ribbon::demo_popup(ui, ui.make_persistent_id(egui::Id::new("filter")).with("popup"), "filter");
                         if let Some(s) = &mut self.sketch {
-                            cb.show_ui(ui, |ui| { for f in super::sketcher::SkFilter::ALL { ui.selectable_value(&mut s.filter, f, f.name()); } }).response.on_hover_text("Auswahlfilter");
+                            cb.show_ui(ui, |ui| {
+                                menu_spacing(ui);
+                                for f in super::sketcher::SkFilter::ALL { if menu_row(ui, Some(f.icon()), f.name(), "", true, s.filter == f).clicked() { s.filter = f; } }
+                            }).response.on_hover_text("Auswahlfilter");
                         } else {
-                            cb.show_ui(ui, |ui| { for f in Filter::ALL { ui.selectable_value(&mut self.filter, f, f.name()); } }).response.on_hover_text("Auswahlfilter");
+                            cb.show_ui(ui, |ui| {
+                                menu_spacing(ui);
+                                for f in Filter::ALL { if menu_row(ui, Some(f.icon()), f.name(), "", true, self.filter == f).clicked() { self.filter = f; } }
+                            }).response.on_hover_text("Auswahlfilter");
                         }
                     });
                     let (sep, _) = ui.allocate_exact_size(vec2(5.0, 32.0), egui::Sense::hover());
@@ -138,87 +145,35 @@ impl App {
         });
     }
 
-    fn graphics_toolbar(&mut self, ctx: &egui::Context, rect: Rect) {
-        use super::ribbon::{check_list, menu_row};
-        let mut normal_view = false;
-        egui::Area::new(egui::Id::new("gfx_toolbar")).pivot(Align2::CENTER_TOP).fixed_pos(pos2(rect.center().x, rect.top() + 6.0)).order(egui::Order::Middle).show(ctx, |ui| {
-            egui::Frame::NONE.fill(RIB_TOP).stroke(Stroke::new(1.0_f32, Color32::from_rgb(163, 163, 163))).corner_radius(0.0).inner_margin(egui::Margin::symmetric(6, 3)).show(ui, |ui| {
-                ui.horizontal(|ui| {
-                    ui.spacing_mut().item_spacing.x = 1.0;
-                    let sz = 20.0;
-                    let popup = |ui: &mut egui::Ui, r: &egui::Response, key: &str, close: egui::PopupCloseBehavior, f: &mut dyn FnMut(&mut egui::Ui)| {
-                        let id = ui.id().with(key);
-                        if r.clicked() { ui.memory_mut(|m| m.toggle_popup(id)); }
-                        super::ribbon::demo_popup(ui, id, key);
-                        egui::popup_below_widget(ui, id, r, close, |ui| { ui.spacing_mut().item_spacing.y = 0.0; f(ui) });
-                    };
-                    if icon_button(ui, Icon::Refit, "Einpassen", true, false, sz).clicked() { self.fit_pending = true; }
-                    if icon_button(ui, Icon::ZoomIn, "Vergrößern", true, false, sz).clicked() { self.camera.scale /= 1.25; }
-                    if icon_button(ui, Icon::ZoomOut, "Verkleinern", true, false, sz).clicked() { self.camera.scale *= 1.25; }
-                    if icon_button(ui, Icon::Repaint, "Neu zeichnen", true, false, sz).clicked() { self.buffers = Arc::new(render::ModelBuffers { generation: 0, solid: vec![], edges: vec![] }); }
-                    let r = icon_button(ui, style_icon(self.style), "Anzeigestil", true, false, sz);
-                    popup(ui, &r, "gt_style", egui::PopupCloseBehavior::CloseOnClick, &mut |ui| {
-                        ui.set_min_width(330.0);
-                        for s in Style::ALL { if menu_row(ui, Some(style_icon(s)), s.name(), s.shortcut(), true, self.style == s).clicked() { self.style = s; } }
-                    });
-                    let r = icon_button(ui, Icon::SavedViews, "Gespeicherte Orientierungen", true, false, sz);
-                    popup(ui, &r, "gt_views", egui::PopupCloseBehavior::CloseOnClick, &mut |ui| {
-                        ui.set_min_width(330.0);
-                        egui::ScrollArea::vertical().max_height(300.0).show(ui, |ui| {
-                            // Creo: the two fixed orientations first, then all named views alphabetically
-                            let mut named: Vec<(String, glam::DQuat)> = StdView::ALL[2..].iter().map(|v| (v.name().to_string(), v.rotation())).collect();
-                            named.extend(self.data.views.iter().map(|v| (v.name.clone(), v.rot)));
-                            named.sort_by(|a, b| a.0.cmp(&b.0));
-                            let list: Vec<(String, glam::DQuat)> = StdView::ALL[..2].iter().map(|v| (v.name().to_string(), v.rotation())).chain(named).collect();
-                            for (n, q) in list { if menu_row(ui, None, &n, "", true, false).clicked() { self.push_view(); self.camera.rot = q; self.fit_pending = true; } }
-                        });
-                        ui.separator();
-                        if menu_row(ui, Some(Icon::Reorient), "Neu orientieren...", "", true, false).clicked() {
-                            self.reorient = Some(Reorient { base: self.camera.rot, h: 0.0, v: 0.0, z: 0.0, name: String::new() });
-                        }
-                        if menu_row(ui, Some(Icon::NormalView), "Senkrechte Ansicht", "", true, false).clicked() { normal_view = true; }
-                    });
-                    if icon_button(ui, Icon::Section, "Schnitt", true, self.section.is_some(), sz).clicked() { self.toggle_section(); }
-                    if icon_button(ui, Icon::SpinCenter, "Drehmittelpunkt", true, self.show_spin, sz).clicked() { self.show_spin = !self.show_spin; }
-                    if icon_button(ui, Icon::Perspective, "Perspektivansicht", true, self.camera.perspective, sz).clicked() { self.camera.perspective = !self.camera.perspective; }
-                    let r = icon_button(ui, Icon::DatumDisplay, "Bezugsanzeigefilter", true, false, sz);
-                    popup(ui, &r, "gt_datum", egui::PopupCloseBehavior::CloseOnClickOutside, &mut |ui| {
-                        ui.set_min_width(260.0);
-                        check_list(ui, &mut [(Icon::Axis, "Achsenanzeige", &mut self.show_axes), (Icon::Point, "Punkt-Darstellung", &mut self.show_points), (Icon::Csys, "KSys-Anzeige", &mut self.show_csys), (Icon::Plane, "Ebenen-Anzeige", &mut self.show_planes)]);
-                    });
-                    if icon_button(ui, Icon::Plane, "Ebenen-Anzeige", true, self.show_planes, sz).clicked() { self.show_planes = !self.show_planes; }
-                    if icon_button(ui, Icon::Axis, "Achsenanzeige", true, self.show_axes, sz).clicked() { self.show_axes = !self.show_axes; }
-                    if icon_button(ui, Icon::Point, "Punkt-Darstellung", true, self.show_points, sz).clicked() { self.show_points = !self.show_points; }
-                    if icon_button(ui, Icon::Csys, "KSys-Anzeige", true, self.show_csys, sz).clicked() { self.show_csys = !self.show_csys; }
-                    if icon_button(ui, Icon::PlaneTags, "Bezugsbeschriftungen", true, self.show_tags, sz).clicked() { self.show_tags = !self.show_tags; }
-                    if icon_button(ui, Icon::Transparent, "Transparent", true, self.transparent, sz).clicked() { self.transparent = !self.transparent; }
-                    if self.sketch.is_some() {
-                        ui.separator();
-                        if icon_button(ui, Icon::SketchView, "Skizzenansicht", true, false, sz).clicked() { self.sketch_view(); }
-                        let r = icon_button(ui, Icon::ConDisplay, "Skizzierer-Anzeigefilter", true, false, sz);
-                        let r2 = icon_button(ui, Icon::SkCheck, "Skizzierer-Prüfungen", true, false, sz);
-                        if let Some(s) = &mut self.sketch {
-                            popup(ui, &r, "gt_sk", egui::PopupCloseBehavior::CloseOnClickOutside, &mut |ui| {
-                                ui.set_min_width(270.0);
-                                check_list(ui, &mut [(Icon::DimDisplay, "Bemaßungsanzeige", &mut s.show_dims), (Icon::ConDisplay, "Bedingungsanzeige", &mut s.show_cons), (Icon::Grid, "Rasterdarstellung", &mut s.grid), (Icon::Vertex, "Eckpunktanzeige", &mut s.show_vertices), (Icon::SkLock, "Sperrenanzeige", &mut s.show_locks)]);
-                                ui.separator();
-                                if ui.checkbox(&mut s.snap_grid, "Am Raster fangen").changed() && s.snap_grid { s.grid = true; }
-                            });
-                            popup(ui, &r2, "gt_skcheck", egui::PopupCloseBehavior::CloseOnClickOutside, &mut |ui| {
-                                ui.set_min_width(440.0);
-                                check_list(ui, &mut [(Icon::HlOverlap, "Überlappende Geometrie hervorheben", &mut s.hl_overlap), (Icon::HlIntersect, "Sich schneidende Geometrie hervorheben", &mut s.hl_intersect), (Icon::HlBranch, "Geometrieabzweigungen hervorheben", &mut s.hl_branch), (Icon::OpenEnds, "Offene Enden hervorheben", &mut s.open_ends), (Icon::ShadeLoops, "Geschlossene Schleifen schattieren", &mut s.shade)]);
-                            });
-                        }
-                    }
-                });
-            });
+    /// Anzeigestil drop-down, shared by the graphics toolbar and the Ansicht ribbon.
+    pub(super) fn style_menu(&mut self, ui: &mut egui::Ui) {
+        ui.spacing_mut().item_spacing.y = 0.0;
+        ui.set_min_width(330.0);
+        for s in Style::ALL { if menu_row(ui, Some(style_icon(s)), s.name(), s.shortcut(), true, self.style == s).clicked() { self.style = s; } }
+    }
+
+    /// Gespeicherte Orientierungen drop-down, shared by the graphics toolbar and the Ansicht ribbon.
+    /// Returns true when Senkrechte Ansicht was chosen.
+    pub(super) fn views_menu(&mut self, ui: &mut egui::Ui) -> bool {
+        ui.spacing_mut().item_spacing.y = 0.0;
+        ui.set_min_width(330.0);
+        egui::ScrollArea::vertical().max_height(300.0).show(ui, |ui| {
+            // Creo: the two fixed orientations first, then all named views alphabetically
+            let mut named: Vec<(String, glam::DQuat, Icon)> = StdView::ALL[2..].iter().map(|v| (v.name().to_string(), v.rotation(), v.icon())).collect();
+            named.extend(self.data.views.iter().map(|v| (v.name.clone(), v.rot, Icon::SavedViews)));
+            named.sort_by(|a, b| a.0.cmp(&b.0));
+            let list: Vec<(String, glam::DQuat, Icon)> = StdView::ALL[..2].iter().map(|v| (v.name().to_string(), v.rotation(), v.icon())).chain(named).collect();
+            for (n, q, ic) in list { if menu_row(ui, Some(ic), &n, "", true, false).clicked() { self.push_view(); self.camera.rot = q; self.fit_pending = true; } }
         });
-        if normal_view { self.normal_view(); }
-        self.reorient_dialog(ctx);
+        ui.separator();
+        if menu_row(ui, Some(Icon::Reorient), "Neu orientieren...", "", true, false).clicked() {
+            self.reorient = Some(Reorient { base: self.camera.rot, h: 0.0, v: 0.0, z: 0.0, name: String::new() });
+        }
+        menu_row(ui, Some(Icon::NormalView), "Senkrechte Ansicht", "", true, false).clicked()
     }
 
     /// Senkrechte Ansicht: look straight at the sketch plane, or at the selected plane / planar face.
-    fn normal_view(&mut self) {
+    pub(super) fn normal_view(&mut self) {
         if self.sketch.is_some() { self.sketch_view(); return; }
         let sel = self.selection.clone();
         let Some(fr) = self.plane_ref(&sel).and_then(|p| self.displayed().frame_for(&p)) else {
@@ -231,7 +186,7 @@ impl App {
     }
 
     /// Neu orientieren...: dynamic rotation about the screen axes and saving the view by name.
-    fn reorient_dialog(&mut self, ctx: &egui::Context) {
+    pub(super) fn reorient_dialog(&mut self, ctx: &egui::Context) {
         let Some(mut ro) = self.reorient.clone() else { return };
         let (mut ok, mut cancel, mut save, mut open) = (false, false, false, true);
         egui::Window::new("Ansicht").id(egui::Id::new("reorient")).title_bar(false).collapsible(false).resizable(false).default_pos(pos2(420.0, 200.0)).show(ctx, |ui| {
@@ -438,6 +393,7 @@ impl eframe::App for App {
             Outcome::Cancel => self.cancel_sketch(),
             Outcome::None => {}
         }
+        self.combo_bar(ctx, central);
         self.graphics_toolbar(ctx, central);
         self.file_menu_ui(ctx);
         self.feature_panel_ui(ctx);
