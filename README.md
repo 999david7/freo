@@ -76,7 +76,10 @@ cargo build --release --bin freo-mcp      # → target/release/freo-mcp
 
 The app binary serves the same thing with `freo --mcp` (in the bundle:
 `Freo.app/Contents/MacOS/freo --mcp`). Relative file paths in tool calls resolve against
-`FREO_WORK_DIR`, or the server's working directory if that is not set.
+`FREO_WORK_DIR`, or the server's working directory if that is not set. Pointing it at
+`~/Documents/freo-work`, the app's default work folder, makes parts saved by an assistant show
+up in Freo's Startseite. With `Freo.app` installed, `command` can also be
+`/Applications/Freo.app/Contents/MacOS/freo` with `args: ["--mcp"]`.
 
 **Tools:** `new_part`, `open_model` (`.pfprt`, or STEP/STL/OBJ as an import), `save_model`,
 `get_model_info`, `list_features`, `get_feature`, `list_geometry` (faces, edges, datums),
@@ -102,7 +105,7 @@ like in the app (`OBEN`/`TOP`, `VORNE`/`FRONT`, `RECHTS`/`RIGHT`, `DTM1`) or pic
   "mcpServers": {
     "freo": {
       "command": "/path/to/Creo-for-mac/target/release/freo-mcp",
-      "env": { "FREO_WORK_DIR": "/Users/you/Documents/Freo" }
+      "env": { "FREO_WORK_DIR": "/Users/you/Documents/freo-work" }
     }
   }
 }
@@ -111,7 +114,7 @@ like in the app (`OBEN`/`TOP`, `VORNE`/`FRONT`, `RECHTS`/`RIGHT`, `DTM1`) or pic
 **Claude Code:**
 
 ```bash
-claude mcp add --scope user --env FREO_WORK_DIR=$HOME/Documents/Freo freo -- /path/to/Creo-for-mac/target/release/freo-mcp
+claude mcp add freo --scope user -e FREO_WORK_DIR=$HOME/Documents/freo-work -- /path/to/Creo-for-mac/target/release/freo-mcp
 ```
 
 Then ask, for example: *"Build a 100 × 60 × 10 mm aluminium plate with a 10 mm through hole
