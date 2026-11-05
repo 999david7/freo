@@ -4,6 +4,7 @@ version = "0.1.0"
 edition = "2021"
 description = "Creo-style parametric 3D CAD for macOS, written in Rust"
 license = "MIT"
+default-run = "freo"
 
 [dependencies]
 eframe = { version = "0.31", default-features = false, features = ["glow", "default_fonts", "persistence"] }

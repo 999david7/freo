@@ -90,7 +90,7 @@ fn crc32(data: &[u8]) -> u32 {
     !c
 }
 
-/// Encode as PNG using stored (uncompressed) deflate blocks — no dependencies.
+/// Encode as PNG (zlib-compressed with miniz_oxide).
 pub fn encode_png(img: &Image) -> Vec<u8> {
     let rgb: Vec<u8> = img.rgb.iter().flatten().copied().collect();
     encode_png_raw(img.w, img.h, &rgb, 3)
@@ -105,18 +105,7 @@ fn encode_png_raw(w: usize, h: usize, px: &[u8], channels: usize) -> Vec<u8> {
         raw.push(0);
         raw.extend_from_slice(&px[y * w * channels..(y + 1) * w * channels]);
     }
-    let mut z = vec![0x78, 0x01];
-    let chunks: Vec<&[u8]> = raw.chunks(65535).collect();
-    for (i, ch) in chunks.iter().enumerate() {
-        z.push(if i + 1 == chunks.len() { 1 } else { 0 });
-        let len = ch.len() as u16;
-        z.extend_from_slice(&len.to_le_bytes());
-        z.extend_from_slice(&(!len).to_le_bytes());
-        z.extend_from_slice(ch);
-    }
-    let (mut a, mut b) = (1u32, 0u32);
-    for &x in &raw { a = (a + x as u32) % 65521; b = (b + a) % 65521; }
-    z.extend_from_slice(&((b << 16) | a).to_be_bytes());
+    let z = miniz_oxide::deflate::compress_to_vec_zlib(&raw, 6);
     let mut out = vec![0x89, b'P', b'N', b'G', 0x0D, 0x0A, 0x1A, 0x0A];
     let mut chunk = |ty: &[u8], data: &[u8]| {
         out.extend_from_slice(&(data.len() as u32).to_be_bytes());

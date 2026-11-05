@@ -76,6 +76,11 @@ fn app_icon() -> egui::IconData {
 }
 
 fn main() -> eframe::Result<()> {
+    // `freo --mcp`: headless MCP server on stdio for AI assistants (same as the freo-mcp binary)
+    if std::env::args().skip(1).any(|a| a == "--mcp") {
+        if let Err(e) = freo::mcp::serve_stdio() { eprintln!("freo --mcp: {}", e); std::process::exit(1); }
+        return Ok(());
+    }
     migrate_settings();
     freo::macos_open::install();
     let options = eframe::NativeOptions {

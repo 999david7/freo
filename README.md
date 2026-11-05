@@ -64,6 +64,74 @@ Build a double-clickable `Freo.app` (with icon and `.pfprt` document type):
 Open a model directly: `freo part.pfprt` / `freo asm0001.pfasm`, or drag a file onto
 the window (a part dropped onto an open assembly is assembled).
 
+## AI assistants (MCP)
+
+Freo ships an [MCP](https://modelcontextprotocol.io) server, so Claude, ChatGPT and other
+MCP clients can build and edit parts. It runs headless over stdio (JSON-RPC 2.0) on the
+same model, regeneration and export code as the app, and keeps one part in memory per session.
+
+```bash
+cargo build --release --bin freo-mcp      # → target/release/freo-mcp
+```
+
+The app binary serves the same thing with `freo --mcp` (in the bundle:
+`Freo.app/Contents/MacOS/freo --mcp`). Relative file paths in tool calls resolve against
+`FREO_WORK_DIR`, or the server's working directory if that is not set.
+
+**Tools:** `new_part`, `open_model` (`.pfprt`, or STEP/STL/OBJ as an import), `save_model`,
+`get_model_info`, `list_features`, `get_feature`, `list_geometry` (faces, edges, datums),
+`add_datum_plane`, `add_sketch`, `add_extrude`, `add_revolve`, `add_hole`, `add_round`,
+`add_chamfer`, `add_shell`, `add_pattern`, `add_mirror`, `add_feature_json`, `edit_feature`,
+`suppress_features`, `resume_features`, `delete_features`, `set_parameters`, `set_relations`,
+`set_model_properties`, `regenerate`, `undo`, `mass_properties`, `export_model`
+(STL, OBJ, STEP, 3MF, PLY, VRML, glTF), `import_geometry` and `render_png` (returns a shaded
+picture of the part). Resources: `freo://model/current` (the part as JSON) and
+`freo://model/features` (the model tree).
+
+Every change regenerates the part and returns its volume, bounding box and errors. A change
+that makes a feature fail is rolled back and comes back as a tool error. Planes are named
+like in the app (`OBEN`/`TOP`, `VORNE`/`FRONT`, `RECHTS`/`RIGHT`, `DTM1`) or picked as faces
+(`"+Y"` is the outermost face pointing up). Edges for rounds and chamfers are indices from
+`list_geometry` or a filter such as `{"direction": "Y"}`.
+
+**Claude Desktop:** add the server to
+`~/Library/Application Support/Claude/claude_desktop_config.json` and restart Claude:
+
+```json
+{
+  "mcpServers": {
+    "freo": {
+      "command": "/path/to/Creo-for-mac/target/release/freo-mcp",
+      "env": { "FREO_WORK_DIR": "/Users/you/Documents/Freo" }
+    }
+  }
+}
+```
+
+**Claude Code:**
+
+```bash
+claude mcp add --scope user --env FREO_WORK_DIR=$HOME/Documents/Freo freo -- /path/to/Creo-for-mac/target/release/freo-mcp
+```
+
+Then ask, for example: *"Build a 100 × 60 × 10 mm aluminium plate with a 10 mm through hole
+20 mm right of centre and 5 mm corner rounds, show it, and export plate.stl."*
+
+**ChatGPT and other clients:** clients that start local stdio servers (OpenAI Codex CLI,
+Cursor, VS Code, Windsurf, Zed …) use the same command. In Codex, for example, add this to
+`~/.codex/config.toml`:
+
+```toml
+[mcp_servers.freo]
+command = "/path/to/Creo-for-mac/target/release/freo-mcp"
+```
+
+ChatGPT itself (connectors in developer mode) only talks to remote MCP servers over HTTPS. To
+use Freo there, put a stdio-to-HTTP bridge in front of `freo-mcp` (for example
+`npx -y supergateway --stdio /path/to/freo-mcp --port 8000`) and expose it with a tunnel.
+That makes the server, and the files it can read and write, reachable from the internet, so
+only do it on a machine and work directory you are fine sharing.
+
 ## Features
 
 **Modelling (Model tab)**
@@ -147,6 +215,7 @@ src/model    features & references, expression evaluator, regeneration engine, t
              drawings (sheets, views, dimensions, tables, format)
 src/app      controller, OpenGL renderer, camera, picking, sketcher UI, dashboards,
              ribbon/tree/status, dialogs, export & mass properties, demo scenes
+src/mcp.rs   MCP server for AI assistants (stdio JSON-RPC, tools over model/regen/export)
 ```
 
 References to faces and edges are stored geometrically and re-resolved on every
@@ -156,6 +225,7 @@ regeneration, so downstream features follow upstream dimension changes.
 
 ```bash
 cargo test                                   # unit + end-to-end workflow tests
+cargo test --test mcp_server                 # MCP server driven over stdin/stdout
 cargo run --release --bin kernel_demo -- out # regenerate sample parts and render PNGs
 FREO_DEMO=bracket FREO_SHOT=shot.png FREO_EXIT=1 cargo run --release   # app screenshot
 ```

@@ -6,3 +6,4 @@ pub mod app;
 pub mod softrender;
 pub mod macos_open;
 pub mod icon;
+pub mod mcp;
