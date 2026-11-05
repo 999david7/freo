@@ -476,8 +476,19 @@ fn shapes_schema() -> Value {
 
 fn dim_schema(desc: &str) -> Value { json!({ "description": desc, "type": ["number", "string"] }) }
 
+/// MCP tool annotations, so clients (OpenClaw, Claude …) can skip approval prompts for safe calls.
+/// Read-only tools only look at the part. Destructive ones can discard unsaved work or
+/// overwrite files; all other edits stay in memory and can be undone.
+fn annotations(name: &str) -> Value {
+    let read_only = matches!(name, "get_model_info" | "list_features" | "get_feature" | "list_geometry" | "mass_properties" | "regenerate");
+    let destructive = matches!(name, "new_part" | "open_model" | "save_model" | "export_model" | "delete_features");
+    let title = name.replace('_', " ");
+    let title = title[..1].to_uppercase() + &title[1..];
+    json!({ "title": title, "readOnlyHint": read_only, "destructiveHint": destructive, "idempotentHint": read_only || matches!(name, "save_model" | "export_model" | "render_png"), "openWorldHint": false })
+}
+
 fn tool(name: &str, desc: &str, props: Value, required: &[&str]) -> Value {
-    json!({ "name": name, "description": desc, "inputSchema": { "type": "object", "properties": props, "required": required } })
+    json!({ "name": name, "description": desc, "inputSchema": { "type": "object", "properties": props, "required": required }, "annotations": annotations(name) })
 }
 
 pub fn tool_list() -> Vec<Value> {

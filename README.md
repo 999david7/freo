@@ -95,7 +95,10 @@ Every change regenerates the part and returns its volume, bounding box and error
 that makes a feature fail is rolled back and comes back as a tool error. Planes are named
 like in the app (`OBEN`/`TOP`, `VORNE`/`FRONT`, `RECHTS`/`RIGHT`, `DTM1`) or picked as faces
 (`"+Y"` is the outermost face pointing up). Edges for rounds and chamfers are indices from
-`list_geometry` or a filter such as `{"direction": "Y"}`.
+`list_geometry` or a filter such as `{"direction": "Y"}`. Every tool carries MCP annotations,
+so clients can run read-only tools without asking. Five are marked destructive because they
+can discard unsaved work or overwrite files: `new_part`, `open_model`, `save_model`,
+`export_model` and `delete_features`.
 
 **Claude Desktop:** add the server to
 `~/Library/Application Support/Claude/claude_desktop_config.json` and restart Claude:
@@ -134,6 +137,22 @@ use Freo there, put a stdio-to-HTTP bridge in front of `freo-mcp` (for example
 `npx -y supergateway --stdio /path/to/freo-mcp --port 8000`) and expose it with a tunnel.
 That makes the server, and the files it can read and write, reachable from the internet, so
 only do it on a machine and work directory you are fine sharing.
+
+**OpenClaw:** register the server with OpenClaw's own MCP manager. While the Gateway is
+running, the CLI needs operator access to it; otherwise quit OpenClaw first so the command
+can change the config offline.
+
+```bash
+openclaw mcp add freo --command /Applications/Freo.app/Contents/MacOS/freo --arg=--mcp \
+  --env FREO_WORK_DIR=$HOME/Documents/freo-work --timeout 120
+```
+
+[`integrations/openclaw/freo-cad/SKILL.md`](integrations/openclaw/freo-cad/SKILL.md) is an
+OpenClaw skill that teaches an agent the Freo workflow: planning, plane coordinates, tool
+recipes, checking volumes, looking at renders, and sending back renders and export paths.
+Copy the `freo-cad` folder into an agent's `<workspace>/skills/` (or `~/.openclaw/skills/`
+for all agents). It only shows up once `mcp.servers.freo` is configured. Check it with
+`openclaw skills info freo-cad --agent <id>`.
 
 ## Features
 

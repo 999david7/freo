@@ -117,7 +117,14 @@ fn handshake_tools_and_protocol_errors() {
     for t in tools {
         assert!(t["description"].as_str().is_some_and(|d| !d.is_empty()));
         assert_eq!(t["inputSchema"]["type"], "object", "{}", t["name"]);
+        assert!(t["annotations"]["readOnlyHint"].is_boolean() && t["annotations"]["destructiveHint"].is_boolean(), "{}", t["name"]);
     }
+    let ann = |n: &str| tools.iter().find(|t| t["name"] == n).unwrap()["annotations"].clone();
+    assert_eq!(ann("list_features")["readOnlyHint"], true);
+    assert_eq!(ann("add_hole")["readOnlyHint"], false);
+    assert_eq!(ann("add_hole")["destructiveHint"], false);
+    assert_eq!(ann("delete_features")["destructiveHint"], true);
+    assert_eq!(ann("export_model")["destructiveHint"], true);
 
     assert_eq!(c.request("ping", json!({}))["result"], json!({}));
     assert_eq!(c.request("no/such/method", json!({}))["error"]["code"], -32601);
