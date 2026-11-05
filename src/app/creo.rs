@@ -520,6 +520,10 @@ pub struct UiState {
     pub hide_cols: bool,
     /// "Konstruktionselemente" node expanded
     pub design_open: bool,
+    /// mini toolbar drop-downs (Zugehörige auswählen, ▸)
+    pub mini_ui: super::minibar::MiniUi,
+    /// Unterdrücken dialog while open
+    pub suppress: Option<super::minibar::SuppressDlg>,
 }
 
 impl UiState {

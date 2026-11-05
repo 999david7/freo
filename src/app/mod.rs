@@ -11,6 +11,7 @@ pub mod drawing;
 pub mod drawui;
 pub mod gdt;
 pub mod gfxbar;
+pub mod minibar;
 pub mod modelcmds;
 pub mod modelgrid;
 pub mod featuretab;

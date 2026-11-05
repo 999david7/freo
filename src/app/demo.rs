@@ -333,6 +333,25 @@ impl App {
                 let top = (0..self.result.topo.faces.len()).find(|&f| { let fc = &self.result.topo.faces[f]; fc.planar && fc.normal.y > 0.99 && (fc.center.y - 20.0).abs() < 1e-6 });
                 if let Some(f) = top { self.handle_pick(Some(Pick::Face(f)), false); self.mini = Some(MiniBar { pos: egui::pos2(900.0, 520.0), pick: Pick::Face(f) }); }
             }
+            // FREO_DEMO=mini_edge: mini toolbar for a top edge of the bracket (FREO_DEMO_POPUP=mini_related / mini_more / suppress)
+            "mini_edge" => {
+                self.data = bracket();
+                self.add_vertical_rounds(15);
+                self.regenerate(false);
+                let t = &self.result.topo;
+                let e = (0..t.chains.len()).filter(|&i| { let c = &t.chains[i]; c.is_straight() && c.points.iter().all(|q| (q.y - 20.0).abs() < 1e-6) })
+                    .max_by(|a, b| t.chains[*a].points[0].z.partial_cmp(&t.chains[*b].points[0].z).unwrap());
+                if let Some(e) = e {
+                    self.handle_pick(Some(Pick::Edge(e)), false);
+                    self.mini = Some(MiniBar { pos: egui::pos2(760.0, 560.0), pick: Pick::Edge(e) });
+                    match std::env::var("FREO_DEMO_POPUP").as_deref() {
+                        Ok("mini_related") => self.creo.mini_ui = super::minibar::MiniUi { related: true, pick: Some(Pick::Edge(e)), ..Default::default() },
+                        Ok("mini_more") => self.creo.mini_ui = super::minibar::MiniUi { more: true, pick: Some(Pick::Edge(e)), ..Default::default() },
+                        Ok("suppress") => if let Some(o) = self.owner(Pick::Edge(e)) { self.ask_suppress(&[o]); },
+                        _ => {}
+                    }
+                }
+            }
             "roundsets" => {
                 self.data = bracket();
                 self.regenerate(false);

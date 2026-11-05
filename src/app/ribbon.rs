@@ -40,7 +40,7 @@ use theme::*;
 pub const RIB_H: f32 = 88.0;
 const FONT: f32 = 12.5;
 
-fn button_bg(ui: &egui::Ui, rect: Rect, resp: &Response, enabled: bool, selected: bool) {
+pub fn button_bg(ui: &egui::Ui, rect: Rect, resp: &Response, enabled: bool, selected: bool) {
     let p = ui.painter();
     if selected || (enabled && resp.is_pointer_button_down_on()) {
         p.rect_filled(rect, 2.0, SEL_BG);
@@ -241,17 +241,28 @@ pub fn check_list(ui: &mut egui::Ui, items: &mut [(Icon, &str, &mut bool)]) {
 }
 
 /// Creo's command tooltip: icon and bold command name, then a description.
-pub fn rich_tip(resp: Response, icon: Icon, title: &str, text: &str) -> Response {
-    resp.on_hover_ui(|ui| {
-        ui.set_max_width(380.0);
-        ui.horizontal(|ui| {
-            let (r, _) = ui.allocate_exact_size(vec2(22.0, 22.0), Sense::hover());
-            icons::paint(ui.painter(), r, icon, true);
-            ui.label(RichText::new(title).strong().size(14.0).color(TEXT));
-        });
-        ui.add_space(2.0);
-        ui.label(RichText::new(text).size(13.5).color(TEXT));
-    })
+pub fn rich_tip(resp: Response, icon: Icon, title: &str, text: &str) -> Response { cmd_tip(resp, icon, title, "", text) }
+
+/// Creo's command tooltip with the keyboard shortcut after the name: "Rundung  (R)".
+pub fn cmd_tip(resp: Response, icon: Icon, title: &str, key: &str, text: &str) -> Response {
+    resp.on_hover_ui(|ui| cmd_tip_ui(ui, icon, title, key, text))
+}
+
+pub fn cmd_tip_ui(ui: &mut egui::Ui, icon: Icon, title: &str, key: &str, text: &str) {
+    ui.set_max_width(400.0);
+    ui.horizontal(|ui| {
+        ui.spacing_mut().item_spacing.x = 8.0;
+        let (r, _) = ui.allocate_exact_size(vec2(20.0, 22.0), Sense::hover());
+        icons::paint(ui.painter(), r, icon, true);
+        // bold name (drawn twice, half a pixel apart: the UI font has no bold face)
+        let g = ui.painter().layout_no_wrap(title.to_string(), FontId::proportional(14.5), TEXT);
+        let (tr, _) = ui.allocate_exact_size(g.size() + vec2(1.0, 0.0), Sense::hover());
+        ui.painter().galley(tr.min, g.clone(), TEXT);
+        ui.painter().galley(tr.min + vec2(0.6, 0.0), g, TEXT);
+        if !key.is_empty() { ui.label(RichText::new(format!("({})", key)).size(13.5).color(TEXT)); }
+    });
+    ui.add_space(3.0);
+    ui.label(RichText::new(text).size(13.5).color(TEXT));
 }
 
 /// Popup attached to a ribbon control (overflow menus, split-button menus).
@@ -679,7 +690,7 @@ impl App {
         group_menu(ui, "ops", &title, |ui| {
             if menu_item(ui, Icon::Undo, "Rückgängig", !self.undo.is_empty() && free && !asm) { self.do_undo(); }
             if menu_item(ui, Icon::Redo, "Wiederholen", !self.redo.is_empty() && free && !asm) { self.do_redo(); }
-            if menu_item(ui, Icon::Suppress, "Unterdrücken", sel && !asm) { let ids = self.tree_selection.clone(); self.set_suppressed(&ids, true); }
+            if menu_item(ui, Icon::Suppress, "Unterdrücken", sel && !asm) { let ids = self.tree_selection.clone(); self.ask_suppress(&ids); }
             if menu_item(ui, Icon::Resume, "Fortsetzen", sel && !asm) { let ids = self.tree_selection.clone(); self.set_suppressed(&ids, false); }
         });
     }
@@ -940,7 +951,7 @@ impl App {
         group_menu(ui, "appearance", &t, |ui| { if menu_item(ui, Icon::Appearance, "Darstellungs-Manager", true) { self.windows.appearance = true; } });
         let ((), t) = group_drop(ui, "Orientierung", |ui| {
             if large(ui, Icon::Refit, "Neu\neinpassen", true, false).clicked() { self.push_view(); self.fit_pending = true; }
-            large(ui, Icon::ZoomSel, "Auf Auswahl\nzoomen", false, false);
+            if large(ui, Icon::ZoomSel, "Auf Auswahl\nzoomen", !self.selection.is_empty(), false).clicked() { let sel = self.selection.clone(); self.zoom_to(&sel); }
             if large(ui, Icon::ZoomIn, "Vergrößern", true, false).clicked() { self.push_view(); self.camera.scale /= 1.25; }
             stack(ui, |ui| {
                 tiny(ui, Icon::Pan, "Schwenken (mittlere Maustaste + Umschalt)", false, false, false);

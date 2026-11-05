@@ -30,7 +30,7 @@ impl App {
         }
         if typing || self.sketch.is_some() { return; }
         // keys go to the file dialogs while one is open
-        if self.creo.open.is_some() || self.creo.export.is_some() || self.creo.name_dialog.is_some() || self.creo.browser.is_some() { return; }
+        if self.creo.open.is_some() || self.creo.export.is_some() || self.creo.name_dialog.is_some() || self.creo.browser.is_some() || self.creo.suppress.is_some() { return; }
         if self.placing() {
             if pressed(egui::Key::Escape) {
                 let side = self.place_editor().and_then(|e| e.side);
@@ -54,6 +54,14 @@ impl App {
             else { self.selection.clear(); self.tree_selection.clear(); self.measure = false; self.mini = None; }
         }
         if pressed(egui::Key::Enter) && self.editor.is_some() { self.finish_feature(); }
+        // Creo: Strg+E Definition editieren, R Rundung on the selected edges
+        if cmd && !shift && pressed(egui::Key::E) && self.editor.is_none() {
+            if let Some(o) = self.tree_selection.first().copied() { self.mini = None; self.edit_feature(o); }
+        }
+        if !cmd && pressed(egui::Key::R) && self.editor.is_none() && self.selection.iter().any(|p| matches!(p, Pick::Edge(_))) {
+            self.mini = None;
+            self.start_feature(FeatureKind::new_round());
+        }
         if !cmd && (pressed(egui::Key::Delete) || pressed(egui::Key::Backspace)) && self.editor.is_none() && !self.tree_selection.is_empty() {
             let ids = self.tree_selection.clone();
             self.delete_features(&ids);
@@ -232,62 +240,6 @@ impl App {
         else { self.reorient = Some(ro); }
     }
 
-    fn mini_toolbar(&mut self, ctx: &egui::Context) {
-        let Some(mb) = self.mini else { return };
-        if self.busy() || self.edit_dims.is_some() || self.measure { self.mini = None; return; }
-        if let Some(p) = ctx.input(|i| i.pointer.hover_pos()) {
-            if (p - mb.pos).length() > 190.0 { self.mini = None; return; }
-        }
-        if self.in_asm() { self.asm_mini_toolbar(ctx, mb); return; }
-        let planar = self.plane_ref(&[mb.pick]).is_some();
-        let owner = self.owner(mb.pick).filter(|o| self.data.feature(*o).is_some());
-        enum A { Sketch, Extrude, Revolve, Hole, Plane, Round, Chamfer, Dims, Def, Suppress, Hide, Delete }
-        let mut act = None;
-        egui::Area::new(egui::Id::new("mini_toolbar")).fixed_pos(mb.pos + vec2(14.0, -46.0)).order(egui::Order::Foreground).show(ctx, |ui| {
-            egui::Frame::popup(ui.style()).inner_margin(2.0).corner_radius(3.0).show(ui, |ui| {
-                ui.horizontal(|ui| {
-                    ui.spacing_mut().item_spacing.x = 0.0;
-                    let mut b = |ui: &mut egui::Ui, icon: Icon, tip: &str, a: A| { if icon_button(ui, icon, tip, true, false, 18.0).clicked() { act = Some(a); } };
-                    if planar {
-                        b(ui, Icon::Sketch, "Skizze", A::Sketch);
-                        b(ui, Icon::Extrude, "Profil", A::Extrude);
-                        b(ui, Icon::Revolve, "Drehen", A::Revolve);
-                        b(ui, Icon::Hole, "Bohrung", A::Hole);
-                        b(ui, Icon::Plane, "Ebene", A::Plane);
-                    }
-                    if matches!(mb.pick, Pick::Edge(_)) {
-                        b(ui, Icon::Round, "Rundung", A::Round);
-                        b(ui, Icon::Chamfer, "Fase", A::Chamfer);
-                    }
-                    if owner.is_some() {
-                        ui.separator();
-                        b(ui, Icon::EditDims, "Bemaßungen editieren", A::Dims);
-                        b(ui, Icon::EditDef, "Definition editieren", A::Def);
-                        b(ui, Icon::Suppress, "Unterdrücken", A::Suppress);
-                        b(ui, Icon::Hide, "Ausblenden", A::Hide);
-                        b(ui, Icon::Delete, "Löschen", A::Delete);
-                    }
-                });
-            });
-        });
-        let Some(a) = act else { return };
-        self.mini = None;
-        match a {
-            A::Sketch => self.start_feature(FeatureKind::new_sketch()),
-            A::Extrude => self.start_feature(FeatureKind::new_extrude()),
-            A::Revolve => self.start_feature(FeatureKind::new_revolve()),
-            A::Hole => self.start_feature(FeatureKind::new_hole()),
-            A::Plane => self.start_feature(FeatureKind::new_plane()),
-            A::Round => self.start_feature(FeatureKind::new_round()),
-            A::Chamfer => self.start_feature(FeatureKind::new_chamfer()),
-            A::Dims => if let Some(o) = owner { self.start_edit_dims(o) },
-            A::Def => if let Some(o) = owner { self.edit_feature(o) },
-            A::Suppress => if let Some(o) = owner { self.set_suppressed(&[o], true) },
-            A::Hide => if let Some(o) = owner { self.toggle_hidden(&[o]) },
-            A::Delete => if let Some(o) = owner { self.delete_features(&[o]) },
-        }
-    }
-
     /// Startseite: Creo's window before any model is opened.
     fn home_frame(&mut self, ctx: &egui::Context) {
         if let Some(p) = ctx.input(|i| i.raw.dropped_files.first().and_then(|f| f.path.clone())) { self.load(p); return; }
@@ -411,6 +363,7 @@ impl eframe::App for App {
         self.file_browser_ui(ctx);
         self.name_dialog_ui(ctx);
         self.mini_toolbar(ctx);
+        self.suppress_dialog(ctx);
         hand_cursor(ctx);
         self.demo_tick(ctx);
     }

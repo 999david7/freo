@@ -55,7 +55,7 @@ fn dash_dot(v: &mut Vec<f32>, a: V3, b: V3, c: [f32; 4], n: usize) {
 }
 
 impl App {
-    fn faces_of_feature(&self, fid: u64) -> Vec<usize> {
+    pub(super) fn faces_of_feature(&self, fid: u64) -> Vec<usize> {
         let r = self.displayed();
         (0..r.topo.faces.len()).filter(|&f| r.tag_owner.get(&r.topo.face_tag(f)) == Some(&fid)).collect()
     }
@@ -434,7 +434,7 @@ impl App {
             if let Some(o) = owner {
                 if menu_entry(ui, Icon::EditDims, "Bemaßungen editieren", true, false).clicked() { self.start_edit_dims(o); ui.close_menu(); }
                 if menu_entry(ui, Icon::EditDef, "Definition editieren", true, false).clicked() { self.edit_feature(o); ui.close_menu(); }
-                if menu_entry(ui, Icon::Suppress, "Unterdrücken", true, false).clicked() { self.set_suppressed(&[o], true); ui.close_menu(); }
+                if menu_entry(ui, Icon::Suppress, "Unterdrücken", true, false).clicked() { self.ask_suppress(&[o]); ui.close_menu(); }
                 if menu_entry(ui, Icon::Hide, "Ausblenden", true, false).clicked() { self.toggle_hidden(&[o]); ui.close_menu(); }
                 if menu_entry(ui, Icon::Delete, "Löschen", true, false).clicked() { self.delete_features(&[o]); ui.close_menu(); }
                 ui.separator();

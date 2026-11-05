@@ -40,6 +40,7 @@ pub enum Icon {
     SkConic, SkEllipseAxis, SkFilletTrim, SkFilletEllip, SkChamferTrim, SelChain, SelAll, SkReplace, SkConvert,
     InfoIntersect, InfoTangent, InfoEntity,
     SketchSetup, References, Cut, SkText, SkCsys, SkOffset, SkThicken, RotResize, RefDim, SkImport, Perimeter, Baseline,
+    EditRefs, SelRelated, ShowAll, HideOthers, Pin,
 }
 
 const fn rgb(r: u8, g: u8, b: u8) -> Color32 { Color32::from_rgb(r, g, b) }
@@ -233,6 +234,24 @@ impl Ic<'_> {
         let (x, y) = tip;
         self.poly(&[(x, y), (x + 1.2, y - 2.6), (x + 2.6, y - 1.2)], rgb(240, 210, 170), Some(DARK));
         self.poly(&[(x + 1.2, y - 2.6), (x + 6.0, y - 7.4), (x + 7.4, y - 6.0), (x + 2.6, y - 1.2)], rgb(246, 196, 60), Some(DARK));
+    }
+    /// Shaded golden sphere (Creo's Unterdrücken / Definition editieren).
+    fn gold_ball(&self, c: P, r: f32) {
+        self.circle(c, r, rgb(196, 136, 40), Some((0.7, rgb(130, 86, 20))));
+        self.circle((c.0 - r * 0.12, c.1 - r * 0.12), r * 0.78, rgb(226, 176, 80), None);
+        self.circle((c.0 - r * 0.3, c.1 - r * 0.3), r * 0.48, rgb(246, 214, 140), None);
+        self.circle((c.0 - r * 0.42, c.1 - r * 0.42), r * 0.2, rgb(255, 246, 220), None);
+    }
+    /// One chain link from `a` to `b` (Referenzen editieren).
+    fn link(&self, a: P, b: P) {
+        let t = (a.1 - b.1).atan2(b.0 - a.0).to_degrees();
+        let r = 2.4;
+        let mut v = self.arc(b, r, r, t - 90.0, t + 90.0);
+        v.extend(self.arc(a, r, r, t + 90.0, t + 270.0));
+        let first = v[0];
+        v.push(first);
+        self.path(&v, 2.2, rgb(70, 78, 90));
+        self.path(&v, 0.9, rgb(190, 200, 214));
     }
     fn eye(&self) {
         let up = self.arc((8.0, 11.5), 6.5, 6.0, 25.0, 155.0);
@@ -860,12 +879,21 @@ pub fn paint(p: &Painter, rect: Rect, icon: Icon, enabled: bool) {
             k.dashed((13.5, 12.0), (2.5, 12.0), 1.2, BLUE_L, 2.0, 1.2);
             k.dashed((2.5, 12.0), (2.5, 4.0), 1.2, BLUE_L, 2.0, 1.2);
         }
-        SkDimension | DimDisplay | EditDims => {
+        EditDims => {
+            // Creo: "d1" under a dimension line
+            k.path(&[(1.5, 1.0), (1.5, 6.5)], 0.8, DARK);
+            k.path(&[(14.5, 1.0), (14.5, 6.5)], 0.8, DARK);
+            k.arrow((8.0, 3.8), (1.7, 3.8), 0.9, DARK, 2.4);
+            k.arrow((8.0, 3.8), (14.3, 3.8), 0.9, DARK, 2.4);
+            k.text((6.6, 11.0), "d", 9.0, rgb(30, 34, 40));
+            k.text((11.6, 12.4), "1", 6.0, rgb(30, 34, 40));
+        }
+        SkDimension | DimDisplay => {
             k.path(&[(2.0, 5.0), (2.0, 14.0)], 0.8, DARK);
             k.path(&[(14.0, 5.0), (14.0, 14.0)], 0.8, DARK);
             k.arrow((8.0, 11.0), (2.2, 11.0), 1.0, BLUE, 2.6);
             k.arrow((8.0, 11.0), (13.8, 11.0), 1.0, BLUE, 2.6);
-            k.text((8.0, 6.0), if icon == EditDims { "d" } else { "10" }, 5.5, rgb(28, 52, 150));
+            k.text((8.0, 6.0), "10", 5.5, rgb(28, 52, 150));
         }
         SkModify => {
             k.path(&[(1.5, 4.0), (1.5, 12.0)], 0.8, DARK);
@@ -1010,9 +1038,36 @@ pub fn paint(p: &Painter, rect: Rect, icon: Icon, enabled: bool) {
             k.path(&[(12.5, 3.5), (3.5, 12.5)], 2.2, RED);
         }
         Suppress => {
-            k.iso_pal((8.0, 15.0), 4.6, 4.6, 5.0, [GTOP, GLEFT, GRIGHT, GLINE]);
-            k.circle((11.5, 4.5), 3.6, WHITE, Some((1.2, RED)));
-            k.path(&[(9.0, 7.0), (14.0, 2.0)], 1.2, RED);
+            // Creo: golden ball with a black square in front of it
+            k.gold_ball((6.8, 7.0), 5.6);
+            k.poly(&[(8.6, 8.6), (15.0, 8.6), (15.0, 15.0), (8.6, 15.0)], rgb(28, 28, 30), Some(WHITE));
+        }
+        EditRefs => {
+            // two chain links
+            k.link((2.8, 13.2), (7.8, 8.2));
+            k.link((8.2, 7.8), (13.2, 2.8));
+        }
+        SelRelated => {
+            // small model tree with a pointer
+            k.path(&[(3.5, 5.0), (3.5, 13.0), (7.0, 13.0)], 0.9, DARK);
+            k.path(&[(3.5, 9.0), (7.0, 9.0)], 0.9, DARK);
+            k.poly(&[(1.5, 1.5), (5.5, 1.5), (5.5, 5.0), (1.5, 5.0)], WHITE, Some(DARK));
+            for y in [9.0, 13.0] { k.poly(&[(7.0, y - 1.8), (10.6, y - 1.8), (10.6, y + 1.8), (7.0, y + 1.8)], rgb(120, 180, 230), Some(rgb(40, 96, 160))); }
+            k.poly(&[(9.5, 1.5), (9.5, 7.6), (11.0, 6.2), (12.2, 8.6), (13.2, 8.1), (12.0, 5.8), (14.0, 5.6)], WHITE, Some(DARK));
+        }
+        ShowAll | HideOthers => {
+            for (a, b) in [((1.0, 2.0), (15.0, 2.0)), ((15.0, 2.0), (15.0, 14.0)), ((15.0, 14.0), (1.0, 14.0)), ((1.0, 14.0), (1.0, 2.0))] { k.dashed(a, b, 1.0, DARK, 1.6, 1.2); }
+            let up = k.arc((8.0, 10.9), 5.2, 4.8, 25.0, 155.0);
+            let lo = k.arc((8.0, 5.1), 5.2, 4.8, 205.0, 335.0);
+            k.path(&up, 1.1, DARK);
+            k.path(&lo, 1.1, DARK);
+            k.circle((8.0, 8.0), 1.9, DARK, None);
+            if icon == HideOthers { k.path(&[(3.5, 12.5), (12.5, 3.5)], 1.3, DARK); }
+        }
+        Pin => {
+            k.poly(&[(9.0, 1.5), (14.5, 7.0), (12.8, 8.0), (8.0, 3.2)], rgb(70, 74, 80), None);
+            k.poly(&[(9.6, 4.2), (11.8, 6.4), (9.4, 10.6), (5.4, 6.6)], rgb(70, 74, 80), None);
+            k.path(&[(7.0, 9.0), (2.0, 14.0)], 1.3, rgb(70, 74, 80));
         }
         Resume => {
             k.iso((7.0, 15.0), 4.2, 4.2, 4.6);
@@ -1022,7 +1077,13 @@ pub fn paint(p: &Painter, rect: Rect, icon: Icon, enabled: bool) {
             k.eye();
             if icon == Hide { k.path(&[(2.0, 14.0), (14.0, 2.0)], 1.6, RED); }
         }
-        EditDef => { k.iso((7.0, 15.0), 4.4, 4.4, 4.6); k.pencil((8.5, 10.0)); }
+        EditDef => {
+            // Creo: golden ball with a brush
+            k.gold_ball((6.8, 9.0), 5.8);
+            k.path(&[(9.6, 6.4), (14.8, 1.2)], 1.6, rgb(120, 80, 36));
+            k.poly(&[(8.2, 6.6), (9.4, 5.4), (10.6, 6.6), (9.4, 7.8)], rgb(150, 156, 164), None);
+            k.poly(&[(8.2, 6.6), (9.4, 7.8), (7.6, 10.4), (5.8, 9.0)], rgb(56, 50, 44), None);
+        }
         Part => k.iso((8.0, 15.0), 5.0, 5.0, 5.0),
         InsertHere => {
             k.path(&[(2.0, 8.0), (11.0, 8.0)], 2.4, GREEN);

@@ -314,7 +314,7 @@ impl App {
         if item(ui, Icon::SkModify, "Umbenennen") { self.renaming = Some((f.id, f.name.clone())); ui.close_menu(); }
         ui.separator();
         if f.suppressed { if item(ui, Icon::Resume, "Zurückholen") { self.set_suppressed(&ids, false); ui.close_menu(); } }
-        else if item(ui, Icon::Suppress, "Unterdrücken") { self.set_suppressed(&ids, true); ui.close_menu(); }
+        else if item(ui, Icon::Suppress, "Unterdrücken") { self.ask_suppress(&ids); ui.close_menu(); }
         if item(ui, if f.hidden { Icon::Show } else { Icon::Hide }, if f.hidden { "Einblenden" } else { "Ausblenden" }) { self.toggle_hidden(&ids); ui.close_menu(); }
         if f.kind.produces_tool() {
             if item(ui, Icon::Pattern, "Muster") { self.tree_selection = vec![f.id]; self.start_feature(FeatureKind::new_pattern()); ui.close_menu(); }
