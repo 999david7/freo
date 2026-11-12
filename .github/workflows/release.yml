@@ -1,0 +1,61 @@
+name: Linux release build
+
+# Builds the Ubuntu packages (.deb and .tar.gz). Runs when a release is published and attaches
+# the files to it; can also be started by hand to check the Linux build.
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Release tag to attach the files to (empty = only build)
+        required: false
+
+permissions:
+  contents: write
+
+jobs:
+  linux:
+    # the oldest supported Ubuntu image, so the binary also starts on older releases
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends libxkbcommon-dev libxkbcommon-x11-dev libwayland-dev libx11-dev libxcb1-dev libgl1-mesa-dev libfontconfig1-dev pkg-config
+      - name: Rust toolchain
+        run: rustup toolchain install stable --profile minimal && rustup default stable
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: linux-release-${{ hashFiles('Cargo.lock') }}
+      - name: Build
+        run: cargo build --release --locked
+      - name: Test
+        id: test
+        continue-on-error: true
+        run: cargo test --release --locked
+      - name: Package
+        run: ./scripts/package-linux.sh
+      - name: Check the package
+        run: |
+          dpkg-deb --info dist/*.deb
+          sudo apt-get install -y ./dist/*.deb
+          printf '%s\n' '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"ci","version":"0"}}}' | freo-mcp | head -c 400
+          ldd /usr/bin/freo | grep -i "not found" && exit 1 || true
+      - uses: actions/upload-artifact@v4
+        with:
+          name: freo-linux
+          path: dist/*
+      - name: Attach to the release
+        if: github.event_name == 'release' || inputs.tag != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload "${{ github.event.release.tag_name || inputs.tag }}" dist/* --clobber
+      - name: Report test result
+        if: steps.test.outcome == 'failure'
+        run: echo "::warning::cargo test failed on Linux; the packages were still built"
