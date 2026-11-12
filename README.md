@@ -61,9 +61,19 @@ the German label where it helps to find the command.
 - Drop-down menus are as wide as their text and slightly rounded
 - Flexible Modellierung and some commands on Anwendungen and HTL are shown for layout parity but greyed out (see [Scope](#scope-compared-with-creo))
 
+## Download
+
+Ready-made builds are on the [releases page](https://github.com/999david7/freo/releases):
+
+- **macOS** (Apple Silicon): `Freo.dmg`. Drag `Freo.app` to Applications; on first start choose **Open Anyway** in System Settings > Privacy & Security.
+- **Ubuntu** (x86-64, 22.04 or newer): `freo_<version>_amd64.deb`, installed with `sudo apt install ./freo_<version>_amd64.deb`, or the `.tar.gz` with the bare programs.
+
+Freo is developed on macOS. The Linux build is compiled, tested and started once on Ubuntu for
+every release, but has had little hands-on use there.
+
 ## Build & run
 
-Requires macOS 11 or later and a current stable Rust toolchain.
+Requires a current stable Rust toolchain, on macOS 11 or later or on Linux (X11 or Wayland).
 
 ```bash
 cargo run --release
@@ -81,6 +91,10 @@ sign it ad hoc so macOS starts it:
 ```bash
 codesign --force --deep -s - /Applications/Freo.app
 ```
+
+On Ubuntu, `scripts/package-linux.sh` packs the release build into a `.deb` and a `.tar.gz`
+in `dist/`; the release workflow in `.github/workflows/release.yml` does this for every
+published release.
 
 Open a model directly with `freo part.pfprt` / `freo asm0001.pfasm`, from Finder, or by
 dragging a file onto the window (a part dropped onto an open assembly is assembled).
