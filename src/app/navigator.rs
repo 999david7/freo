@@ -255,7 +255,6 @@ impl App {
             if r.clicked() { ui.memory_mut(|m| m.toggle_popup(id)); }
             egui::popup_below_widget(ui, id, &r, egui::PopupCloseBehavior::CloseOnClickOutside, |ui| {
                 menu_spacing(ui);
-                ui.set_min_width(200.0);
                 if check_row(ui, Some(self.show_suppressed), None, "Unterdrückte Objekte anzeigen") { self.show_suppressed = !self.show_suppressed; }
                 if check_row(ui, Some(!self.creo.hide_cols), None, "Spalten BENENNUNG / SACHNUMMER") { self.creo.hide_cols = !self.creo.hide_cols; }
             });

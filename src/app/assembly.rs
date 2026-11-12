@@ -745,7 +745,6 @@ impl App {
             if bot.clicked() { ui.memory_mut(|m| m.toggle_popup(id)); }
             egui::popup_below_widget(ui, id, &bot, egui::PopupCloseBehavior::CloseOnClick, |ui| {
                 menu_spacing(ui);
-                ui.set_min_width(200.0);
                 if menu_entry(ui, Icon::Assemble, "Zusammenbauen...", true, false).clicked() { self.assemble_from_file(); }
                 if menu_entry(ui, Icon::CreateComp, "Erzeugen...", true, false).clicked() { self.windows.create_comp = Some(self.next_part_name()); }
                 if let Some(c) = comp_sel.and_then(|id| self.component(id)).map(|c| c.part.clone()) {

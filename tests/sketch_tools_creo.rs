@@ -307,3 +307,32 @@ fn sketch_setup_moves_the_sketch_and_views_are_saved() {
     let back: freo::model::features::ModelData = serde_json::from_str(&json).unwrap();
     assert_eq!(back.views, d.views);
 }
+
+#[test]
+fn palette_shapes_are_placed_at_the_click() {
+    use freo::sketch::palette;
+    let tabs = palette::tabs();
+    // every shape of every tab can be placed and stays a valid section
+    for (t, tab) in tabs.iter().enumerate() {
+        for (i, item) in tab.items.iter().enumerate() {
+            let mut app = session();
+            let s = sk(&mut app);
+            s.pick_palette(t, i);
+            assert_eq!(s.tool, Tool::Palette);
+            s.click_at(V2::new(40.0, 25.0));
+            assert_eq!(s.tool, Tool::Select);
+            assert!(s.rot_resize.is_some(), "{}: opens Drehen-Größe ändern", item.name);
+            assert_eq!(s.sketch.entities.len(), item.sketch.entities.len(), "{}", item.name);
+            if !item.name.to_lowercase().starts_with("welle") { assert_eq!(s.sketch.profile_regions().unwrap().len(), 1, "{} / {}", tab.name, item.name); }
+        }
+    }
+    // a steel section keeps its millimetres: L50x40x5 is 40 wide and 50 high, corner at the click
+    let i = tabs[3].items.iter().position(|x| x.name == "L50x40x5").unwrap();
+    let mut app = session();
+    let s = sk(&mut app);
+    s.pick_palette(3, i);
+    s.click_at(V2::new(10.0, 20.0));
+    let (mut mn, mut mx) = (V2::splat(f64::INFINITY), V2::splat(f64::NEG_INFINITY));
+    for e in s.sketch.entities.iter().filter(|e| e.kind == SkKind::Line) { for p in s.sketch.sample(e, 8) { mn = mn.min(p); mx = mx.max(p); } }
+    assert!((mn - V2::new(10.0, 20.0)).length() < 1e-3 && (mx - V2::new(50.0, 70.0)).length() < 1e-3, "{:?} {:?}", mn, mx);
+}

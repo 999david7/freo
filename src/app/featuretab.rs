@@ -103,7 +103,6 @@ pub(crate) fn option_menu<T: Copy + PartialEq>(ui: &mut egui::Ui, key: &str, val
     let mut changed = false;
     egui::popup_below_widget(ui, id, &resp, egui::PopupCloseBehavior::CloseOnClick, |ui| {
         menu_spacing(ui);
-        ui.set_min_width(150.0);
         for (v, ic, n) in opts {
             if menu_entry(ui, *ic, n, true, *v == *value).clicked() { *value = *v; changed = true; }
         }

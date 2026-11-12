@@ -104,7 +104,7 @@ fn text_w(ui: &egui::Ui, t: &str, size: f32) -> f32 { ui.fonts(|f| f.layout_no_w
 
 /// Menu row with a check box in the icon column (Creo's drop-down check items).
 fn menu_check(ui: &mut egui::Ui, checked: bool, label: &str, enabled: bool) -> bool {
-    let w = (text_w(ui, label, 14.0) + 62.0).max(ui.available_width()).max(200.0);
+    let w = (text_w(ui, label, 14.0) + 62.0).max(ui.available_width());
     let (rect, resp) = ui.allocate_exact_size(vec2(w, 32.0), if enabled { Sense::click() } else { Sense::hover() });
     let p = ui.painter();
     if enabled && resp.hovered() { p.rect_filled(rect, 0.0, HOVER_BG); }
@@ -693,7 +693,6 @@ impl App {
         if import { self.sim_import(); }
         let mut toggle_thermal = false;
         group_menu(ui, "sim_study", &title, |ui| {
-            ui.set_min_width(300.0);
             if menu_row(ui, Some(Icon::PerfOptions), "Leistungsoptionen", "", can, false).clicked() { self.sim.perf_open = true; }
             if menu_check(ui, thermal, "Thermische Objekte einschließen", can && matches!(kind, None | Some(StudyKind::Structural))) { toggle_thermal = true; }
         });
@@ -762,7 +761,6 @@ impl App {
             let (top, bot) = split(ui, Icon::Deform, "Verformung\nanimieren", can, self.sim.animate);
             if top.on_hover_text("Verformung bzw. Schwingungsform bewegt darstellen.").clicked() { self.sim.animate = !self.sim.animate; if !deforms { need(self, "Verformung animieren"); } }
             drop_menu(ui, "sim_deform", &bot, |ui| {
-                ui.set_min_width(250.0);
                 for (s, n) in [(DefScale::Auto, "Automatisch skaliert"), (DefScale::True, "Wahre Größe (1×)"), (DefScale::Factor(10.0), "10×"), (DefScale::Factor(100.0), "100×"), (DefScale::Factor(1000.0), "1000×"), (DefScale::Off, "Unverformt")] {
                     if menu_check(ui, self.sim.scale == s, n, true) { self.sim.scale = s; self.sim.buffers = None; }
                 }
@@ -785,7 +783,6 @@ impl App {
         });
         let mut export = false;
         group_menu(ui, "sim_query", &qt, |ui| {
-            ui.set_min_width(330.0);
             if menu_check(ui, self.sim.collect, "Daten sammeln", can) { self.sim.collect = !self.sim.collect; if self.sim.collect { self.say("Daten sammeln: die Kennwerte jeder Lösung werden im Simulationsbericht mitgeschrieben.", MsgKind::Info); } }
             if menu_row(ui, Some(Icon::SavedAnalysis), "Gespeicherte Analyse", "", !self.in_asm(), false).clicked() { self.sim.saved_open = true; }
             if menu_row(ui, Some(Icon::ExportNum), "Numerische Ergebnisse exportieren", "", can, false).clicked() { if res { export = true; } else { need(self, "Numerische Ergebnisse exportieren"); } }

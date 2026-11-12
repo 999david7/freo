@@ -231,6 +231,11 @@ impl App {
                     }
                     s.tool = Tool::Dimension;
                     s.selection = vec![SkSel::Ent(lines[2])];
+                    // FREO_DEMO_POPUP=palette:<tab> opens the Skizzierer-Palette on that tab
+                    if let Some(t) = std::env::var("FREO_DEMO_POPUP").ok().and_then(|v| v.strip_prefix("palette:").and_then(|t| t.parse::<usize>().ok())) {
+                        s.palette_open = true;
+                        s.pick_palette(t.min(8), 1);
+                    }
                 }
             }
             "flange" => {

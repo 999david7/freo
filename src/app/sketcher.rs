@@ -36,6 +36,8 @@ pub enum Tool {
     Replace(i64),
     InfoIntersect, InfoTangent, InfoEntity,
     Text, Csys, Offset, Thicken, AddRef, RefDimension, Perimeter, Baseline,
+    /// Skizzierer-Palette: the next click places the chosen shape
+    Palette,
 }
 
 /// Value prompts and dialogs that a tool opens after its picks (Creo's message-area inputs).
@@ -85,6 +87,7 @@ impl Tool {
             Tool::Centerline => "Zwei Punkte der Mittellinie wählen.",
             Tool::Point => "Eine Position für den Punkt wählen.",
             Tool::Polygon => "Den Mittelpunkt, dann einen Eckpunkt der Form wählen.",
+            Tool::Palette => "Eine Position für die Form aus der Palette wählen.",
             Tool::Spline => "Splinepunkte wählen; letzten Punkt erneut klicken, Mittel-/Rechtsklick oder Esc zum Beenden.",
             Tool::Ellipse => "Den Mittelpunkt, das Ende der Hauptachse, dann einen Punkt der Nebenachse wählen.",
             Tool::Fillet => "Eine Ecke zweier Linien wählen.",
@@ -196,6 +199,10 @@ pub struct SketchSession {
     pub ref_sel: Option<RefRow>,
     pub pending: Option<Pending>,
     pub rot_resize: Option<RotResize>,
+    /// Skizzierer-Palette dialog: open, shown tab and the chosen (tab, item)
+    pub palette_open: bool,
+    pub palette_tab: usize,
+    pub palette_item: Option<(usize, usize)>,
     clipboard: Option<Sketch>,
     clicks: Vec<Snap>,
     chain: Option<(i64, i64)>,
@@ -353,7 +360,7 @@ impl SketchSession {
             last_rect: Tool::Rect, last_circle: Tool::Circle, last_arc: Tool::Arc3, last_fillet: Tool::FilletCirc, last_chamfer: Tool::ChamferKeep,
             last_line: Tool::Line, last_ellipse: Tool::EllipseAxis, last_centerline: Tool::Centerline, chain_select: false, filter: SkFilter::All,
             show_locks: false, hl_overlap: false, hl_intersect: false, hl_branch: false,
-            ref_names: vec![], axis_names: [String::new(), String::new()], cand_refs: vec![], cand_points: vec![], refs_open: false, ref_sel: None, pending: None, rot_resize: None, clipboard: None,
+            ref_names: vec![], axis_names: [String::new(), String::new()], cand_refs: vec![], cand_points: vec![], refs_open: false, ref_sel: None, pending: None, rot_resize: None, palette_open: false, palette_tab: 8, palette_item: None, clipboard: None,
             clicks: vec![], chain: None, picks: vec![], selection: vec![], hover: None, drag: None, edit: None,
             undo: vec![], redo: vec![], dof: 0, messages: vec![], cursor: None,
             rect: Rect::from_min_size(Pos2::ZERO, egui::vec2(1000.0, 800.0)), cam, ppu: 4.0, weak_ready: false,
@@ -752,6 +759,7 @@ impl SketchSession {
                 self.sketch.add_entity(SkKind::Point, vec![p], 0.0, true, false);
                 self.solve();
             }
+            Tool::Palette => self.place_palette(sn.pos),
             Tool::Polygon => {
                 self.clicks.push(sn);
                 if self.clicks.len() < 2 { return; }
@@ -2213,6 +2221,13 @@ impl SketchSession {
             Tool::Circle3 if self.clicks.len() == 2 => {
                 if let Some(c) = circumcenter(self.clicks[0].pos, self.clicks[1].pos, sn.pos) { painter.add(Shape::line(circle(c, (self.clicks[0].pos - c).length()), rb)); }
             }
+            Tool::Palette => if let Some((it, k)) = self.palette_choice() {
+                let shape = it.scaled(k);
+                for e in &shape.entities {
+                    let pts: Vec<Pos2> = shape.sample(e, 48).iter().map(|q| ts(sn.pos + *q)).collect();
+                    if e.centerline || e.construction { painter.extend(Shape::dashed_line(&pts, Stroke::new(1.0_f32, RUBBER), 6.0, 4.0)); } else { painter.add(Shape::line(pts, rb)); }
+                }
+            },
             Tool::Polygon if self.clicks.len() == 1 => {
                 let c0 = self.clicks[0].pos;
                 let r = (sn.pos - c0).length();
@@ -2280,6 +2295,7 @@ impl SketchSession {
     pub fn overlays(&mut self, ctx: &egui::Context) {
         self.pending_ui(ctx);
         self.rot_resize_ui(ctx);
+        self.palette_ui(ctx);
         self.refs_ui(ctx);
         if let Some((id, mut text, focus)) = self.edit.clone() {
             if let Some(c) = self.sketch.constraints.iter().find(|c| c.id == id).cloned() {
@@ -2663,12 +2679,18 @@ impl SketchSession {
     /// Einfügen: a copy with new ids at `at` (or offset), selected and ready for Drehen-Größe ändern.
     pub fn paste(&mut self, at: Option<V2>) {
         let Some(clip) = self.clipboard.clone() else { return };
-        self.push_undo();
         let (mut mn, mut mx) = (V2::splat(f64::INFINITY), V2::splat(f64::NEG_INFINITY));
         for p in &clip.points { mn = mn.min(p.p); mx = mx.max(p.p); }
         let shift = match at { Some(a) => a - (mn + mx) * 0.5, None => (mx - mn) * 0.1 + V2::splat(5.0) };
+        self.insert_sketch(&clip, shift);
+    }
+
+    /// Adds a copy of `clip` moved by `shift`; the copy is selected and opened in Drehen-Größe ändern.
+    fn insert_sketch(&mut self, clip: &Sketch, shift: V2) {
+        self.push_undo();
+        let used: Vec<i64> = clip.entities.iter().flat_map(|e| e.pts.clone()).collect();
         let mut map = std::collections::HashMap::new();
-        for p in &clip.points { map.insert(p.id, self.sketch.add_point(p.p + shift)); }
+        for p in clip.points.iter().filter(|p| used.contains(&p.id)) { map.insert(p.id, self.sketch.add_point(p.p + shift)); }
         let mut emap = std::collections::HashMap::new();
         let mut new_sel = vec![];
         for e in &clip.entities {
@@ -2687,6 +2709,114 @@ impl SketchSession {
         self.selection = new_sel;
         self.solve();
         self.open_rot_resize();
+    }
+
+    /// The shape chosen in the palette and the factor it is placed with: steel sections keep
+    /// their real size, the other shapes get a round size that suits the current view.
+    fn palette_choice(&self) -> Option<(&'static crate::sketch::palette::PaletteItem, f64)> {
+        let (t, i) = self.palette_item?;
+        let it = crate::sketch::palette::tabs().get(t)?.items.get(i)?;
+        if it.real { return Some((it, 1.0)); }
+        let target = 140.0 / self.ppu;
+        let p = 10f64.powf(target.log10().floor());
+        let size = [1.0, 2.0, 5.0, 10.0].iter().map(|m| p * m).filter(|s| *s <= target * 1.0001).fold(p, f64::max);
+        Some((it, size / it.extent()))
+    }
+
+    /// Arms the palette tool with a shape (tab and item index of `palette::tabs()`).
+    pub fn pick_palette(&mut self, tab: usize, item: usize) {
+        self.palette_tab = tab;
+        self.palette_item = Some((tab, item));
+        self.set_tool(Tool::Palette);
+    }
+
+    /// Places the chosen palette shape with its origin at `at`.
+    pub fn place_palette(&mut self, at: V2) {
+        let Some((it, k)) = self.palette_choice() else { return };
+        let shape = it.scaled(k);
+        self.insert_sketch(&shape, at);
+        self.tool = Tool::Select;
+    }
+
+    /// Creo's "Skizzierer-Palette": preview, the tab rows and the shape list with thumbnails.
+    fn palette_ui(&mut self, ctx: &egui::Context) {
+        if !self.palette_open { return; }
+        const BG: Color32 = Color32::from_rgb(64, 92, 122);
+        const INK: Color32 = Color32::from_rgb(255, 255, 0);
+        const SEL_ROW: Color32 = Color32::from_rgb(179, 224, 255);
+        let border = Stroke::new(1.0_f32, Color32::from_rgb(190, 194, 200));
+        let thumb = |p: &egui::Painter, r: Rect, it: &crate::sketch::palette::PaletteItem| {
+            p.rect_filled(r, 0.0, BG);
+            let (mn, mx) = it.bounds(false);
+            let c = (mn + mx) * 0.5;
+            let k = ((r.width() - 12.0) as f64 / (mx.x - mn.x).max(1e-9)).min((r.height() - 12.0) as f64 / (mx.y - mn.y).max(1e-9));
+            let ts = |q: V2| r.center() + egui::vec2(((q.x - c.x) * k) as f32, (-(q.y - c.y) * k) as f32);
+            let p = p.with_clip_rect(r);
+            for e in &it.sketch.entities {
+                let pts: Vec<Pos2> = it.sketch.sample(e, 48).iter().map(|q| ts(*q)).collect();
+                if e.centerline || e.construction { p.extend(Shape::dashed_line(&pts, Stroke::new(1.0_f32, Color32::from_rgb(214, 222, 232)), 2.0, 2.0)); }
+            }
+            for e in it.sketch.entities.iter().filter(|e| !(e.centerline || e.construction)) {
+                p.add(Shape::line(it.sketch.sample(e, 48).iter().map(|q| ts(*q)).collect(), Stroke::new(1.5_f32, INK)));
+            }
+        };
+        let tabs = crate::sketch::palette::tabs();
+        let (mut open, mut close) = (true, false);
+        let mut pick = None;
+        egui::Window::new("Skizzierer-Palette").id(egui::Id::new("sk_palette")).open(&mut open).collapsible(false).resizable(false)
+            .default_pos(self.rect.right_top() + egui::vec2(-360.0, 20.0)).show(ctx, |ui| {
+            let w = 320.0;
+            ui.set_width(w);
+            // preview of the chosen shape
+            let (pr, _) = ui.allocate_exact_size(egui::vec2(w, 96.0), egui::Sense::hover());
+            ui.painter().rect_filled(pr, 0.0, BG);
+            if let Some(it) = self.palette_item.and_then(|(t, i)| tabs.get(t)?.items.get(i)) { thumb(ui.painter(), pr, it); }
+            ui.add_space(6.0);
+            // three rows of tabs; the row of the active tab sits directly on the list, as in Creo
+            let font = egui::FontId::proportional(14.0);
+            let mut rows: Vec<usize> = (0..tabs.len().div_ceil(3)).collect();
+            let active_row = self.palette_tab / 3;
+            rows.retain(|r| *r != active_row);
+            rows.push(active_row);
+            ui.spacing_mut().item_spacing.y = 0.0;
+            for row in rows {
+                let n = tabs.len().min(row * 3 + 3) - row * 3;
+                let (rr, _) = ui.allocate_exact_size(egui::vec2(w, 30.0), egui::Sense::hover());
+                for k in 0..n {
+                    let i = row * 3 + k;
+                    let r = Rect::from_min_max(egui::pos2(rr.left() + w * k as f32 / n as f32, rr.top()), egui::pos2(rr.left() + w * (k + 1) as f32 / n as f32, rr.bottom()));
+                    let resp = ui.interact(r, ui.id().with(("pal_tab", i)), egui::Sense::click());
+                    let on = i == self.palette_tab;
+                    ui.painter().rect_filled(r, 0.0, if on { Color32::WHITE } else if resp.hovered() { Color32::from_rgb(226, 238, 250) } else { Color32::from_rgb(240, 241, 243) });
+                    ui.painter().rect_stroke(r, 0.0, border, egui::StrokeKind::Inside);
+                    ui.painter().text(r.center(), egui::Align2::CENTER_CENTER, tabs[i].name, font.clone(), Color32::from_rgb(40, 44, 50));
+                    if resp.clicked() { self.palette_tab = i; }
+                }
+            }
+            let tab = self.palette_tab.min(tabs.len() - 1);
+            egui::Frame::NONE.fill(Color32::WHITE).stroke(border).inner_margin(4.0).show(ui, |ui| {
+                egui::ScrollArea::vertical().id_salt(("pal_list", tab)).max_height(330.0).min_scrolled_height(330.0).auto_shrink([false, false]).show(ui, |ui| {
+                    ui.spacing_mut().item_spacing.y = 4.0;
+                    for (i, it) in tabs[tab].items.iter().enumerate() {
+                        let (r, resp) = ui.allocate_exact_size(egui::vec2(ui.available_width(), 44.0), egui::Sense::click());
+                        if !ui.is_rect_visible(r) { continue; }
+                        let chosen = self.palette_item == Some((tab, i));
+                        if chosen { ui.painter().rect_filled(r, 0.0, SEL_ROW); } else if resp.hovered() { ui.painter().rect_filled(r, 0.0, Color32::from_rgb(226, 238, 250)); }
+                        thumb(ui.painter(), Rect::from_min_size(r.left_top() + egui::vec2(2.0, 2.0), egui::vec2(40.0, 40.0)), it);
+                        ui.painter().text(r.left_center() + egui::vec2(54.0, 0.0), egui::Align2::LEFT_CENTER, &it.name, font.clone(), Color32::from_rgb(40, 44, 50));
+                        if resp.clicked() || resp.double_clicked() { pick = Some((tab, i)); }
+                        resp.on_hover_text("Klicken mit LMT, dann in der Skizze die Position der Form wählen.");
+                    }
+                });
+            });
+            ui.add_space(8.0);
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| { if ui.button("Schließen").clicked() { close = true; } });
+        });
+        if let Some((t, i)) = pick { self.pick_palette(t, i); }
+        if !open || close {
+            self.palette_open = false;
+            if self.tool == Tool::Palette { self.set_tool(Tool::Select); }
+        }
     }
 
     /// Importieren of a DXF file (LINE, CIRCLE, ARC, LWPOLYLINE with bulges, POLYLINE, SPLINE,

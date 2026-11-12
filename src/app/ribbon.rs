@@ -199,7 +199,7 @@ pub fn stack<R>(ui: &mut egui::Ui, f: impl FnOnce(&mut egui::Ui) -> R) -> R {
 /// Menu row as in Creo's drop-down menus: icon, label and a right-aligned shortcut.
 pub fn menu_row(ui: &mut egui::Ui, icon: Option<Icon>, label: &str, shortcut: &str, enabled: bool, selected: bool) -> Response {
     let font = FontId::proportional(14.0);
-    let w = (text_w(ui, label, &font) + 52.0 + if shortcut.is_empty() { 0.0 } else { text_w(ui, shortcut, &font) + 40.0 }).max(ui.available_width()).max(200.0);
+    let w = (text_w(ui, label, &font) + 52.0 + if shortcut.is_empty() { 0.0 } else { text_w(ui, shortcut, &font) + 40.0 }).max(ui.available_width());
     let (rect, resp) = ui.allocate_exact_size(vec2(w, 32.0), if enabled { Sense::click() } else { Sense::hover() });
     let p = ui.painter();
     if selected { p.rect_filled(rect, 0.0, SEL_BG); } else if enabled && resp.hovered() { p.rect_filled(rect, 0.0, HOVER_BG); }
@@ -214,7 +214,7 @@ pub fn menu_row(ui: &mut egui::Ui, icon: Option<Icon>, label: &str, shortcut: &s
 /// Check row of Creo's filter drop-downs; `state` None draws the mixed "(Alle auswählen)" box.
 pub fn check_row(ui: &mut egui::Ui, state: Option<bool>, icon: Option<Icon>, label: &str) -> bool {
     let font = FontId::proportional(14.0);
-    let w = (text_w(ui, label, &font) + 84.0).max(ui.available_width()).max(220.0);
+    let w = (text_w(ui, label, &font) + 84.0).max(ui.available_width());
     let (rect, resp) = ui.allocate_exact_size(vec2(w, 32.0), Sense::click());
     let p = ui.painter();
     if resp.hovered() { p.rect_filled(rect, 0.0, HOVER_BG); }
@@ -277,7 +277,6 @@ pub fn drop_menu(ui: &egui::Ui, key: &str, resp: &Response, f: impl FnOnce(&mut 
     demo_popup(ui, id, key);
     egui::popup_below_widget(ui, id, resp, egui::PopupCloseBehavior::CloseOnClick, |ui| {
         menu_spacing(ui);
-        ui.set_min_width(190.0);
         f(ui)
     });
 }
@@ -285,15 +284,15 @@ pub fn drop_menu(ui: &egui::Ui, key: &str, resp: &Response, f: impl FnOnce(&mut 
 /// Popup id of the overflow menu under a group title (`group_impl` greys the title while it is open).
 fn group_menu_id(title: &Response) -> egui::Id { title.id.with("group_menu") }
 
-/// Creo's group overflow menu: hangs flush under the group title, exactly as wide as the group,
-/// square and without shadow.
+/// Creo's group overflow menu: hangs flush under the group title, at least as wide as the group,
+/// slightly rounded and without shadow.
 pub fn group_menu(ui: &mut egui::Ui, key: &str, title: &Response, f: impl FnOnce(&mut egui::Ui)) {
     let id = group_menu_id(title);
     if title.clicked() { ui.memory_mut(|m| m.toggle_popup(id)); }
     demo_popup(ui, id, key);
     ui.scope(|ui| {
         let v = ui.visuals_mut();
-        v.menu_corner_radius = egui::CornerRadius::ZERO;
+        v.menu_corner_radius = egui::CornerRadius::same(3);
         v.popup_shadow = egui::Shadow::NONE;
         v.window_fill = Color32::WHITE;
         v.window_stroke = Stroke::new(1.0_f32, Color32::from_rgb(200, 204, 208));
@@ -335,7 +334,6 @@ pub fn ribbon_background(ui: &egui::Ui) {
 fn popup_menu<R>(ui: &egui::Ui, id: egui::Id, resp: &Response, f: impl FnOnce(&mut egui::Ui) -> R) -> Option<R> {
     egui::popup_below_widget(ui, id, resp, egui::PopupCloseBehavior::CloseOnClick, |ui| {
         menu_spacing(ui);
-        ui.set_min_width(170.0);
         f(ui)
     })
 }
@@ -554,7 +552,7 @@ impl App {
         let anchor: egui::Pos2 = ctx.data(|d| d.get_temp(egui::Id::new("file_anchor"))).unwrap_or(pos2(6.0, 56.0));
         let mut close = false;
         let area = egui::Area::new(egui::Id::new("file_menu")).fixed_pos(anchor).order(egui::Order::Foreground).show(ctx, |ui| {
-            egui::Frame::popup(ui.style()).fill(Color32::WHITE).inner_margin(0.0).corner_radius(0.0).show(ui, |ui| {
+            egui::Frame::popup(ui.style()).fill(Color32::WHITE).inner_margin(0.0).corner_radius(3.0).show(ui, |ui| {
                 ui.horizontal(|ui| {
                     ui.spacing_mut().item_spacing = vec2(0.0, 0.0);
                     egui::Frame::NONE.fill(PANEL_BG).inner_margin(6.0).show(ui, |ui| {
@@ -1116,7 +1114,6 @@ impl App {
             demo_popup(ui, id, key);
             egui::popup_below_widget(ui, id, &r, egui::PopupCloseBehavior::CloseOnClick, |ui| {
                 ui.spacing_mut().item_spacing.y = 0.0;
-                ui.set_min_width(260.0);
                 for (t, ic, n, sc) in opts { if menu_row(ui, Some(*ic), n, sc, true, tool == *t).clicked() { *set = Some(*t); } }
             });
         };
@@ -1136,19 +1133,8 @@ impl App {
         });
         group(ui, "Einfügen", |ui| {
             if large(ui, Icon::SkImport, "Importieren", true, false).on_hover_text("Geometrie aus einer Datei (DXF, IGES, AI) in die Skizze importieren").clicked() { import = true; }
-            let pr = large(ui, Icon::SkPalette, "Palette", true, tool == Tool::Polygon).on_hover_text("Ein regelmäßiges Polygon aus der Palette einfügen");
-            let pid = ui.id().with("palette");
-            if pr.clicked() { ui.memory_mut(|m| m.toggle_popup(pid)); }
-            popup_menu(ui, pid, &pr, |ui| {
-                ui.label(egui::RichText::new("Polygone").strong());
-                egui::Grid::new("palette_grid").show(ui, |ui| {
-                    for (i, n) in [3usize, 4, 5, 6, 8, 10, 12].iter().enumerate() {
-                        let name = match n { 3 => "Dreieck", 4 => "Quadrat", 5 => "Fünfeck", 6 => "Sechseck", 8 => "Achteck", 10 => "Zehneck", _ => "Zwölfeck" };
-                        if ui.add(egui::Button::new(format!("{}  ({})", name, n)).selected(s.sides == *n)).clicked() { s.sides = *n; set = Some(Tool::Polygon); }
-                        if i % 2 == 1 { ui.end_row(); }
-                    }
-                });
-            });
+            let pr = large(ui, Icon::SkPalette, "Palette", true, s.palette_open || tool == Tool::Palette).on_hover_text("Skizzierer-Palette: vordefinierte Formen (Polygone, Profile, Formen, Sterne) in die Skizze einfügen");
+            if pr.clicked() { s.palette_open = !s.palette_open; }
         });
         let (has_ent, has_dim, has_weak) = (s.has_selected(false), s.has_selected(true), s.has_weak_selected());
         let (_, title) = group_drop(ui, "Operationen", |ui| {
@@ -1164,7 +1150,6 @@ impl App {
             demo_popup(ui, id, "sk_select");
             egui::popup_below_widget(ui, id, &bot, egui::PopupCloseBehavior::CloseOnClick, |ui| {
                 ui.spacing_mut().item_spacing.y = 0.0;
-                ui.set_min_width(320.0);
                 if menu_row(ui, Some(Icon::SkSelect), "Einzeln", "", true, tool == Tool::Select && !s.chain_select).clicked() { set = Some(Tool::Select); s.chain_select = false; }
                 if menu_row(ui, Some(Icon::SelChain), "Kette", "", true, tool == Tool::Select && s.chain_select).clicked() { set = Some(Tool::Select); s.chain_select = true; }
                 if menu_row(ui, None, "Alle Geometrie", "", true, false).clicked() { s.select_all(false); }
@@ -1173,7 +1158,6 @@ impl App {
         });
         group_menu(ui, "sk_ops", &title, |ui| {
             ui.spacing_mut().item_spacing.y = 0.0;
-            ui.set_min_width(360.0);
             if menu_row(ui, None, "Löschen", "Entf", !s.selection.is_empty(), false).clicked() { s.delete_selection(); }
             if menu_row(ui, Some(Icon::SkReplace), "Ersetzen", "", has_ent, false).clicked() { s.start_replace(); }
             if menu_row(ui, Some(Icon::SkConstruction), "Konstruktion", "Umschalt+G", has_ent, false).clicked() { s.toggle_construction(); }
@@ -1185,7 +1169,6 @@ impl App {
             if has_dim && (r.hovered() || over_sub || std::env::var("FREO_DEMO_POPUP").as_deref() == Ok("sk_ops")) {
                 let area = egui::Area::new(sub_id).fixed_pos(r.rect.right_top()).order(egui::Order::Tooltip).show(ui.ctx(), |ui| {
                     egui::Frame::popup(ui.style()).inner_margin(2.0).show(ui, |ui| {
-                        ui.set_min_width(180.0);
                         if menu_row(ui, Some(Icon::SkConvert), "Stark", "", has_weak, false).clicked() { s.strengthen_selection(); }
                         if menu_row(ui, Some(Icon::RefDim), "Referenz", "", true, false).clicked() { s.convert_to_reference(); }
                     });
@@ -1255,7 +1238,6 @@ impl App {
         });
         group_menu(ui, "sk_cons", &title, |ui| {
             ui.spacing_mut().item_spacing.y = 0.0;
-            ui.set_min_width(240.0);
             for (c, ic, n) in cons.iter().flatten() { if menu_row(ui, Some(*ic), n, "", true, tool == Tool::Con(*c)).clicked() { set = Some(Tool::Con(*c)); } }
         });
         group(ui, "Bemaßung", |ui| {
@@ -1271,7 +1253,6 @@ impl App {
         });
         group_menu(ui, "sk_check", &title, |ui| {
             ui.spacing_mut().item_spacing.y = 0.0;
-            ui.set_min_width(420.0);
             for (ic, n, v) in [(Icon::HlOverlap, "Überlappende Geometrie hervorheben", &mut s.hl_overlap), (Icon::HlIntersect, "Sich schneidende Geometrie hervorheben", &mut s.hl_intersect), (Icon::HlBranch, "Geometrieabzweigungen hervorheben", &mut s.hl_branch), (Icon::OpenEnds, "Offene Enden hervorheben", &mut s.open_ends), (Icon::ShadeLoops, "Geschlossene Schleifen schattieren", &mut s.shade)] {
                 if menu_row(ui, Some(ic), n, "", true, *v).clicked() { *v = !*v; }
             }

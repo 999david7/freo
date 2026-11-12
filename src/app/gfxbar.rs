@@ -169,7 +169,6 @@ impl App {
                 else if self.creo.gfx.transp_at.is_some() || std::env::var("FREO_DEMO_POPUP").is_ok_and(|v| v.starts_with("gt_transp")) { self.creo.gfx.transp_at = Some(r.rect); }
             }
             GfxItem::DatumFilter => popup(ui, "gt_datum", egui::PopupCloseBehavior::CloseOnClickOutside, &mut |ui| {
-                ui.set_min_width(260.0);
                 check_list(ui, &mut [(Icon::Plane, "Ebenen-Anzeige", &mut self.show_planes), (Icon::Axis, "Achsenanzeige", &mut self.show_axes), (Icon::Point, "Punkt-Darstellung", &mut self.show_points), (Icon::Csys, "KSys-Anzeige", &mut self.show_csys)]);
             }),
             GfxItem::Planes => if r.clicked() { self.show_planes = !self.show_planes; },
@@ -229,13 +228,11 @@ impl App {
             egui::popup_below_widget(ui, id, r, egui::PopupCloseBehavior::CloseOnClickOutside, |ui| { menu_spacing(ui); f(ui) });
         };
         popup(ui, &r, "gt_sk", &mut |ui| {
-            ui.set_min_width(270.0);
             check_list(ui, &mut [(Icon::DimDisplay, "Bemaßungsanzeige", &mut s.show_dims), (Icon::ConDisplay, "Bedingungsanzeige", &mut s.show_cons), (Icon::Grid, "Rasterdarstellung", &mut s.grid), (Icon::Vertex, "Eckpunktanzeige", &mut s.show_vertices), (Icon::SkLock, "Sperrenanzeige", &mut s.show_locks)]);
             ui.separator();
             if check_row(ui, Some(s.snap_grid), Some(Icon::Grid), "Am Raster fangen") { s.snap_grid = !s.snap_grid; if s.snap_grid { s.grid = true; } }
         });
         popup(ui, &r2, "gt_skcheck", &mut |ui| {
-            ui.set_min_width(440.0);
             check_list(ui, &mut [(Icon::HlOverlap, "Überlappende Geometrie hervorheben", &mut s.hl_overlap), (Icon::HlIntersect, "Sich schneidende Geometrie hervorheben", &mut s.hl_intersect), (Icon::HlBranch, "Geometrieabzweigungen hervorheben", &mut s.hl_branch), (Icon::OpenEnds, "Offene Enden hervorheben", &mut s.open_ends), (Icon::ShadeLoops, "Geschlossene Schleifen schattieren", &mut s.shade)]);
         });
     }

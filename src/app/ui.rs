@@ -156,7 +156,6 @@ impl App {
     /// Anzeigestil drop-down, shared by the graphics toolbar and the Ansicht ribbon.
     pub(super) fn style_menu(&mut self, ui: &mut egui::Ui) {
         ui.spacing_mut().item_spacing.y = 0.0;
-        ui.set_min_width(330.0);
         for s in Style::ALL { if menu_row(ui, Some(style_icon(s)), s.name(), s.shortcut(), true, self.style == s).clicked() { self.style = s; } }
     }
 
@@ -164,7 +163,6 @@ impl App {
     /// Returns true when Senkrechte Ansicht was chosen.
     pub(super) fn views_menu(&mut self, ui: &mut egui::Ui) -> bool {
         ui.spacing_mut().item_spacing.y = 0.0;
-        ui.set_min_width(330.0);
         egui::ScrollArea::vertical().max_height(300.0).show(ui, |ui| {
             // Creo: the two fixed orientations first, then all named views alphabetically
             let mut named: Vec<(String, glam::DQuat, Icon)> = StdView::ALL[2..].iter().map(|v| (v.name().to_string(), v.rotation(), v.icon())).collect();

@@ -3,3 +3,4 @@ pub mod sketch;
 pub mod solver;
 pub mod text;
 pub mod import2d;
+pub mod palette;
