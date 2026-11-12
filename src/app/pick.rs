@@ -66,6 +66,7 @@ impl App {
             Some(PickTarget::Axis) => (false, false, false, true, false),
             Some(PickTarget::Direction) => (false, false, true, true, false),
             Some(PickTarget::Features) => (true, true, false, false, false),
+            None if self.sim_picking() => (true, false, false, false, false),
             None => match self.filter {
                 Filter::Smart | Filter::Feature => (true, true, true, true, true),
                 Filter::Surface => (true, false, false, false, false),

@@ -127,7 +127,9 @@ impl App {
 
     fn gfx_button(&mut self, ui: &mut egui::Ui, item: GfxItem, sz: f32, normal_view: &mut bool) {
         let (enabled, selected) = match item {
-            GfxItem::RenderOpts | GfxItem::ViewManager | GfxItem::Simulate | GfxItem::SimPause | GfxItem::AnimOptions => (false, false),
+            GfxItem::Simulate => (self.tab == Tab::LiveSim && self.sim_study().is_some(), false),
+            GfxItem::SimPause => (self.tab == Tab::LiveSim && self.sim_study().is_some(), self.sim.paused),
+            GfxItem::RenderOpts | GfxItem::ViewManager | GfxItem::AnimOptions => (false, false),
             GfxItem::Perspective => (true, self.camera.perspective),
             GfxItem::CappedSection => (true, self.section.is_some()),
             GfxItem::Planes => (true, self.show_planes),
@@ -176,7 +178,9 @@ impl App {
             GfxItem::Csys => if r.clicked() { self.show_csys = !self.show_csys; },
             GfxItem::Annotations => if r.clicked() { self.creo.gfx.annotations = !self.creo.gfx.annotations; },
             GfxItem::SpinCenter => if r.clicked() { self.show_spin = !self.show_spin; },
-            GfxItem::RenderOpts | GfxItem::ViewManager | GfxItem::Simulate | GfxItem::SimPause | GfxItem::AnimOptions => {}
+            GfxItem::Simulate => if r.clicked() { self.sim_run_now(); },
+            GfxItem::SimPause => if r.clicked() { self.sim.paused = !self.sim.paused; if self.sim.paused { if let Some(j) = self.sim.job.take() { j.shared.cancel.store(true, std::sync::atomic::Ordering::Relaxed); } } },
+            GfxItem::RenderOpts | GfxItem::ViewManager | GfxItem::AnimOptions => {}
         }
     }
 

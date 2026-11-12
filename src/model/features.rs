@@ -735,6 +735,11 @@ pub struct ModelData {
     /// Komponentenschnittstelle: placement references offered when the part is assembled
     #[serde(default)]
     pub interface: Vec<IfaceItem>,
+    /// Live-Simulation studies and the one being worked on
+    #[serde(default)]
+    pub sims: Vec<super::sim::Study>,
+    #[serde(default)]
+    pub sim_active: usize,
 }
 
 /// One reference of the component interface and the constraint it takes part in.
@@ -838,6 +843,8 @@ impl ModelData {
             feature_body: Default::default(),
             default_body: 0,
             interface: vec![],
+            sims: vec![],
+            sim_active: 0,
         }
     }
 

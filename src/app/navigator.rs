@@ -41,6 +41,7 @@ impl App {
                     let (r, _) = Self::paint_row(ui, 0, Icon::ReturnAsm, &format!("{}.ASM", name), Color32::from_rgb(30, 100, 200), false, false, None);
                     if r.on_hover_text("Zur Baugruppe zurückkehren").clicked() { self.asm_return(); }
                 }
+                self.sim_tree_panel(ui);
                 self.model_tree(ui)
             }
             NavTab::Browser => self.folder_browser(ui),

@@ -3,6 +3,7 @@ pub mod drawing;
 pub mod expr;
 pub mod features;
 pub mod regen;
+pub mod sim;
 pub mod step_import;
 pub mod surfaces;
 pub mod threads;

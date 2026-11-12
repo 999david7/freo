@@ -314,6 +314,7 @@ impl eframe::App for App {
             else if self.confirm_discard() { self.load(p); }
         }
 
+        self.sim_tick(ctx);
         self.title_bar(ctx);
         self.tab_strip(ctx);
         let mut outcome = Outcome::None;
@@ -357,6 +358,7 @@ impl eframe::App for App {
         self.asm_windows(ctx);
         self.new_dialogs(ctx);
         self.tool_windows(ctx);
+        self.sim_windows(ctx);
         self.open_dialog_ui(ctx);
         self.export_dialog_ui(ctx);
         self.creo_file_ui(ctx);

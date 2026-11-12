@@ -18,6 +18,7 @@ pub mod featuretab;
 pub mod dialogs;
 pub mod export;
 pub mod icons;
+pub mod livesim;
 pub mod navigator;
 pub mod pick;
 pub mod publish;
@@ -184,6 +185,8 @@ pub struct App {
     pub creo: creo::UiState,
     /// decoded Creo preview waiting to be uploaded as a texture
     pub creo_thumb_pending: Option<eframe::egui::ColorImage>,
+    /// Live-Simulation: solver job, results and display options
+    pub sim: livesim::SimUi,
 }
 
 impl App {
@@ -250,6 +253,7 @@ impl App {
             show_suppressed: true,
             creo: Default::default(),
             creo_thumb_pending: None,
+            sim: Default::default(),
             round_set: 0,
             asm: None,
             new_dialog: None,

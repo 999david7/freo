@@ -786,30 +786,6 @@ impl App {
 
     // ---------------- extra ribbon tabs ----------------
 
-    pub fn live_sim_ribbon(&mut self, ui: &mut egui::Ui) {
-        group_drop(ui, "Studie", |ui| { stack(ui, |ui| { tiny(ui, Icon::AuxApps, "Neue Studie", false, false, true); tiny(ui, Icon::Simulate, "Simulation", false, false, false); }); });
-        group(ui, "Setup", |ui| { large(ui, Icon::Contact, "Kontakt", false, false); });
-        group(ui, "Randbedingungen", |ui| {
-            large(ui, Icon::Fixed, "Fest", false, false);
-            large(ui, Icon::Displacement, "Verschiebung", false, false);
-            stack(ui, |ui| { tiny(ui, Icon::Contact, "Lager", false, false, false); tiny(ui, Icon::ZoomSel, "Symmetrie", false, false, false); tiny(ui, Icon::Settings, "Fluss", false, false, false); });
-        });
-        group(ui, "Lasten", |ui| {
-            for (ic, n) in [(Icon::Force, "Kraft"), (Icon::Moment, "Moment"), (Icon::Pressure, "Druck"), (Icon::Gravity, "Gravitation"), (Icon::Centrifugal, "Zentrifugal"), (Icon::LinAccel, "Lineare\nBeschleunigung")] {
-                large(ui, ic, n, false, false);
-            }
-        });
-        group(ui, "Darstellungsoptionen", |ui| {
-            large(ui, Icon::DraftCheck, "Abweichung\nprüfen", false, false);
-            split(ui, Icon::Deform, "Verformung\nanimieren", false, false);
-            large(ui, Icon::Probe, "Simulationsobjekt-\nAnzeige", false, false);
-        });
-        group_drop(ui, "Abfrage", |ui| {
-            large(ui, Icon::Probe, "Simulations-\nTaster", false, false);
-            large(ui, Icon::SimReport, "Simulationsbericht", false, false);
-        });
-    }
-
     /// One tile of the Anmerkungsebenen gallery; a click activates that plane. Returns true when clicked.
     fn annot_tile(&mut self, ui: &mut egui::Ui, i: usize) -> bool {
         let pl = &self.creo.annot.list[i];

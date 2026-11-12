@@ -41,6 +41,8 @@ pub enum Icon {
     InfoIntersect, InfoTangent, InfoEntity,
     SketchSetup, References, Cut, SkText, SkCsys, SkOffset, SkThicken, RotResize, RefDim, SkImport, Perimeter, Baseline,
     EditRefs, SelRelated, ShowAll, HideOthers, Pin,
+    SimPlus, StudyStruct, StudyThermal, StudyModal, StudyFluid, SimImport, Temperature, Convection, HeatFlow, HeatFlux,
+    Inlet, Outlet, Wind, Frictionless, Symmetry, PerfOptions, SavedAnalysis, ExportNum,
 }
 
 const fn rgb(r: u8, g: u8, b: u8) -> Color32 { Color32::from_rgb(r, g, b) }
@@ -1676,6 +1678,82 @@ pub fn paint(p: &Painter, rect: Rect, icon: Icon, enabled: bool) {
             let c: Vec<P> = (0..=16).map(|i| { let t = i as f32 / 16.0; (1.5 + 13.0 * t, 11.0 - 7.0 * (t * 3.14).sin()) }).collect();
             k.path(&c, 1.4, BROWN);
             for (x, y) in [(1.5, 11.0), (8.0, 4.0), (14.5, 11.0)] { k.path(&[(x - 1.6, y - 1.6), (x + 1.6, y + 1.6)], 1.2, DARK); k.path(&[(x + 1.6, y - 1.6), (x - 1.6, y + 1.6)], 1.2, DARK); }
+        }
+        SimPlus => { k.path(&[(3.0, 8.0), (13.0, 8.0)], 2.6, rgb(30, 30, 32)); k.path(&[(8.0, 3.0), (8.0, 13.0)], 2.6, rgb(30, 30, 32)); }
+        StudyStruct => {
+            k.poly(&[(1.5, 9.5), (11.5, 9.5), (14.5, 6.5), (4.5, 6.5)], LIGHT, Some(MID));
+            k.path(&[(1.5, 9.5), (4.0, 12.0), (9.0, 12.5), (11.5, 9.5)], 1.0, MID);
+            k.arrow((8.0, 1.0), (8.0, 8.0), 1.3, MID, 2.8);
+        }
+        StudyThermal => {
+            k.poly(&[(1.5, 13.0), (12.0, 13.0), (14.5, 10.5), (4.0, 10.5)], LIGHT, Some(MID));
+            for x in [5.0, 8.0, 11.0] { k.path(&[(x, 10.0), (x, 2.0)], 1.2, MID); }
+        }
+        StudyModal => {
+            k.poly(&[(1.0, 13.5), (15.0, 13.5), (15.0, 11.5), (1.0, 11.5)], LIGHT, None);
+            let c: Vec<P> = (0..=24).map(|i| { let t = i as f32 / 24.0; (1.0 + 14.0 * t, 8.0 - 5.5 * (t * 9.42).sin() * (0.45 + 0.55 * (t * 3.14).sin())) }).collect();
+            k.path(&c, 1.4, MID);
+        }
+        StudyFluid => {
+            k.ring((8.0, 8.0), 6.5, 1.3, MID);
+            for i in 0..5 {
+                let t = (i as f32 * 72.0f32).to_radians();
+                k.poly(&[(8.0, 8.0), (8.0 + 5.4 * t.cos(), 8.0 - 5.4 * t.sin()), (8.0 + 4.4 * (t + 0.75).cos(), 8.0 - 4.4 * (t + 0.75).sin())], LIGHT, Some(MID));
+            }
+            k.circle((8.0, 8.0), 1.5, WHITE, Some((1.0, MID)));
+        }
+        SimImport => {
+            k.poly(&[(6.0, 3.0), (14.0, 3.0), (14.0, 11.0), (6.0, 11.0)], LIGHT, Some(MID));
+            k.circle((5.0, 11.0), 3.2, WHITE, Some((1.0, MID)));
+            k.arrow((2.0, 5.0), (5.0, 10.0), 1.1, BLUE, 2.4);
+        }
+        Temperature => {
+            k.poly(&[(6.5, 2.0), (9.5, 2.0), (9.5, 10.0), (6.5, 10.0)], WHITE, Some(MID));
+            k.circle((8.0, 12.0), 3.0, RED, Some((1.0, MID)));
+            k.path(&[(8.0, 5.0), (8.0, 11.0)], 1.6, RED);
+        }
+        Convection => {
+            k.path(&[(1.5, 14.0), (14.5, 14.0)], 1.6, DARK);
+            for x in [4.0, 8.0, 12.0] {
+                let c: Vec<P> = (0..=12).map(|i| { let t = i as f32 / 12.0; (x + 1.3 * (t * 6.28).sin(), 12.0 - 8.0 * t) }).collect();
+                k.path(&c, 1.1, rgb(230, 110, 40));
+                k.head((x, 2.2), (x, 5.0), 2.4, rgb(230, 110, 40));
+            }
+        }
+        HeatFlow => { k.poly(&[(9.0, 2.0), (14.0, 2.0), (14.0, 14.0), (9.0, 14.0)], GLEFT, Some(GLINE)); k.arrow((1.0, 8.0), (9.0, 8.0), 1.6, RED, 3.2); }
+        HeatFlux => { k.poly(&[(9.0, 2.0), (14.0, 2.0), (14.0, 14.0), (9.0, 14.0)], GLEFT, Some(GLINE)); for y in [4.0, 8.0, 12.0] { k.arrow((2.0, y), (9.0, y), 1.0, RED, 2.4); } }
+        Inlet => { k.path(&[(8.0, 2.5), (14.5, 2.5)], 1.6, DARK); k.path(&[(8.0, 13.5), (14.5, 13.5)], 1.6, DARK); k.arrow((1.0, 8.0), (11.0, 8.0), 1.8, BLUE, 3.6); }
+        Outlet => { k.path(&[(1.5, 2.5), (8.0, 2.5)], 1.6, DARK); k.path(&[(1.5, 13.5), (8.0, 13.5)], 1.6, DARK); k.arrow((5.0, 8.0), (15.0, 8.0), 1.8, BLUE, 3.6); }
+        Wind => {
+            for (y, x1) in [(4.0, 13.0), (8.0, 15.0), (12.0, 11.0)] { k.arrow((1.0, y), (x1, y), 1.3, BLUE, 2.8); }
+        }
+        Frictionless => {
+            k.poly(&[(2.0, 3.0), (14.0, 3.0), (14.0, 8.0), (2.0, 8.0)], GLEFT, Some(GLINE));
+            for x in [4.5, 8.0, 11.5] { k.circle((x, 10.2), 1.7, WHITE, Some((1.0, GLINE))); }
+            k.path(&[(1.0, 13.0), (15.0, 13.0)], 1.4, DARK);
+        }
+        Symmetry => {
+            k.dashed((8.0, 1.0), (8.0, 15.0), 1.0, DARK, 2.2, 1.2);
+            k.poly(&[(6.5, 4.0), (6.5, 12.0), (1.5, 12.0)], GLEFT, Some(GLINE));
+            k.poly(&[(9.5, 4.0), (9.5, 12.0), (14.5, 12.0)], WHITE, Some(MID));
+        }
+        PerfOptions => {
+            for (i, c) in [rgb(60, 150, 230), rgb(80, 190, 80), rgb(250, 220, 60), rgb(232, 64, 56)].iter().enumerate() {
+                let x = 2.0 + i as f32 * 3.0;
+                k.poly(&[(x, 13.0), (x + 2.4, 13.0), (x + 2.4, 10.0 - i as f32 * 2.4), (x, 10.0 - i as f32 * 2.4)], *c, None);
+            }
+        }
+        SavedAnalysis => {
+            k.poly(&[(5.0, 6.0), (15.0, 6.0), (15.0, 15.0), (5.0, 15.0)], DARK, None);
+            k.poly(&[(7.0, 6.0), (13.0, 6.0), (13.0, 9.5), (7.0, 9.5)], WHITE, None);
+            k.poly(&[(7.5, 11.5), (12.5, 11.5), (12.5, 15.0), (7.5, 15.0)], LIGHT, None);
+            for x in [1.5, 3.5, 5.5, 7.5] { k.path(&[(x, 1.0), (x, 4.0)], 1.0, DARK); }
+            k.path(&[(1.0, 4.0), (9.0, 4.0)], 1.0, DARK);
+        }
+        ExportNum => {
+            k.poly(&[(1.5, 6.0), (9.5, 6.0), (9.5, 14.5), (1.5, 14.5)], LIGHT, Some(MID));
+            k.path(&[(1.5, 9.0), (9.5, 9.0)], 0.8, MID); k.path(&[(1.5, 11.8), (9.5, 11.8)], 0.8, MID); k.path(&[(5.5, 6.0), (5.5, 14.5)], 0.8, MID);
+            k.arrow((8.0, 4.0), (15.0, 4.0), 1.4, MID, 3.0);
         }
     }
 }

@@ -135,6 +135,12 @@ impl App {
             "model" => Some(Tab::Model), "analysis" => Some(Tab::Analysis), "livesim" => Some(Tab::LiveSim), "annot" => Some(Tab::Annot3d),
             "tools" => Some(Tab::Tools), "view" => Some(Tab::View), "flex" => Some(Tab::Flex), "apps" => Some(Tab::Apps), "htl" => Some(Tab::Htl), _ => None,
         };
+        if let Some(which) = scene.strip_prefix("sim:") {
+            self.data = bracket(); self.add_vertical_rounds(15); self.regenerate(false);
+            self.demo_sim(which);
+            self.fit_pending = true;
+            return;
+        }
         if let Some((pre, t)) = scene.split_once(':') {
             if let Some(tab) = tab_of(t) {
                 if pre == "tab" { self.data = bracket(); self.add_vertical_rounds(15); self.regenerate(false); } else { self.new_part_named("PRT0001"); }

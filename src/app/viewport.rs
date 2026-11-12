@@ -74,6 +74,7 @@ impl App {
             }
         }
         if self.selection.is_empty() { for id in &self.tree_selection { faces.extend(self.faces_of_feature(*id)); } }
+        faces.extend(self.sim_highlight());
         for p in self.place_ref_picks() {
             match p {
                 Pick::Face(f) => faces.push(f),
@@ -169,7 +170,8 @@ impl App {
             if resp.clicked() && !mods.alt {
                 let p0 = hover_pos.and_then(|hp| self.pick_at(local(hp)));
                 let consumed = hover_pos.is_some_and(|hp| self.annot_click(ui.ctx(), hp, local(hp), p0, mods.shift || mods.command))
-                    || hover_pos.map(|hp| self.dims_click(hp)).unwrap_or(false);
+                    || hover_pos.map(|hp| self.dims_click(hp)).unwrap_or(false)
+                    || self.sim_click(hover_pos.map(|hp| local(hp)));
                 if !consumed {
                     let p = hover_pos.and_then(|hp| self.pick_at(local(hp)));
                     if self.edit_dims.is_some() {
@@ -299,17 +301,19 @@ impl App {
             }
         }
         if let Some(op) = self.editing_from_asm() { glass.extend_from_slice(&op.ghost); }
+        // Live-Simulation: the result picture replaces the model
+        let sim = self.sim_frame(&mut lines);
         let a = &self.data.appearance;
         let tint = if self.asm_view().is_some() { [1.0, 1.0, 1.0] } else { a.color };
         let section = self.section_plane().map(|(n, w)| [n.x as f32, n.y as f32, n.z as f32, w as f32]);
         let frame = FrameData {
             mvp: self.camera.proj(size.0 / size.1) * self.camera.view(),
             view: self.camera.view(),
-            model: self.buffers.clone(),
-            color: tint,
+            model: sim.as_ref().map(|s| s.0.clone()).unwrap_or_else(|| self.buffers.clone()),
+            color: if sim.is_some() { [1.0, 1.0, 1.0] } else { tint },
             // Transparenzsteuerung: Volumenkörper n % transparent (never fully invisible)
-            opacity: if self.transparent { (1.0 - self.creo.gfx.transp_pct[0] as f32 / 100.0).max(0.08) } else if self.asm_view().is_some() { 1.0 } else { a.opacity },
-            style: self.style,
+            opacity: if let Some(s) = &sim { s.1 } else if self.transparent { (1.0 - self.creo.gfx.transp_pct[0] as f32 / 100.0).max(0.08) } else if self.asm_view().is_some() { 1.0 } else { a.opacity },
+            style: if sim.is_some() && matches!(self.style, Style::Wireframe | Style::HiddenLine | Style::NoHidden) { Style::ShadedEdges } else { self.style },
             section,
             hl_tris,
             hl_color: SEL,
@@ -393,6 +397,8 @@ impl App {
         if let Some(s) = &mut self.sketch { s.overlays(ui.ctx()); }
         if self.edit_dims.is_some() && self.creo.gfx.annotations { self.dims_overlay(ui.ctx(), &painter, rect); }
         if self.hover.is_some() && self.sketch.is_none() { ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand); }
+        let cam = self.camera;
+        self.sim_overlay(ui.ctx(), &painter, rect, &|p: V3| cam.project(p, size).map(|s| Pos2::new(rect.min.x + s.0, rect.min.y + s.1)));
     }
 
     fn context_menu(&mut self, ui: &mut egui::Ui) {
