@@ -390,6 +390,23 @@ pub fn round_section(r0: f64, r1: f64, convex: bool) -> Section {
     })
 }
 
+/// Round section with a curvature-continuous corner shape instead of the arc.
+pub fn round_section_shape(r0: f64, r1: f64, convex: bool, shape: super::corner::CornerShape) -> Section {
+    Box::new(move |p, n1, n2, _, _, frac| {
+        let r = r0 + (r1 - r0) * frac;
+        let k = n1.dot(n2).clamp(-0.999, 0.999);
+        let s = if convex { -1.0 } else { 1.0 };
+        let c = p + (n1 + n2) * (s * r / (1.0 + k));
+        // from the edge to the tangent points of the circular round
+        let (v1, v2) = (c - s * n1 * r - p, c - s * n2 * r - p);
+        let half = safe_norm(v1, n1).dot(safe_norm(v2, n2)).clamp(-1.0, 1.0).acos() / 2.0;
+        let corner = p - s * safe_norm(n1 + n2, n1) * r * 0.05;
+        let mut ring = vec![corner];
+        ring.extend(shape.points(half, 24).into_iter().map(|(a, b)| p + v1 * a + v2 * b));
+        ring
+    })
+}
+
 pub fn chamfer_section(d1: f64, d2: f64, convex: bool) -> Section {
     Box::new(move |p, n1, n2, f1, f2, _| {
         let s = if convex { 1.0 } else { -1.0 };

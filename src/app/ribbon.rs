@@ -1098,6 +1098,7 @@ impl App {
     }
 
     fn sketch_ribbon(&mut self, ui: &mut egui::Ui) {
+        use crate::kernel::corner::CornerShape;
         // Creo 10's compact Skizze tab: icon grids with ▾ variant menus, and group menus
         let mut sketch_view = false;
         let Some(s) = self.sketch.as_mut() else { return };
@@ -1197,7 +1198,10 @@ impl App {
                 if tiny(ui, Icon::SkSpline, "Spline", true, tool == Tool::Spline, false).clicked() { set = Some(Tool::Spline); }
             });
             stack(ui, |ui| {
-                variants(ui, "filv", s.last_fillet, &[(Tool::FilletCirc, Icon::SkFilletTrim, "Kreisförmig", ""), (Tool::Fillet, Icon::SkFillet, "Rund trimmen", ""), (Tool::FilletEllip, Icon::SkFilletEllip, "Elliptisch", ""), (Tool::FilletEllipTrim, Icon::SkFilletEllip, "Elliptisch trimmen", "")], &mut set);
+                variants(ui, "filv", s.last_fillet, &[(Tool::FilletCirc, Icon::SkFilletTrim, "Kreisförmig", ""), (Tool::Fillet, Icon::SkFillet, "Rund trimmen", ""), (Tool::FilletEllip, Icon::SkFilletEllip, "Elliptisch", ""), (Tool::FilletEllipTrim, Icon::SkFilletEllip, "Elliptisch trimmen", ""),
+                    (Tool::FilletSmooth(CornerShape::G3One), Icon::SkFilletEllip, "Apple-Ecke: G3, einteilig", ""), (Tool::FilletSmooth(CornerShape::G3OneRelief), Icon::SkFilletEllip, "Apple-Ecke: G3, einteilig, Relief", ""),
+                    (Tool::FilletSmooth(CornerShape::G3Three), Icon::SkFilletEllip, "Apple-Ecke: G3, dreiteilig", ""), (Tool::FilletSmooth(CornerShape::G3ThreeRelief), Icon::SkFilletEllip, "Apple-Ecke: G3, dreiteilig, Relief", ""),
+                    (Tool::FilletSmooth(CornerShape::G2Three), Icon::SkFilletEllip, "Apple-Ecke: G2, dreiteilig", "")], &mut set);
                 variants(ui, "chav", s.last_chamfer, &[(Tool::ChamferKeep, Icon::SkChamferTrim, "Fase", ""), (Tool::Chamfer, Icon::SkChamfer, "Fasentrimmung", "")], &mut set);
                 if tiny(ui, Icon::SkText, "Text", true, tool == Tool::Text, false).clicked() { set = Some(Tool::Text); }
             });

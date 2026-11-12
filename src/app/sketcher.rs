@@ -32,6 +32,8 @@ pub enum Tool {
     Fillet, Chamfer, Trim, Divide, Corner, Mirror, Project, Dimension, Con(SkCType),
     LineTangent, CenterlineTangent, SlantRect, Parallelogram, CircleConc, Circle3T, Arc3T, ArcConc, Conic, EllipseAxis,
     FilletCirc, FilletEllip, FilletEllipTrim, ChamferKeep,
+    /// Krümmungsstetige Verrundung ("Apple corner") in one of the smooth corner shapes
+    FilletSmooth(crate::kernel::corner::CornerShape),
     /// Operationen ▸ Ersetzen: the entity whose dimensions and constraints move to the next pick
     Replace(i64),
     InfoIntersect, InfoTangent, InfoEntity,
@@ -110,6 +112,7 @@ impl Tool {
             Tool::EllipseAxis => "Die beiden Enden einer Achse, dann einen Punkt für die andere Achse wählen.",
             Tool::FilletCirc | Tool::FilletEllip => "Eine Ecke zweier Linien wählen; die Ecke bleibt als Konstruktionslinien erhalten.",
             Tool::FilletEllipTrim => "Eine Ecke zweier Linien wählen.",
+            Tool::FilletSmooth(_) => "Eine Ecke zweier Linien wählen; sie wird krümmungsstetig verrundet.",
             Tool::ChamferKeep => "Eine Ecke zweier Linien wählen; die Ecke bleibt als Konstruktionslinien erhalten.",
             Tool::Replace(_) => "Das neue Element wählen, das Bemaßungen und Bedingungen des gewählten Elements übernimmt.",
             Tool::InfoIntersect => "Zwei Elemente wählen, um ihren Schnittpunkt anzuzeigen.",
@@ -457,7 +460,7 @@ impl SketchSession {
             Tool::Rect | Tool::CenterRect | Tool::SlantRect | Tool::Parallelogram => self.last_rect = t,
             Tool::Circle | Tool::Circle3 | Tool::CircleConc | Tool::Circle3T => self.last_circle = t,
             Tool::Arc3 | Tool::ArcCenter | Tool::Arc3T | Tool::ArcConc | Tool::Conic => self.last_arc = t,
-            Tool::Fillet | Tool::FilletCirc | Tool::FilletEllip | Tool::FilletEllipTrim => self.last_fillet = t,
+            Tool::Fillet | Tool::FilletCirc | Tool::FilletEllip | Tool::FilletEllipTrim | Tool::FilletSmooth(_) => self.last_fillet = t,
             Tool::Chamfer | Tool::ChamferKeep => self.last_chamfer = t,
             Tool::Line | Tool::LineTangent => self.last_line = t,
             Tool::Ellipse | Tool::EllipseAxis => self.last_ellipse = t,
@@ -497,7 +500,7 @@ impl SketchSession {
                 let (a, b) = (self.sketch.point(e.pts[0]), self.sketch.point(e.pts[1]));
                 if e.centerline { let (a2, b2) = self.long_line(a, b); self.poly_px(s, &[a2, b2]) } else { self.poly_px(s, &[a, b]) }
             }
-            SkKind::Circle | SkKind::Arc | SkKind::Spline | SkKind::Ellipse | SkKind::Conic => self.poly_px(s, &self.sketch.sample(e, 64)),
+            SkKind::Circle | SkKind::Arc | SkKind::Spline | SkKind::Ellipse | SkKind::Conic | SkKind::Corner => self.poly_px(s, &self.sketch.sample(e, 64)),
             SkKind::Point | SkKind::Csys => (self.to_screen(self.sketch.point(e.pts[0])) - s).length(),
             SkKind::Text => self.sketch.text_loops(e).iter().map(|l| { let mut c = l.clone(); if let Some(f) = l.first() { c.push(*f); } self.poly_px(s, &c) }).fold(f32::INFINITY, f32::min),
         }
@@ -560,7 +563,7 @@ impl SketchSession {
                 SkKind::Line => { let (a, b) = (self.sketch.point(e.pts[0]), self.sketch.point(e.pts[1])); let d = safe_norm2(b - a, V2::X); a + d * (p - a).dot(d) }
                 SkKind::Circle | SkKind::Arc => { let c = self.sketch.point(e.pts[0]); c + safe_norm2(p - c, V2::X) * self.sketch.radius(&e) }
                 SkKind::Point | SkKind::Csys => self.sketch.point(e.pts[0]),
-                SkKind::Spline | SkKind::Ellipse | SkKind::Conic | SkKind::Text => {
+                SkKind::Spline | SkKind::Ellipse | SkKind::Conic | SkKind::Text | SkKind::Corner => {
                     // nearest point on the sampled curve (no point-on constraint for free-form curves)
                     let pts = self.sketch.sample(&e, 96);
                     let q = pts.windows(2).map(|w| { let d = w[1] - w[0]; let t = ((p - w[0]).dot(d) / d.length_squared().max(1e-12)).clamp(0.0, 1.0); w[0] + d * t })
@@ -808,13 +811,14 @@ impl SketchSession {
                 self.sketch.add_entity(SkKind::Ellipse, vec![c, a], ry, cons, false);
                 self.solve();
             }
-            Tool::Fillet | Tool::Chamfer | Tool::FilletCirc | Tool::ChamferKeep | Tool::FilletEllip | Tool::FilletEllipTrim => {
+            Tool::Fillet | Tool::Chamfer | Tool::FilletCirc | Tool::ChamferKeep | Tool::FilletEllip | Tool::FilletEllipTrim | Tool::FilletSmooth(_) => {
                 let Some(pid) = self.hit_point(s, &[0]) else { self.say("Eine Ecke zweier Linien wählen.", MsgKind::Warning); return };
                 match self.tool {
                     Tool::Fillet => self.fillet(pid, false),
                     Tool::FilletCirc => self.fillet(pid, true),
                     Tool::Chamfer => self.chamfer(pid, false),
                     Tool::ChamferKeep => self.chamfer(pid, true),
+                    Tool::FilletSmooth(shape) => self.fillet_smooth(pid, shape),
                     t => self.fillet_elliptic(pid, t == Tool::FilletEllip),
                 }
             }
@@ -1019,6 +1023,30 @@ impl SketchSession {
         if keep { self.keep_corner(pid, i1, i2); }
         self.drop_point_if_unused(pid);
         if !self.solve() { self.say("Verrundung konnte nicht gelöst werden.", MsgKind::Warning); }
+    }
+
+    /// Krümmungsstetige Verrundung: the corner becomes one corner-blend entity between a point on
+    /// each line; the corner point stays on both lines, so the blend always leaves them tangentially
+    /// and with zero curvature. Its size is driven by the two end points, like any trimmed corner.
+    fn fillet_smooth(&mut self, pid: i64, shape: crate::kernel::corner::CornerShape) {
+        let Some((l0, l1)) = self.corner_lines(pid) else { self.say("Eine Verrundungsecke muss genau zwei Linien verbinden.", MsgKind::Warning); return };
+        let p = self.sketch.point(pid);
+        let other = |e: &SkEntity| if e.pts[0] == pid { e.pts[1] } else { e.pts[0] };
+        let (a, b) = (self.sketch.point(other(&l0)), self.sketch.point(other(&l1)));
+        if cross2(a - p, b - p).abs() < 1e-9 { self.say("Die Linien sind parallel.", MsgKind::Warning); return; }
+        // the same setback on both lines keeps the shape symmetric
+        let t = 0.4 * (a - p).length().min((b - p).length());
+        let (t1, t2) = (p + safe_norm2(a - p, V2::X) * t, p + safe_norm2(b - p, V2::Y) * t);
+        self.push_undo();
+        let (i1, i2) = (self.sketch.add_point(t1), self.sketch.add_point(t2));
+        for (e, np) in [(&l0, i1), (&l1, i2)] {
+            if let Some(x) = self.sketch.entities.iter_mut().find(|x| x.id == e.id) { for q in &mut x.pts { if *q == pid { *q = np; } } }
+        }
+        let cons = self.construction;
+        self.sketch.add_entity(SkKind::Corner, vec![i1, i2, pid], shape.code(), cons, false);
+        self.con(SkCType::PointOn, vec![pid], vec![l0.id]);
+        self.con(SkCType::PointOn, vec![pid], vec![l1.id]);
+        self.solve();
     }
 
     fn chamfer(&mut self, pid: i64, keep: bool) {
@@ -1302,6 +1330,7 @@ impl SketchSession {
             SkKind::Spline => format!("Spline mit {} Punkten, Länge {}.", e.pts.len(), f(polyline_len(&sk.sample(e, 96)))),
             SkKind::Point => { let c = sk.point(e.pts[0]); format!("Punkt ({}, {}).", f(c.x), f(c.y)) }
             SkKind::Conic => format!("Kegelschnitt: Rho {}, Länge {}.", f(e.r), f(polyline_len(&sk.sample(e, 96)))),
+            SkKind::Corner => format!("Krümmungsstetige Ecke ({}), Länge {}.", crate::kernel::corner::CornerShape::from_code(e.r).label(), f(polyline_len(&sk.sample(e, 96)))),
             SkKind::Text => format!("Text \"{}\": Höhe {}.", e.text.as_ref().map(|t| t.text.as_str()).unwrap_or(""), f((sk.point(e.pts[1]) - sk.point(e.pts[0])).length())),
             SkKind::Csys => { let c = sk.point(e.pts[0]); format!("Koordinatensystem ({}, {}).", f(c.x), f(c.y)) }
         }

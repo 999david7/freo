@@ -738,7 +738,8 @@ impl<'a> Regen<'a> {
                         // keep the variable radius anchored to the end that was picked first
                         let rev = (c.points[0] - e.a).length() > (c.points[c.points.len() - 1] - e.a).length();
                         let (a, b) = if rev { (r1, r0) } else { (r0, r1) };
-                        let tool = builders::edge_tool(c, &builders::round_section(a, b, c.convex), a.max(b) * 0.02, &mut self.tags, fid);
+                        let section = if set.shape == crate::kernel::corner::CornerShape::Circular { builders::round_section(a, b, c.convex) } else { builders::round_section_shape(a, b, c.convex, set.shape) };
+                        let tool = builders::edge_tool(c, &section, a.max(b) * 0.02, &mut self.tags, fid);
                         cur = if c.convex { csg::subtract(&cur, &tool) } else { csg::union(&cur, &tool) };
                     }
                 }

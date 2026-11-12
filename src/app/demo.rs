@@ -208,6 +208,8 @@ impl App {
                 }
                 self.set_pick_target(None);
                 self.update_editor(|f| if let FeatureKind::Round(d) = &mut f.kind { d.sets[0].radius = Dim::v(10.0) });
+                // FREO_DEMO_POPUP=g3: the curvature-continuous corner shape
+                if std::env::var("FREO_DEMO_POPUP").as_deref() == Ok("g3") { self.update_editor(|f| if let FeatureKind::Round(d) = &mut f.kind { d.sets[0].shape = crate::kernel::corner::CornerShape::G3One; d.sets[0].radius = Dim::v(14.0); }); }
             }
             "sketch" => {
                 self.data = bracket();
@@ -231,6 +233,12 @@ impl App {
                     }
                     s.tool = Tool::Dimension;
                     s.selection = vec![SkSel::Ent(lines[2])];
+                    // FREO_DEMO_POPUP=g3: two corners of the section rounded curvature-continuously
+                    if std::env::var("FREO_DEMO_POPUP").as_deref() == Ok("g3") {
+                        s.selection.clear();
+                        for (q, shape) in [(V2::new(60.0, 12.0), crate::kernel::corner::CornerShape::G3One), (V2::new(25.0, 45.0), crate::kernel::corner::CornerShape::G3Three)] { s.set_tool(Tool::FilletSmooth(shape)); s.click_at(q); }
+                        s.set_tool(Tool::Select);
+                    }
                     // FREO_DEMO_POPUP=palette:<tab> opens the Skizzierer-Palette on that tab
                     if let Some(t) = std::env::var("FREO_DEMO_POPUP").ok().and_then(|v| v.strip_prefix("palette:").and_then(|t| t.parse::<usize>().ok())) {
                         s.palette_open = true;

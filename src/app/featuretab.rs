@@ -445,7 +445,8 @@ impl App {
                                 });
                                 if ui.small_button("＋ Neuer Satz").on_hover_text("Einen neuen Rundungssatz beginnen").clicked() {
                                     let r = d.sets[active].radius.clone();
-                                    d.sets.push(RoundSet { edges: vec![], radius: r.clone(), variable: false, radius_end: r });
+                                    let shape = d.sets[active].shape;
+                                    d.sets.push(RoundSet { edges: vec![], radius: r.clone(), variable: false, radius_end: r, shape });
                                     active = d.sets.len() - 1;
                                     act = Act::Pick(PickTarget::Edges);
                                     changed = true;
@@ -461,6 +462,20 @@ impl App {
                             labeled(ui, if set.variable { "Start" } else { "Radius" }, |ui| { changed |= dim_field(ui, &mut set.radius, &vars, 60.0); });
                             changed |= toggle_small(ui, Icon::Round, "Variabel", &mut set.variable);
                             if set.variable { labeled(ui, "Ende", |ui| { changed |= dim_field(ui, &mut set.radius_end, &vars, 60.0); }); }
+                        });
+                    });
+                    group(ui, "Form", |ui| {
+                        stack(ui, |ui| {
+                            use crate::kernel::corner::CornerShape;
+                            let set = &mut d.sets[active];
+                            let before = set.shape;
+                            egui::ComboBox::from_id_salt("roundshape").width(150.0).selected_text(set.shape.label()).show_ui(ui, |ui| {
+                                for s in CornerShape::ALL { ui.selectable_value(&mut set.shape, s, s.label()).on_hover_text(s.tip()); }
+                            }).response.on_hover_text("Querschnittsform der Rundung: Kreisbogen oder krümmungsstetig wie bei Apple-Gehäusen");
+                            // one click for the usual choice
+                            let mut apple = set.shape == CornerShape::G3One;
+                            if toggle_small(ui, Icon::Round, "Apple-Ecke", &mut apple) { set.shape = if apple { CornerShape::G3One } else { CornerShape::Circular }; }
+                            changed |= set.shape != before;
                         });
                     });
                     self.round_set = active;
@@ -871,7 +886,7 @@ impl App {
                             for (i, set) in d.sets.iter().enumerate() {
                                 if ui.selectable_label(i == active, format!("Satz {}", i + 1)).clicked() { active = i; }
                                 ui.label(format!("{} Kante(n)", set.edges.len()));
-                                ui.label(if set.variable { format!("R {} → {}", set.radius.0, set.radius_end.0) } else { format!("R {}", set.radius.0) });
+                                ui.label(format!("{}{}", if set.variable { format!("R {} → {}", set.radius.0, set.radius_end.0) } else { format!("R {}", set.radius.0) }, if set.shape == Default::default() { String::new() } else { format!("  {}", set.shape.label()) }));
                                 if d.sets.len() > 1 && ui.small_button("✕").clicked() { delete = Some(i); }
                                 ui.end_row();
                             }
@@ -892,6 +907,11 @@ impl App {
                         labeled(ui, if set.variable { "Startradius" } else { "Radius" }, |ui| { dim_field(ui, &mut set.radius, &vars, 70.0); });
                         ui.checkbox(&mut set.variable, "Variabler Radius entlang der Kante");
                         if set.variable { labeled(ui, "Endradius", |ui| { dim_field(ui, &mut set.radius_end, &vars, 70.0); }); }
+                        labeled(ui, "Form", |ui| {
+                            egui::ComboBox::from_id_salt("roundshape_panel").width(170.0).selected_text(set.shape.label()).show_ui(ui, |ui| {
+                                for s in crate::kernel::corner::CornerShape::ALL { ui.selectable_value(&mut set.shape, s, s.label()).on_hover_text(s.tip()); }
+                            });
+                        });
                         if ui.button(if pick == Some(PickTarget::Edges) { "Auswahl beendet" } else { "Kanten hinzufügen..." }).clicked() { act = Act::Pick(PickTarget::Edges); }
                         self.round_set = active;
                     }

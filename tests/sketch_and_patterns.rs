@@ -157,6 +157,81 @@ fn variable_radius_round() {
     assert!(removed > ROUND_LOSS * 20.0 * 16.0 * 1.5);
 }
 
+#[test]
+fn corner_shapes_meet_their_continuity_class() {
+    use freo::kernel::corner::CornerShape;
+    for shape in CornerShape::ALL {
+        for half_deg in [30.0f64, 45.0, 60.0] {
+            let half = half_deg.to_radians();
+            // real coordinates for a unit-radius round: tangent points at 1/tan(half) along the edges
+            let d = 1.0 / half.tan();
+            let (v1, v2) = (V2::new(d, 0.0), V2::new((2.0 * half).cos(), (2.0 * half).sin()) * d);
+            let ab = shape.points(half, 240);
+            let pts: Vec<V2> = ab.iter().map(|(a, b)| v1 * *a + v2 * *b).collect();
+            let name = format!("{:?} at {}°", shape, half_deg);
+            // starts on the first edge, ends on the second, symmetric, through the middle of the round
+            assert!(ab[0].1 == 0.0 && ab[240].0 == 0.0 && (ab[0].0 - ab[240].1).abs() < 1e-6, "{}", name);
+            assert!((pts[120].length() - (1.0 / half.sin() - 1.0)).abs() < 1e-6, "{}", name);
+            let lead = ab[0].0;
+            if shape == CornerShape::Circular { assert!((lead - 1.0).abs() < 1e-3, "{}: {}", name, lead); } else { assert!(lead > 1.15 && lead < 2.2, "{}: starts at {}", name, lead); }
+            // curvature from three neighbouring points (turning angle over length)
+            let curv: Vec<f64> = (1..240).map(|i| {
+                let (a, b) = (pts[i] - pts[i - 1], pts[i + 1] - pts[i]);
+                -(a.x * b.y - a.y * b.x).atan2(a.dot(b)) / ((a.length() + b.length()) * 0.5)
+            }).collect();
+            let peak = curv.iter().cloned().fold(0.0, f64::max);
+            assert!(curv.iter().all(|k| *k > -1e-6), "{}: curvature changes sign", name);
+            if shape != CornerShape::Circular {
+                // G2: no curvature where the curve leaves the edges, and a single rise and fall
+                assert!(curv[0] < peak * 0.03 && curv[238] < peak * 0.03, "{}: {} of {}", name, curv[0], peak);
+                assert!(curv[..120].windows(2).all(|w| w[1] >= w[0] - peak * 0.01) && curv[119..].windows(2).all(|w| w[1] <= w[0] + peak * 0.01), "{}: not one bump", name);
+            }
+            // G3: the curvature also starts without slope, so its first steps are tiny next to a G2 ramp
+            let g3 = matches!(shape, CornerShape::G3One | CornerShape::G3OneRelief | CornerShape::G3Three | CornerShape::G3ThreeRelief);
+            if g3 { assert!(curv[4] < peak * 0.02, "{}: curvature rises at once ({} of {})", name, curv[4], peak); }
+            if shape == CornerShape::G2Three { assert!(curv[4] > peak * 0.04, "{}", name); }
+            // the three-piece shapes have a circular middle, the one-piece shapes a single peak
+            let flat = curv.iter().filter(|k| **k > peak * 0.995).count();
+            match shape {
+                CornerShape::G2Three | CornerShape::G3Three | CornerShape::G3ThreeRelief => assert!(flat > 30, "{}: {}", name, flat),
+                CornerShape::G3One | CornerShape::G3OneRelief => assert!(flat < 30, "{}: {}", name, flat),
+                CornerShape::Circular => assert!(flat > 230, "{}: {}", name, flat),
+            }
+        }
+    }
+}
+
+#[test]
+fn smooth_rounds_start_earlier_than_the_circular_one() {
+    use freo::kernel::corner::CornerShape;
+    let (m, r) = block_with_vertical_edges();
+    let v0 = signed_volume(&r.polys);
+    let removed = |shape: CornerShape| {
+        let mut m = m.clone();
+        let FeatureKind::Round(mut rd) = FeatureKind::new_round() else { unreachable!() };
+        rd.sets[0].edges = vertical_edges(&r, 1.0);
+        rd.sets[0].radius = Dim::v(8.0);
+        rd.sets[0].shape = shape;
+        m.features.push(feat(11, FeatureKind::Round(rd)));
+        let r2 = regen::run(&m);
+        assert!(r2.errors.is_empty(), "{:?}: {:?}", shape, r2.errors);
+        // the block is 100 × 60: how far the flat +X face still reaches in Z
+        let flat = r2.polys.iter().flat_map(|p| p.v.iter()).filter(|v| (v.p.x - 50.0).abs() < 1e-6).map(|v| v.p.z.abs()).fold(0.0, f64::max);
+        (v0 - signed_volume(&r2.polys), flat)
+    };
+    let (circ, flat_c) = removed(CornerShape::Circular);
+    assert!((flat_c - 22.0).abs() < 0.05, "circular round ends 8 mm before the corner: {}", flat_c);
+    for shape in CornerShape::SMOOTH {
+        let (vol, flat) = removed(shape);
+        let lead = shape.points(std::f64::consts::FRAC_PI_4, 24)[0].0;
+        assert!((flat - (30.0 - 8.0 * lead)).abs() < 0.05, "{:?}: starts {} × 8 mm before the corner, flat to {}", shape, lead, flat);
+        assert!(vol > circ * 1.01 && vol < circ * 2.0, "{:?}: circular {} smooth {}", shape, circ, vol);
+    }
+    // a round saved before shapes existed is circular
+    let old: RoundSet = serde_json::from_str(r#"{"edges":[],"radius":"3"}"#).unwrap();
+    assert_eq!(old.shape, CornerShape::Circular);
+}
+
 fn plate_with_leader_hole(x: f64) -> ModelData {
     let mut m = ModelData::new_part("P");
     let FeatureKind::Extrude(mut e) = FeatureKind::new_extrude() else { unreachable!() };

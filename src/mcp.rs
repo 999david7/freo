@@ -525,7 +525,10 @@ pub fn tool_list() -> Vec<Value> {
                 "type": { "type": "string", "enum": ["simple", "counterbore", "countersink", "standard"] }, "cb_diameter": dim_schema("Counterbore diameter"), "cb_depth": dim_schema("Counterbore depth"),
                 "cs_diameter": dim_schema("Countersink diameter"), "cs_angle": dim_schema("Countersink angle (°)"), "size": { "type": "string", "description": "Standard hole thread size, e.g. M6" },
                 "tapped": { "type": "boolean", "description": "Standard hole: tapped (default true)" }, "flip": { "type": "boolean" }, "name": name }), &["plane"]),
-        tool("add_round", "Add a round (Rundung) of constant radius on edges.", json!({ "edges": edges_schema(), "radius": dim_schema("Radius in mm"), "name": name }), &["edges", "radius"]),
+        tool("add_round", "Add a round (Rundung) of constant radius on edges. shape picks the cross-section: a circular arc (default) or a curvature-continuous \"Apple corner\". The smooth shapes pass through the middle of the arc and start about 1.3 to 1.7 times earlier on both faces.",
+            json!({ "edges": edges_schema(), "radius": dim_schema("Radius in mm"),
+                "shape": { "type": "string", "enum": ["circular", "g2_three_piece", "g3_three_piece", "g3_three_piece_relief", "g3_one_piece", "g3_one_piece_relief"], "description": "Cross-section; g3_one_piece is the usual Apple corner" },
+                "continuous": { "type": "boolean", "description": "Shortcut for shape g3_one_piece" }, "name": name }), &["edges", "radius"]),
         tool("add_chamfer", "Add an edge chamfer (Fase).",
             json!({ "edges": edges_schema(), "distance": dim_schema("D (mm)"), "distance2": dim_schema("D2 for kind D1xD2"), "angle": dim_schema("Angle for kind AnglexD"),
                 "kind": { "type": "string", "enum": ["DxD", "D1xD2", "AnglexD"] }, "name": name }), &["edges", "distance"]),
@@ -699,6 +702,8 @@ impl Session {
                 let mut set = RoundSet::new(3.0);
                 set.edges = self.edge_refs(a.req("edges")?)?;
                 set.radius = a.req_dim("radius")?;
+                if a.bool("continuous", false) { set.shape = crate::kernel::corner::CornerShape::G3One; }
+                if let Some(k) = a.str("shape") { set.shape = crate::kernel::corner::CornerShape::from_key(k).ok_or(format!("Unknown round shape {:?}.", k))?; }
                 self.add_feature(FeatureKind::Round(RoundDef { sets: vec![set] }), a.str("name"))?
             }
             "add_chamfer" => {

@@ -336,3 +336,28 @@ fn palette_shapes_are_placed_at_the_click() {
     for e in s.sketch.entities.iter().filter(|e| e.kind == SkKind::Line) { for p in s.sketch.sample(e, 8) { mn = mn.min(p); mx = mx.max(p); } }
     assert!((mn - V2::new(10.0, 20.0)).length() < 1e-3 && (mx - V2::new(50.0, 70.0)).length() < 1e-3, "{:?} {:?}", mn, mx);
 }
+
+#[test]
+fn smooth_fillet_is_one_corner_entity_without_extra_dimensions() {
+    use freo::kernel::corner::CornerShape;
+    for shape in CornerShape::SMOOTH {
+        let mut app = session();
+        let s = sk(&mut app);
+        bracket_rect(s);
+        let (lines, dims) = (kinds(s, SkKind::Line), s.sketch.constraints.iter().filter(|c| c.ty.is_dimension()).count());
+        s.set_tool(Tool::FilletSmooth(shape));
+        s.click_at(V2::new(40.0, 30.0));
+        assert_eq!(kinds(s, SkKind::Line), lines);
+        assert_eq!(kinds(s, SkKind::Corner), 1, "{:?}", shape);
+        assert!(s.sketch.open_ends().is_empty());
+        assert_eq!(s.sketch.profile_regions().unwrap().len(), 1);
+        // two more dimensions at most (one per end of the blend), not one per curve point
+        let now = s.sketch.constraints.iter().filter(|c| c.ty.is_dimension()).count();
+        assert!(now <= dims + 2, "{:?}: {} dimensions before, {} after", shape, dims, now);
+        // the blend runs from line to line and stays inside the corner
+        let e = s.sketch.entities.iter().find(|e| e.kind == SkKind::Corner).unwrap().clone();
+        let pts = s.sketch.sample(&e, 48);
+        assert!((pts[0] - s.sketch.point(e.pts[0])).length() < 1e-9 && (*pts.last().unwrap() - s.sketch.point(e.pts[1])).length() < 1e-9);
+        assert!(pts.iter().all(|p| p.x <= 40.0 + 1e-6 && p.y <= 30.0 + 1e-6 && p.x >= 20.0 && p.y >= 10.0), "{:?}", shape);
+    }
+}

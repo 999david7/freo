@@ -186,7 +186,7 @@ for all agents). It only shows up once `mcp.servers.freo` is configured. Check i
 - Blend: parallel blend of any number of sections with offsets, and **rotational blend**
 - Hole: simple / counterbore / countersink / **standard** (ISO metric coarse M2–M24 and UNC #4-40 – 1/2-13: tapped with tap drill and cosmetic thread, or clearance close/medium/free), blind with drill tip or through all
 - **Cosmetic thread** on a cylindrical surface, **rib** from an open sketch
-- Round with **multiple sets**, each with its own radius or a **variable radius**; **Auto Round**; chamfer (D×D, D1×D2, angle×D) on straight and curved edges, and corner chamfer
+- Round with **multiple sets**, each with its own radius or a **variable radius**, circular or **curvature-continuous** ("Apple corner") in five shapes: one-piece G3, three-piece G3 and G2 (lead-in, arc, lead-out), and relief versions with longer lead-ins; **Auto Round**; chamfer (D×D, D1×D2, angle×D) on straight and curved edges, and corner chamfer
 - Shell with removed surfaces, draft about a hinge plane (also variable)
 - Pattern: direction (1 or 2 directions), axis, **fill** (square / diamond / triangle grid in a sketched region), **curve** (count or spacing along a sketched curve) and **table**; geometry pattern; mirror selected features or all geometry
 - **Surfaces (quilts)**: fill, offset, thicken, solidify, merge, trim, intersect, project, extend, split, copy, replace, boundary blend, style and freestyle
@@ -196,7 +196,7 @@ for all agents). It only shows up once `mcp.servers.freo` is configured. Check i
 
 **Sketcher**
 - Lines (chain, tangent to two circles), rectangles (corner, slanted, centre, parallelogram), circles (centre, concentric, 3-point, 3-tangent), arcs (3-point, centre, 3-tangent, concentric, conic), ellipses (centre, axis ends), interpolating splines
-- Fillets (circular, elliptical, with or without keeping the corner as construction lines), chamfers, centerlines (also tangent), points, coordinate systems, **text** along a line with the bundled or any installed font
+- Fillets (circular, elliptical, with or without keeping the corner as construction lines, and the five curvature-continuous "Apple corner" shapes as one sketch entity), chamfers, centerlines (also tangent), points, coordinate systems, **text** along a line with the bundled or any installed font
 - **Skizzierer-Palette**: nine tabs of ready-made shapes: polygons (3 to 20 sides), stars, C/I/L/T profiles, slots, ovals, crosses, rounded rectangles, waves, bore half-sections, dovetail, and real-size steel sections (rectangular hollow sections, L angles, U channels). Click a shape, click in the sketch, then scale and rotate it
 - **Import** of DXF, IGES and Adobe Illustrator files into the sketch
 - Offset, thicken, project model edges, delete segment (trims at intersections), divide, corner, mirror, rotate/resize, replace, cut / copy / paste, construction mode
@@ -278,7 +278,7 @@ for all agents). It only shows up once `mcp.servers.freo` is configured. Check i
 ## Architecture
 
 ```
-src/kernel   math, BSP-tree CSG, ear-clipping triangulation, topology (welding, T-junction
+src/kernel   math, corner blend curves (circular, G2, G3), BSP-tree CSG, ear-clipping triangulation, topology (welding, T-junction
              repair, faces, edge chains), feature solid builders, planar-patch offsetting,
              hidden-line removal
 src/sketch   sketch model, profile/loop extraction, constraint solver, text outlines,

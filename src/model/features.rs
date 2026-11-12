@@ -248,12 +248,16 @@ pub struct RoundSet {
     pub variable: bool,
     #[serde(default = "default_radius")]
     pub radius_end: Dim,
+    /// Form: circular arc or one of the curvature-continuous corner shapes. The radius is that of
+    /// the arc; the smooth shapes pass through its middle and start earlier on both surfaces.
+    #[serde(default)]
+    pub shape: crate::kernel::corner::CornerShape,
 }
 
 fn default_radius() -> Dim { Dim::v(3.0) }
 
 impl RoundSet {
-    pub fn new(r: f64) -> RoundSet { RoundSet { edges: vec![], radius: Dim::v(r), variable: false, radius_end: Dim::v(r) } }
+    pub fn new(r: f64) -> RoundSet { RoundSet { edges: vec![], radius: Dim::v(r), variable: false, radius_end: Dim::v(r), shape: Default::default() } }
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -270,7 +274,7 @@ impl From<RoundRepr> for RoundDef {
     fn from(r: RoundRepr) -> RoundDef {
         let mut sets = match r {
             RoundRepr::Sets { sets } => sets,
-            RoundRepr::Single { edges, radius } => vec![RoundSet { edges, radius, variable: false, radius_end: default_radius() }],
+            RoundRepr::Single { edges, radius } => vec![RoundSet { edges, radius, variable: false, radius_end: default_radius(), shape: Default::default() }],
         };
         if sets.is_empty() { sets.push(RoundSet::new(3.0)); }
         RoundDef { sets }

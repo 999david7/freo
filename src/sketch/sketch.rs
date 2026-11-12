@@ -15,7 +15,7 @@ pub struct SkPoint {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub enum SkKind { Line, Circle, Arc, Point, Spline, Ellipse, Conic, Text, Csys }
+pub enum SkKind { Line, Circle, Arc, Point, Spline, Ellipse, Conic, Text, Csys, Corner }
 
 /// Sketch text (Creo's Text tool): the entity's two points give height and direction.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -38,7 +38,8 @@ pub struct SkEntity {
     pub kind: SkKind,
     /// line [a,b]; circle [c]; arc [c, start, end] (CCW start->end); point [p];
     /// spline [p0..pn] interpolated (closed when first == last); ellipse [c, major-axis end] with r = minor radius;
-    /// conic [start, end, tangent-intersection] with r = rho; text [start, height point]; csys [origin]
+    /// conic [start, end, tangent-intersection] with r = rho; text [start, height point]; csys [origin];
+    /// corner [start, end, corner point]: a curvature-continuous corner blend, r = `CornerShape::code`
     pub pts: Vec<i64>,
     pub r: f64,
     pub construction: bool,
@@ -346,6 +347,15 @@ impl Sketch {
                 let (p0, p2, c) = (self.point(e.pts[0]), self.point(e.pts[1]), self.point(e.pts[2]));
                 conic_points(p0, c, p2, e.r, per_circle.max(16) / 2)
             }
+            SkKind::Corner => {
+                let (p0, p1, c) = (self.point(e.pts[0]), self.point(e.pts[1]), self.point(e.pts[2]));
+                let (v1, v2) = (p0 - c, p1 - c);
+                let half = safe_norm2(v1, V2::X).dot(safe_norm2(v2, V2::Y)).clamp(-1.0, 1.0).acos() / 2.0;
+                // the shape is given for the tangent points of the circular round; here the curve's own ends are fixed
+                let ab = crate::kernel::corner::CornerShape::from_code(e.r).points(half, per_circle.clamp(16, 48));
+                let lead = ab[0].0.max(1e-9);
+                ab.into_iter().map(|(a, b)| c + v1 * (a / lead) + v2 * (b / lead)).collect()
+            }
             SkKind::Text => self.text_loops(e).into_iter().flatten().collect(),
             SkKind::Csys => vec![self.point(e.pts[0])],
             SkKind::Arc => {
@@ -419,7 +429,7 @@ impl Sketch {
                 SkKind::Line => { *deg.entry(c(e.pts[0])).or_default() += 1; *deg.entry(c(e.pts[1])).or_default() += 1; }
                 SkKind::Arc => { *deg.entry(c(e.pts[1])).or_default() += 1; *deg.entry(c(e.pts[2])).or_default() += 1; }
                 SkKind::Spline => { *deg.entry(c(e.pts[0])).or_default() += 1; *deg.entry(c(*e.pts.last().unwrap())).or_default() += 1; }
-                SkKind::Conic => { *deg.entry(c(e.pts[0])).or_default() += 1; *deg.entry(c(e.pts[1])).or_default() += 1; }
+                SkKind::Conic | SkKind::Corner => { *deg.entry(c(e.pts[0])).or_default() += 1; *deg.entry(c(e.pts[1])).or_default() += 1; }
                 _ => {}
             }
         }
@@ -437,7 +447,7 @@ impl Sketch {
                 SkKind::Line => edges.push(Edge { a: cp(e.pts[0]), b: cp(e.pts[1]), e }),
                 SkKind::Arc => edges.push(Edge { a: cp(e.pts[1]), b: cp(e.pts[2]), e }),
                 SkKind::Spline => edges.push(Edge { a: cp(e.pts[0]), b: cp(*e.pts.last().unwrap()), e }),
-                SkKind::Conic => edges.push(Edge { a: cp(e.pts[0]), b: cp(e.pts[1]), e }),
+                SkKind::Conic | SkKind::Corner => edges.push(Edge { a: cp(e.pts[0]), b: cp(e.pts[1]), e }),
                 SkKind::Text => {
                     for mut s in self.text_loops(e) {
                         if s.len() > 1 && (s[0] - s[s.len() - 1]).length() < 1e-12 { s.pop(); }
@@ -491,7 +501,7 @@ impl Sketch {
                 let mut s = self.sample(ed.e, 64);
                 if !fwd { s.reverse(); }
                 let c = if ed.e.kind == SkKind::Arc { Some(self.point(ed.e.pts[0])) } else { None };
-                let spline = matches!(ed.e.kind, SkKind::Spline | SkKind::Conic);
+                let spline = matches!(ed.e.kind, SkKind::Spline | SkKind::Conic | SkKind::Corner);
                 let m = s.len();
                 let tn = |i: usize| safe_norm2(perp_right(s[(i + 1).min(m - 1)] - s[i.saturating_sub(1)]), V2::X);
                 for k in 0..m - 1 {
