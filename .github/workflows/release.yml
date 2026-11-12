@@ -47,15 +47,31 @@ jobs:
           sudo apt-get install -y ./dist/*.deb
           printf '%s\n' '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"ci","version":"0"}}}' | freo-mcp | head -c 400
           ldd /usr/bin/freo | grep -i "not found" && exit 1 || true
+      - name: Start the app once (virtual display)
+        id: gui
+        continue-on-error: true
+        run: |
+          sudo apt-get install -y --no-install-recommends xvfb libgl1-mesa-dri libegl1 libxcursor1 libxi6 libxrandr2 libxkbcommon-x11-0
+          xvfb-run -a -s "-screen 0 1600x1000x24" env LIBGL_ALWAYS_SOFTWARE=1 FREO_DEMO=bracket FREO_SHOT="$PWD/linux-start.png" FREO_EXIT=1 timeout 180 freo
+          test -s linux-start.png
       - uses: actions/upload-artifact@v4
         with:
           name: freo-linux
           path: dist/*
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: linux-start-screenshot
+          path: linux-start.png
+          if-no-files-found: ignore
       - name: Attach to the release
         if: github.event_name == 'release' || inputs.tag != ''
         env:
           GH_TOKEN: ${{ github.token }}
         run: gh release upload "${{ github.event.release.tag_name || inputs.tag }}" dist/* --clobber
+      - name: Report start check
+        if: steps.gui.outcome == 'failure'
+        run: echo "::warning::the app did not start on the virtual display"
       - name: Report test result
         if: steps.test.outcome == 'failure'
         run: echo "::warning::cargo test failed on Linux; the packages were still built"
