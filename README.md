@@ -1,27 +1,37 @@
 # Freo — Creo-style parametric CAD for macOS (Rust)
 
-Freo is a native, history-based parametric 3D modeller for macOS modelled on the
-PTC Creo Parametric workflow: ribbon → feature dashboard → sketcher → regenerate, with a
-model tree, datum features, references, parameters and relations, assemblies built
-from placement constraints, and associative 2D drawings. It is written entirely in Rust
-(own geometry kernel, constraint solvers, hidden-line removal and OpenGL viewport on
-egui/eframe).
+Freo is a native, history-based parametric 3D modeller for macOS that follows the PTC Creo
+Parametric 10 workflow and look, with Creo's German user interface: ribbon → feature tab →
+sketcher → regenerate. It has a model tree, datum features, parameters and relations,
+assemblies built from placement constraints, associative 2D drawings, 3D annotations, a
+Live-Simulation tab and an MCP server for AI assistants.
 
-![Creo-style workspace](docs/screens/bracket.png)
+It is written entirely in Rust: its own geometry kernel, constraint solvers, hidden-line
+removal, simulation solvers, STEP reader and OpenGL viewport on egui/eframe.
 
-| Sketching in 3D (weak + strong dims) | Extrude tab with Options panel | Edit Dimensions on the model |
+![Freo workspace](docs/screens/bracket.png)
+
+| Sketching in 3D (weak + strong dimensions) | Skizzierer-Palette | Extrude tab with Options panel |
 |---|---|---|
-| ![](docs/screens/sketch.png) | ![](docs/screens/extrude.png) | ![](docs/screens/editdims.png) |
-| **File menu** | **Datum Plane dialog** | **Selection mini toolbar** |
-| ![](docs/screens/file.png) | ![](docs/screens/dialog.png) | ![](docs/screens/mini.png) |
-| **Round sets, variable radius** | **Standard (ISO/UNC) tapped hole** | **Fill pattern in a sketched region** |
-| ![](docs/screens/roundsets.png) | ![](docs/screens/stdhole.png) | ![](docs/screens/fillpattern.png) |
+| ![](docs/screens/sketch.png) | ![](docs/screens/palette.png) | ![](docs/screens/extrude.png) |
+| **Edit Dimensions on the model** | **File menu** | **Datum Plane dialog** |
+| ![](docs/screens/editdims.png) | ![](docs/screens/file.png) | ![](docs/screens/dialog.png) |
+| **Selection mini toolbar** | **Round sets, variable radius** | **Standard (ISO/UNC) tapped hole** |
+| ![](docs/screens/mini.png) | ![](docs/screens/roundsets.png) | ![](docs/screens/stdhole.png) |
+| **Fill pattern in a sketched region** | **Extrude up to the next surface** | **3D annotations** |
+| ![](docs/screens/fillpattern.png) | ![](docs/screens/tonext.png) | ![](docs/screens/annot3d.png) |
+
+### Live-Simulation
+
+| Structural (von Mises stress) | Flow around the part | Thermal |
+|---|---|---|
+| ![](docs/screens/sim_structural.png) | ![](docs/screens/sim_fluid.png) | ![](docs/screens/sim_thermal.png) |
 
 ### Assemblies
 
 ![Assembly](docs/screens/assembly.png)
 
-| Component Placement dashboard | Exploded view | Bill of Materials + mass properties | Component opened in context |
+| Component Placement tab | Exploded view | Bill of Materials + mass properties | Component opened in context |
 |---|---|---|---|
 | ![](docs/screens/placement.png) | ![](docs/screens/explode.png) | ![](docs/screens/bom.png) | ![](docs/screens/openpart.png) |
 
@@ -29,40 +39,51 @@ egui/eframe).
 
 ![Part drawing](docs/screens/drawing.png)
 
-| Assembly drawing: BOM table + balloons | Created dimensions (Annotate tab) | Published PDF |
-|---|---|---|
-| ![](docs/screens/drawing_asm.png) | ![](docs/screens/drawing_annotate.png) | ![](docs/screens/drawing_pdf.png) |
-| **Geometric Tolerance tab** | **Dimension tab: ISO fit H7** | **GD&T published to PDF** |
-| ![](docs/screens/drawing_gdt.png) | ![](docs/screens/drawing_tolerance.png) | ![](docs/screens/drawing_gdt_pdf.png) |
+| Assembly drawing: BOM table + balloons | Created dimensions | Geometric tolerances | Dimension tab: ISO fit H7 |
+|---|---|---|---|
+| ![](docs/screens/drawing_asm.png) | ![](docs/screens/drawing_annotate.png) | ![](docs/screens/drawing_gdt.png) | ![](docs/screens/drawing_tolerance.png) |
 
 ## Interface
 
-The UI follows Creo Parametric's layout and workflow:
+The UI follows Creo Parametric 10 (German). Command names below are given in English, with
+the German label where it helps to find the command.
 
-- Integrated title bar with the **Quick Access Toolbar** (New, Open, Save, Undo, Redo, Regenerate) and the "PRT0001 (Active)" title
-- Green **File** tab with a Creo-style file menu and recently opened files; **Model / Analysis / Tools / View** ribbon tabs with Creo's groups, large/small buttons and vector icons in Creo's style
-- **Contextual feature tabs** (Extrude, Revolve, Hole, Round, …) with Placement / Options / Properties slide-down panels and Preview / OK / Cancel; **dialog boxes** for Datum Plane, Axis, Point and Sketch setup
-- **Sketch tab** with Creo's Setup, Operations, Datum, Sketching, Editing, Constrain, Dimension, Inspect and Close groups; sketching happens **in the 3D graphics window** on the sketch plane, with Sketch View and sketcher display filters
-- **Weak dimensions**: sketches are always fully dimensioned automatically (light blue); adding a strong dimension or constraint replaces the corresponding weak one, and modifying a weak dimension makes it strong
-- **Navigator** with the Model Tree (RIGHT/TOP/FRONT/PRT_CSYS_DEF, expandable Section children, failed/suppressed markers, draggable Insert Here) and a Folder Browser
-- **Graphics window**: in-graphics toolbar, two-sided datum planes with tags, dash-dot axes, spin center, green selection / blue preselection, the **mini toolbar** on selection, and **double-click Edit Dimensions** with in-place value editing
-- Creo-style **status bar**: message area, regeneration status indicator, placement status, selection count and selection filter
-- Creo's **New** dialog (Part / Assembly, sub-types) and **Create Component** dialog
+- **Startseite** (home screen) before a model is open: common folders, recent files, New and Open
+- Title bar with the **Quick Access Toolbar** (New, Open, Save, Undo, Redo, Regenerate, windows, close) and the "BRACKET (Aktiv)" title
+- Green **Datei** tab with Creo's file menu, recent files and direct export; ribbon tabs **Modell, Analyse, Live-Simulation, Anmerkungen erstellen, Werkzeuge, Ansicht, Flexible Modellierung, Anwendungen** and **HTL**, with Creo's groups, large/small buttons, group overflow menus and vector icons
+- **Contextual feature tabs** (Profil/Extrude, Drehen/Revolve, Bohrung/Hole, Rundung/Round, …) with Placement / Options / Properties slide-down panels and Preview / OK / Cancel; **dialog boxes** for datum plane, axis, point, coordinate system and sketch setup
+- **Skizze** tab with Creo's Setup, Einfügen, Operationen, Bezug, Skizze, Editieren, Bedingung definieren, Bemaßung, Prüfen and Schließen groups; sketching happens **in the 3D graphics window** on the sketch plane
+- **Weak dimensions**: a sketch is always fully dimensioned automatically (light blue); a strong dimension or constraint replaces the matching weak one, and modifying a weak dimension makes it strong
+- **Navigator** with the model tree (default datums, expandable sections, failed/suppressed markers, draggable insert marker, columns, filter) and a folder browser
+- **Graphics window**: Creo's graphics toolbar (customisable by right-click), two-sided datum planes with tags, dash-dot axes, spin centre, green selection / blue preselection, the three-row **mini toolbar** next to a selection, and **double-click Edit Dimensions** with in-place value editing
+- **Status bar**: message area, regeneration status, placement status, selection count and selection filter
+- Creo's **Neu** dialog (part / assembly / drawing with sub-types), **Datei öffnen** dialog with preview and file operations, and the **Create Component** dialog
+- Drop-down menus are as wide as their text and slightly rounded
+- Flexible Modellierung and some commands on Anwendungen and HTL are shown for layout parity but greyed out (see [Scope](#scope-compared-with-creo))
 
 ## Build & run
+
+Requires macOS 11 or later and a current stable Rust toolchain.
 
 ```bash
 cargo run --release
 ```
 
-Build a double-clickable `Freo.app` (with icon and `.pfprt` document type):
+Build a double-clickable `Freo.app` (with icon and document types) in the project root:
 
 ```bash
 ./scripts/bundle.sh
 ```
 
-Open a model directly: `freo part.pfprt` / `freo asm0001.pfasm`, or drag a file onto
-the window (a part dropped onto an open assembly is assembled).
+Copy `Freo.app` to `/Applications` to install it. The bundle is not notarised; after copying,
+sign it ad hoc so macOS starts it:
+
+```bash
+codesign --force --deep -s - /Applications/Freo.app
+```
+
+Open a model directly with `freo part.pfprt` / `freo asm0001.pfasm`, from Finder, or by
+dragging a file onto the window (a part dropped onto an open assembly is assembled).
 
 ## AI assistants (MCP)
 
@@ -156,60 +177,86 @@ for all agents). It only shows up once `mcp.servers.freo` is configured. Check i
 
 ## Features
 
-**Modelling (Model tab)**
-- Default datums FRONT / TOP / RIGHT / PRT_CSYS_DEF
-- Datum plane (offset, through axis at angle), datum axis (two planes, world, normal to plane), datum point, sketch (curves)
-- Extrude: add/remove, blind / symmetric / to next / to selected / through all, second side, flip, taper (draft) angle, thicken (thin wall)
-- Revolve: add/remove, angle, symmetric, flip — axis is the sketch centerline
-- Sweep: sketched trajectory + section (section plane normal to the trajectory start), mitered corners
-- Blend: parallel blend of any number of sections with offsets
-- Hole: simple / counterbore / countersink / **standard** (ISO metric coarse M2–M24 and UNC #4-40 – 1/2-13 tables: tapped with tap drill and **cosmetic thread**, or clearance close/medium/free), blind with drill tip or through all, placed on a plane or surface
-- Round with **multiple sets**, each with its own radius or a **variable radius** (start → end); chamfer (D×D, D1×D2, angle×D) on straight and curved edges, convex and concave
-- Shell with removed surfaces, draft about a hinge plane
-- Pattern: direction (1 or 2 directions), axial, **fill** (square / diamond / triangle grid inside a sketched region, spacing, margin, rotation) and **curve** (count or spacing along a sketched curve, optionally following it); mirror selected features or all geometry
+**Modelling (Modell tab)**
+- Default datums RECHTS / OBEN / VORNE (RIGHT / TOP / FRONT) and the BASIS coordinate system
+- Datum plane (offset, through an axis at an angle), datum axis (two planes, world, normal to a plane), datum point, coordinate system, datum curve through points (spline or polyline), sketch
+- Extrude: add/remove, blind / symmetric / to next / to selected / through all, second side, flip, taper angle, thicken (thin wall), solid or surface
+- Revolve: add/remove, angle, symmetric, flip; the axis is the sketch centerline
+- Sweep: sketched trajectory + section, mitred corners; **helical sweep** (springs, threads; pitch, left/right-handed)
+- Blend: parallel blend of any number of sections with offsets, and **rotational blend**
+- Hole: simple / counterbore / countersink / **standard** (ISO metric coarse M2–M24 and UNC #4-40 – 1/2-13: tapped with tap drill and cosmetic thread, or clearance close/medium/free), blind with drill tip or through all
+- **Cosmetic thread** on a cylindrical surface, **rib** from an open sketch
+- Round with **multiple sets**, each with its own radius or a **variable radius**; **Auto Round**; chamfer (D×D, D1×D2, angle×D) on straight and curved edges, and corner chamfer
+- Shell with removed surfaces, draft about a hinge plane (also variable)
+- Pattern: direction (1 or 2 directions), axis, **fill** (square / diamond / triangle grid in a sketched region), **curve** (count or spacing along a sketched curve) and **table**; geometry pattern; mirror selected features or all geometry
+- **Surfaces (quilts)**: fill, offset, thicken, solidify, merge, trim, intersect, project, extend, split, copy, replace, boundary blend, style and freestyle
+- **Bodies**: new body, union, subtract, intersect and split
+- Copy / paste of features, user-defined features (UDF), copy geometry, shrinkwrap, family table, regeneration manager
 - Automatic axes (A_n) for holes, revolves, cylinders and patterned holes
 
 **Sketcher**
-- Line chains, corner/centre rectangle, centre/3-point circle, 3-point/centre arc, **ellipse**, **spline** (interpolating), palette polygon, fillet, chamfer, centerline, point, project, delete segment (**trims at intersections**), divide, corner, mirror, construction mode, Modify dialog, Feature Requirements
-- Snapping to points, entities, projected model edges and sketch references, optional grid snap
+- Lines (chain, tangent to two circles), rectangles (corner, slanted, centre, parallelogram), circles (centre, concentric, 3-point, 3-tangent), arcs (3-point, centre, 3-tangent, concentric, conic), ellipses (centre, axis ends), interpolating splines
+- Fillets (circular, elliptical, with or without keeping the corner as construction lines), chamfers, centerlines (also tangent), points, coordinate systems, **text** along a line with the bundled or any installed font
+- **Skizzierer-Palette**: nine tabs of ready-made shapes: polygons (3 to 20 sides), stars, C/I/L/T profiles, slots, ovals, crosses, rounded rectangles, waves, bore half-sections, dovetail, and real-size steel sections (rectangular hollow sections, L angles, U channels). Click a shape, click in the sketch, then scale and rotate it
+- **Import** of DXF, IGES and Adobe Illustrator files into the sketch
+- Offset, thicken, project model edges, delete segment (trims at intersections), divide, corner, mirror, rotate/resize, replace, cut / copy / paste, construction mode
+- Snapping to points, entities, projected model edges and sketch references, optional grid snap; a References dialog for edges, planes, axes and points
 - Automatic H/V constraints while drawing; constraints H, V, ⊥, ∥, =, tangent, coincident/point-on, midpoint, symmetric, fix
-- Dimensions: length, horizontal/vertical/aligned distance, point–line, radius, diameter, angle; inline editing with numbers or parameter expressions
-- Levenberg–Marquardt solver with live dragging, DOF readout, redundant/conflicting constraint rejection, open-end highlighting, closed-loop shading
+- Dimensions: length, horizontal/vertical/aligned distance, point–line, radius, diameter, angle, perimeter, baseline (ordinate) and reference dimensions; lockable; inline editing with numbers or parameter expressions; Modify dialog
+- Checks: overlapping geometry, intersections, branches, open ends, shaded closed loops, Feature Requirements; info on intersection point, tangency point and entity
+- Levenberg–Marquardt solver with live dragging, DOF readout and rejection of redundant or conflicting constraints
 
 **Model tree & editing**
-- Edit Dimensions (double-click on the model), Edit Definition, rename, suppress/resume, hide/show, delete with dependent children, reorder (parent/child aware), Insert Here (rollback), failed features flagged with the reason
+- Edit Dimensions (double-click on the model), Edit Definition, rename, suppress/resume, hide/show, delete with dependent children, reorder (parent/child aware), insert mode (rollback), failed features flagged with the reason
 - Undo/redo, regenerate, object-action workflow (preselect a plane/face/edge, then pick the tool) and action-object collectors
-- Parameters, relations (`H = W / 3`, functions, comments) and dimensions driven by expressions — sketch dimensions too
+- Parameters, relations (`H = W / 3`, functions, comments) and dimensions driven by expressions, sketch dimensions included
+- Werkzeuge tab: search features by name, reference viewer (parents and children), model player (replays the feature history), feature and model info, message log
 
 **Viewing & analysis**
-- Spin/pan/zoom (mouse, trackpad, pinch), standard orientations, refit, perspective
-- Shading with edges, shading, hidden line, no hidden, wireframe, transparency, appearance colours
+- Spin/pan/zoom (mouse, trackpad, pinch), standard and saved orientations, refit, perspective
+- Display styles: shading with reflections, shading with edges, shading, hidden line, no hidden, wireframe; transparency, appearance colours
 - Datum display toggles, section view through any datum plane with offset
-- Pre-selection highlighting, selection filters (smart, feature, surface, edge, datum), context menus
-- Measure (area, length, diameter, distance, angle), mass properties (volume, area, mass, COG, inertia tensor, bounding box) with material densities, model info
+- Pre-selection highlighting, selection filters, context menus
+- Measure (area, length, diameter, distance, angle), mass properties (volume, area, mass, centre of gravity, inertia tensor, bounding box) with material densities, thickness and short-edge checks, model report
+
+**Live-Simulation**
+- Four study types on the part: **structural** (linear statics), **thermal** (steady heat conduction), **modal** (natural frequencies and mode shapes) and **fluid** (flow around or through the part)
+- Constraints and loads picked on faces: fixed, displacement, frictionless, symmetry; force, moment, pressure, gravity, centrifugal, linear acceleration; temperature, convection, heat flow, heat flux; inlet, outlet, wind
+- The solver runs beside the UI on a worker thread and restarts when the model or the study changes
+- Results on the model: fringe plot with legend (von Mises stress, displacement, safety factor, temperature, heat flux, flow velocity), animated deformation with scale, stream lines, probes, and a simulation report
+- Solvers: voxel finite elements with matrix-free conjugate gradients (statics, heat, modes) and a lattice Boltzmann method (D3Q19) for flow, checked against textbook results in `tests/simulation.rs`
+
+**3D annotations (Anmerkungen erstellen)**
+- Dimensions, ordinate and reference dimensions, tolerances, notes, surface finish, datum feature symbols and datum targets, geometric tolerances, placed on annotation planes (flat to screen, FRONT, TOP, RIGHT)
+- Annotation features group them in the model tree; move, reattach, remove, clean up dimensions
+- Combination states with Creo's state tabs below the graphics window, and a model grid
 
 **Assemblies (`.pfasm`)**
-- New ▸ Assembly with ASM_RIGHT / ASM_TOP / ASM_FRONT / ASM_DEF_CSYS; **Assemble** part files (also by drag-and-drop or from the Folder Browser), **Create** a new part in the assembly, repeat instances
-- **Component Placement** dashboard: Automatic, Coincident, Distance, Angle Offset, Parallel, Normal, Default and Fix constraints between planar surfaces, cylindrical surfaces (their axes), datum planes, axes, points and straight edges; offset, Flip, constraint list panel, **Allow Assumptions**, live status (No Constraints / Partially Constrained (n DOF) / Fully Constrained / Constraints invalid)
+- New ▸ Assembly with ASM_RIGHT / ASM_TOP / ASM_FRONT / ASM_DEF_CSYS; **assemble** part files (also by drag-and-drop or from the folder browser), **create** a new part in the assembly, repeat instances
+- **Component Placement** tab: Automatic, Coincident, Distance, Angle Offset, Parallel, Normal, Default and Fix constraints between planar surfaces, cylindrical surfaces (their axes), datum planes, axes, points and straight edges; offset, flip, constraint list, **Allow Assumptions**, live status (no constraints / partially constrained (n DOF) / fully constrained / invalid)
 - Drag the component being placed to move it (⇧-drag rotates); the free degrees of freedom follow the mouse while the constraints hold
 - Placement solver: Levenberg–Marquardt over each component's rigid transform, solved in model-tree order, with rank-based DOF status; references are stored in part coordinates and follow part edits
-- Assembly model tree with placement status markers, Placement folder with the constraints and each component's features; Edit Definition, Open, Hide, Suppress, Delete (dependent constraints are removed), Assemble Another Instance
-- **Open a component** to edit its features with the rest of the assembly drawn as transparent context, then **Return to Assembly**; saving writes modified parts back to their files
+- Assembly model tree with placement status markers, the constraints and each component's features; Edit Definition, Open, Hide, Suppress, Delete, Assemble Another Instance
+- **Open a component** to edit its features with the rest of the assembly drawn as transparent context, then return to the assembly; saving writes modified parts back to their files
 - **Exploded view** with adjustable distance, **Bill of Materials** (quantities, volumes, masses, CSV export), **Global Interference**, assembly **mass properties** from each part's density, per-part colours
 
 **Drawings (`.pfdrw`)**
-- New ▸ Drawing with Creo's New Drawing dialog: default model (the part or assembly in session, or browse), template with front / top / right projection views and a pictorial view scaled to fit, or empty with format; ISO A4–A0 and ANSI A–E sheets, landscape or portrait, third- or first-angle projection
+- New ▸ Drawing with Creo's dialog: default model (the part or assembly in session, or browse), template with front / top / right projection views and a pictorial view scaled to fit, or empty with format; ISO A4–A0 and ANSI A–E sheets, landscape or portrait, third- or first-angle projection
 - Drawing format: border with zone markers and a title block (company, title, drawing number, scale, size, sheet *n* of *m*, projection symbol, drawn by, date, material) edited in Drawing Properties
-- **Layout** tab: multiple sheets, General view (saved orientations), Projection views aligned to their parent (third/first angle), Detail views (circular boundary in the parent, own scale), 2D cross-sections through a datum plane (hatched cut faces, cutting-plane line with sight arrows and letters, "SECTION A-A"), per-view scale and display style (Wireframe / Hidden / No Hidden), axes and centre marks, exploded assembly views, Lock View Movement, Open Model (edit the model in 3D, then Return to Drawing)
+- **Layout** tab: multiple sheets, general views (saved orientations), projection views aligned to their parent, detail views (circular boundary, own scale), 2D cross-sections through a datum plane (hatched cut faces, cutting-plane line with arrows and letters), per-view scale and display style, axes and centre marks, exploded assembly views, Lock View Movement, Open Model (edit in 3D, then return to the drawing)
 - Views are generated by hidden-line removal of the model (feature edges and silhouettes of curved faces, depth-tested against the facets) and follow every model change
-- **Annotate** tab: Show Model Annotations places the part's sketch dimensions, depths, pattern spacings and hole callouts (e.g. "Ø9.00 THRU, CBORE Ø15.00 x 6.00", "M10x1.5") in the view where they show true length, outside the outline; modifying a shown dimension drives the model. Created (driven) dimensions snap to vertices, edges and circles (horizontal / vertical / aligned / diameter, chosen from where you place them) and re-attach after model edits; `@D` text overrides; notes; Cleanup Dimensions; decimals and text height
-- **Dimension tolerances** in a contextual Dimension tab (opens when a dimension is selected): Nominal, Limits, Plus-Minus, ± Symmetric, Basic (boxed), Reference and **ISO 286 fits** (H, G, F, JS holes; h, g, f, js, k, n, p shafts; IT5–IT11 up to 500 mm) with stacked deviations, tolerance precision, and the general tolerance (e.g. ISO 2768-m) in the title block
-- **GD&T**: datum feature symbols (boxed letter, filled triangle on the feature edge, next free letter skipping I/O/Q), feature control frames for all 14 characteristics (straightness … total runout) with ⌀ zone, Ⓜ/Ⓛ modifiers and up to three datum references — placed under a dimension or with a leader to an edge — and ISO 1302 surface texture symbols (any process, removal required, removal prohibited) with Ra/Rz value and production method; each has its own contextual tab, and all follow model changes
-- **Table** tab: BOM table (index, part number, quantity, mass) above the title block and Create Balloons with leaders to a visible surface of each item
-- Drag views (projections slide along their parent's axis), dimensions, notes, balloons and the table; double-click to edit; undo/redo
+- **Annotate** tab: Show Model Annotations places the part's sketch dimensions, depths, pattern spacings and hole callouts in the view where they show true length; modifying a shown dimension drives the model. Created (driven) dimensions snap to vertices, edges and circles and re-attach after model edits; `@D` text overrides; notes; Cleanup Dimensions; decimals and text height
+- **Dimension tolerances** in a contextual Dimension tab: nominal, limits, plus-minus, symmetric, basic, reference and **ISO 286 fits** (H, G, F, JS holes; h, g, f, js, k, n, p shafts; IT5–IT11 up to 500 mm), tolerance precision, and the general tolerance (e.g. ISO 2768-m) in the title block
+- **GD&T**: datum feature symbols, feature control frames for all 14 characteristics with ⌀ zone, Ⓜ/Ⓛ modifiers and up to three datum references, and ISO 1302 surface texture symbols; each has its own contextual tab, and all follow model changes
+- **Table** tab: BOM table (index, part number, quantity, mass) above the title block and balloons with leaders
+- Drag views, dimensions, notes, balloons and the table; double-click to edit; undo/redo
 - **Publish** tab: vector **PDF** (all sheets), **DXF** (R12, layers per line type) and **SVG**
 
-**Files**: native `.pfprt` / `.pfasm` / `.pfdrw` (JSON, full history; a drawing also embeds its model), export **STEP AP214** (faceted B-rep, one body per component), STL (binary/ASCII) and OBJ.
+**Files**
+- Native `.pfprt` / `.pfasm` / `.pfdrw` (JSON with the full history; a drawing also embeds its model)
+- **Import**: STEP AP203 / AP214 / AP242 (B-rep with analytic and B-spline surfaces, tessellated; assemblies are flattened), STL and OBJ, opened as a part or inserted into a part as an import feature
+- **Export**: STEP AP214 (faceted B-rep, one body per component), STL (binary/ASCII), OBJ, PLY, VRML 2.0, glTF 2.0 and 3MF
+- Native Creo files (`.prt`, `.asm`, `.drw`, with or without version number) are recognised and listed, but their geometry is in PTC's closed format and cannot be read; Freo explains this and points to a STEP export of the same model
 
 ## Controls
 
@@ -223,7 +270,10 @@ for all agents). It only shows up once `mcp.servers.freo` is configured. Check i
 | Edit definition | double-click a tree item, or the mini toolbar |
 | OK / cancel feature or placement | Enter / Esc |
 | Move / rotate the component being placed | drag / ⇧-drag |
+| New / open | ⌘N / ⌘O |
 | Undo / redo / regenerate | ⌘Z / ⇧⌘Z / ⌘G |
+| Sketcher: line chain / corner rectangle | L / R |
+| Sketcher: select all / toggle construction | ⌘⌥A / ⇧G |
 
 ## Architecture
 
@@ -231,12 +281,16 @@ for all agents). It only shows up once `mcp.servers.freo` is configured. Check i
 src/kernel   math, BSP-tree CSG, ear-clipping triangulation, topology (welding, T-junction
              repair, faces, edge chains), feature solid builders, planar-patch offsetting,
              hidden-line removal
-src/sketch   sketch model, profile/loop extraction, constraint solver
-src/model    features & references, expression evaluator, regeneration engine, thread
-             tables, assemblies (placement constraints, solver, merged display, BOM),
-             drawings (sheets, views, dimensions, tables, format)
-src/app      controller, OpenGL renderer, camera, picking, sketcher UI, dashboards,
-             ribbon/tree/status, dialogs, export & mass properties, demo scenes
+src/sketch   sketch model, profile/loop extraction, constraint solver, text outlines,
+             DXF / IGES / Illustrator import, the sketcher palette shapes
+src/model    features & references, expression evaluator, regeneration engine, surfaces,
+             thread and tolerance tables, STEP import, simulation studies, assemblies
+             (placement constraints, solver, merged display, BOM), drawings
+src/sim      Live-Simulation solvers: voxel mesh, finite elements (statics, heat, modes),
+             lattice Boltzmann flow, and the study runner
+src/app      controller, OpenGL renderer, camera, picking, sketcher UI, feature tabs,
+             ribbon / tree / status bar, dialogs, 3D annotations, Live-Simulation UI,
+             assembly and drawing modes, export & mass properties, demo scenes
 src/mcp.rs   MCP server for AI assistants (stdio JSON-RPC, tools over model/regen/export)
 ```
 
@@ -248,15 +302,30 @@ regeneration, so downstream features follow upstream dimension changes.
 ```bash
 cargo test                                   # unit + end-to-end workflow tests
 cargo test --test mcp_server                 # MCP server driven over stdin/stdout
+cargo test --test simulation                 # solvers against textbook results
 cargo run --release --bin kernel_demo -- out # regenerate sample parts and render PNGs
-FREO_DEMO=bracket FREO_SHOT=shot.png FREO_EXIT=1 cargo run --release   # app screenshot
+cargo run --release --example stepcheck -- <folder>   # import every STEP file in a folder
+```
+
+Documentation screenshots come from scripted demo scenes (`src/app/demo.rs`):
+
+```bash
+FREO_DEMO=bracket FREO_SHOT=shot.png FREO_EXIT=1 cargo run --release
+FREO_DEMO=sim:structural FREO_SHOT=sim.png FREO_EXIT=1 cargo run --release
+FREO_DEMO=sketch FREO_DEMO_POPUP=palette:8 FREO_SHOT=palette.png FREO_EXIT=1 cargo run --release
 ```
 
 ## Scope compared with Creo
 
-Freo reimplements the core part-modelling, assembly and drawing workflow. It does not
-include Creo's sheet metal, surfacing, simulation, mechanisms, 3D annotations (MBD) or STEP/IGES import, and
-its kernel is polyhedral (curved surfaces are faceted, so STEP export is a faceted B-rep and
-drawing views of curved surfaces show their facets' silhouettes) rather than an exact NURBS
-B-rep.
-"Creo" is a trademark of PTC Inc.; Freo is an independent project and is not affiliated with PTC.
+Freo reimplements the core part-modelling, assembly, drawing, annotation and live-simulation
+workflow. It does not include Creo's sheet metal, mechanisms, mould and weld applications or
+flexible modelling; the Flexible Modellierung tab and some Anwendungen and HTL commands are
+shown greyed out. Native Creo files cannot be read (use STEP).
+
+The kernel is polyhedral: curved surfaces are faceted, so STEP export is a faceted B-rep,
+imported STEP geometry is a tessellated import feature, and drawing views of curved surfaces
+show their facets' silhouettes, rather than an exact NURBS B-rep. Live-Simulation works on a
+voxel mesh and is meant for quick design feedback, not for certification.
+
+Freo is MIT-licensed (see `Cargo.toml`). "Creo" is a trademark of PTC Inc.; Freo is an independent
+project and is not affiliated with PTC.
