@@ -25,7 +25,13 @@ fn out(name: &str) -> std::path::PathBuf {
 }
 
 fn b64decode(s: &str) -> Vec<u8> {
-    let val = |c: u8| match c { b'A'..=b'Z' => c - b'A', b'a'..=b'z' => c - b'a' + 26, b'0'..=b'9' => c - b'0' + 52, b'+' => 62, _ => 63 } as u32;
+    let val = |c: u8| match c {
+        b'A'..=b'Z' => c - b'A',
+        b'a'..=b'z' => c - b'a' + 26,
+        b'0'..=b'9' => c - b'0' + 52,
+        b'+' => 62,
+        _ => 63,
+    } as u32;
     let mut out = vec![];
     for q in s.as_bytes().chunks(4) {
         let n = q.iter().take_while(|&&c| c != b'=').fold(0u32, |a, &c| a << 6 | val(c)) << (6 * q.iter().filter(|&&c| c == b'=').count());

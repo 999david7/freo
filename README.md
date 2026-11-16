@@ -189,6 +189,15 @@ Copy the `freo-cad` folder into an agent's `<workspace>/skills/` (or `~/.opencla
 for all agents). It only shows up once `mcp.servers.freo` is configured. Check it with
 `openclaw skills info freo-cad --agent <id>`.
 
+## New in 0.3.0
+
+- **Analyse tab**: about 30 analyses that measure the model (short edge, wall thickness, section properties, draft, curvature, shadow, build direction for 3D printing, parameter studies); draft, thickness, curvature, shadow and build direction are also painted on the model with a legend
+- **Werkzeuge tab**: Creo-style dialogs for Parameter, Beziehungen, Familientabelle, Referenz-Viewer, Such-Tool, Komponentenschnittstelle, Publiziergeometrie, Farbeffekte-Manager, Bildeditor, Schraffur-Designer, Hilfsanwendungen and the Mitteilungsprotokoll; Räumliches Ziel / ThingMark tab
+- **Modell tab**: Creo icons and tooltips, keys X (Profil), S (Skizze), R (Rundung), Zusammenführung/Vererbung, Entfernen (removes faces and closes the gap), Rippenleitkurve
+- **Fase / Rundung**: picking one edge of an opening asks whether the whole loop should be chamfered or rounded; tangent edge chains are treated as one edge
+- **Profil**: a clicked face is used as the sketch plane (also for Definieren...), and a direction arrow on the section flips the side
+- **Speed**: chamfers and rounds only cut the model near the tool, and only the changed feature is regenerated; adding or editing a feature takes a fraction of the time it did
+
 ## Features
 
 **Modelling (Modell tab)**

@@ -14,7 +14,9 @@ pub struct ThreadSpec {
     pub clear: [f64; 3],
 }
 
-const fn iso(name: &'static str, major: f64, pitch: f64, tap: f64, clear: [f64; 3]) -> ThreadSpec { ThreadSpec { name, major, pitch, tap, clear } }
+const fn iso(name: &'static str, major: f64, pitch: f64, tap: f64, clear: [f64; 3]) -> ThreadSpec {
+    ThreadSpec { name, major, pitch, tap, clear }
+}
 
 /// ISO 261 coarse threads with ISO 273 clearance holes.
 pub const ISO: &[ThreadSpec] = &[
@@ -52,14 +54,27 @@ pub const UNC: &[ThreadSpec] = &[
 ];
 
 pub fn table(s: ThreadStd) -> &'static [ThreadSpec] {
-    match s { ThreadStd::Iso => ISO, ThreadStd::Unc => UNC }
+    match s {
+        ThreadStd::Iso => ISO,
+        ThreadStd::Unc => UNC,
+    }
 }
 
-pub fn find(s: ThreadStd, name: &str) -> Option<&'static ThreadSpec> { table(s).iter().find(|t| t.name == name) }
+pub fn find(s: ThreadStd, name: &str) -> Option<&'static ThreadSpec> {
+    table(s).iter().find(|t| t.name == name)
+}
 
 /// Drill diameter for a standard hole.
 pub fn drill(spec: &ThreadSpec, tapped: bool, fit: HoleFit) -> f64 {
-    if tapped { spec.tap } else { spec.clear[match fit { HoleFit::Close => 0, HoleFit::Medium => 1, HoleFit::Free => 2 }] }
+    if tapped {
+        spec.tap
+    } else {
+        spec.clear[match fit {
+            HoleFit::Close => 0,
+            HoleFit::Medium => 1,
+            HoleFit::Free => 2,
+        }]
+    }
 }
 
 /// Hole callout, e.g. "M6x1" or "1/4-20 UNC".

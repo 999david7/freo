@@ -5,14 +5,21 @@ use crate::kernel::topology::{FaceRef, Topology};
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub enum StudyKind { Structural, Thermal, Modal, Fluid }
+pub enum StudyKind {
+    Structural,
+    Thermal,
+    Modal,
+    Fluid,
+}
 
 impl StudyKind {
     pub const ALL: [StudyKind; 4] = [StudyKind::Structural, StudyKind::Thermal, StudyKind::Modal, StudyKind::Fluid];
     pub fn title(self) -> &'static str {
         match self {
-            StudyKind::Structural => "Struktur-Simulationsstudie", StudyKind::Thermal => "Thermische Simulationsstudie",
-            StudyKind::Modal => "Modal-Simulationsstudie", StudyKind::Fluid => "Fluidsimulationsstudie",
+            StudyKind::Structural => "Struktur-Simulationsstudie",
+            StudyKind::Thermal => "Thermische Simulationsstudie",
+            StudyKind::Modal => "Modal-Simulationsstudie",
+            StudyKind::Fluid => "Fluidsimulationsstudie",
         }
     }
     pub fn text(self) -> &'static str {
@@ -24,35 +31,74 @@ impl StudyKind {
         }
     }
     pub fn short(self) -> &'static str {
-        match self { StudyKind::Structural => "Struktur", StudyKind::Thermal => "Thermisch", StudyKind::Modal => "Modal", StudyKind::Fluid => "Fluid" }
+        match self {
+            StudyKind::Structural => "Struktur",
+            StudyKind::Thermal => "Thermisch",
+            StudyKind::Modal => "Modal",
+            StudyKind::Fluid => "Fluid",
+        }
     }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ItemKind {
-    Fixed, Displacement, Frictionless, Symmetry,
-    Force, Moment, Pressure, Gravity, Centrifugal, LinAccel,
-    Temperature, Convection, HeatFlow, HeatFlux,
-    Inlet, Outlet, Wind,
+    Fixed,
+    Displacement,
+    Frictionless,
+    Symmetry,
+    Force,
+    Moment,
+    Pressure,
+    Gravity,
+    Centrifugal,
+    LinAccel,
+    Temperature,
+    Convection,
+    HeatFlow,
+    HeatFlux,
+    Inlet,
+    Outlet,
+    Wind,
 }
 
 impl ItemKind {
     pub fn name(self) -> &'static str {
         match self {
-            ItemKind::Fixed => "Fest", ItemKind::Displacement => "Verschiebung", ItemKind::Frictionless => "Reibungsfrei", ItemKind::Symmetry => "Symmetrie",
-            ItemKind::Force => "Kraft", ItemKind::Moment => "Moment", ItemKind::Pressure => "Druck", ItemKind::Gravity => "Gravitation",
-            ItemKind::Centrifugal => "Zentrifugal", ItemKind::LinAccel => "Lineare Beschleunigung",
-            ItemKind::Temperature => "Temperatur", ItemKind::Convection => "Konvektion", ItemKind::HeatFlow => "Wärmestrom", ItemKind::HeatFlux => "Wärmefluss",
-            ItemKind::Inlet => "Einlass", ItemKind::Outlet => "Auslass", ItemKind::Wind => "Anströmung",
+            ItemKind::Fixed => "Fest",
+            ItemKind::Displacement => "Verschiebung",
+            ItemKind::Frictionless => "Reibungsfrei",
+            ItemKind::Symmetry => "Symmetrie",
+            ItemKind::Force => "Kraft",
+            ItemKind::Moment => "Moment",
+            ItemKind::Pressure => "Druck",
+            ItemKind::Gravity => "Gravitation",
+            ItemKind::Centrifugal => "Zentrifugal",
+            ItemKind::LinAccel => "Lineare Beschleunigung",
+            ItemKind::Temperature => "Temperatur",
+            ItemKind::Convection => "Konvektion",
+            ItemKind::HeatFlow => "Wärmestrom",
+            ItemKind::HeatFlux => "Wärmefluss",
+            ItemKind::Inlet => "Einlass",
+            ItemKind::Outlet => "Auslass",
+            ItemKind::Wind => "Anströmung",
         }
     }
     /// The item acts on picked faces (the others act on the whole body or the surroundings).
-    pub fn needs_faces(self) -> bool { !matches!(self, ItemKind::Gravity | ItemKind::Centrifugal | ItemKind::LinAccel | ItemKind::Wind) }
-    pub fn is_load(self) -> bool {
-        matches!(self, ItemKind::Force | ItemKind::Moment | ItemKind::Pressure | ItemKind::Gravity | ItemKind::Centrifugal | ItemKind::LinAccel | ItemKind::HeatFlow | ItemKind::HeatFlux)
+    pub fn needs_faces(self) -> bool {
+        !matches!(self, ItemKind::Gravity | ItemKind::Centrifugal | ItemKind::LinAccel | ItemKind::Wind)
     }
-    pub fn is_thermal(self) -> bool { matches!(self, ItemKind::Temperature | ItemKind::Convection | ItemKind::HeatFlow | ItemKind::HeatFlux) }
-    pub fn is_fluid(self) -> bool { matches!(self, ItemKind::Inlet | ItemKind::Outlet | ItemKind::Wind) }
+    pub fn is_load(self) -> bool {
+        matches!(
+            self,
+            ItemKind::Force | ItemKind::Moment | ItemKind::Pressure | ItemKind::Gravity | ItemKind::Centrifugal | ItemKind::LinAccel | ItemKind::HeatFlow | ItemKind::HeatFlux
+        )
+    }
+    pub fn is_thermal(self) -> bool {
+        matches!(self, ItemKind::Temperature | ItemKind::Convection | ItemKind::HeatFlow | ItemKind::HeatFlux)
+    }
+    pub fn is_fluid(self) -> bool {
+        matches!(self, ItemKind::Inlet | ItemKind::Outlet | ItemKind::Wind)
+    }
     /// Whether a study of `kind` (with thermal objects included or not) takes this item.
     pub fn fits(self, kind: StudyKind, thermal: bool) -> bool {
         match kind {
@@ -66,16 +112,23 @@ impl ItemKind {
 
 /// A picked face, found again after regeneration by a point on it and its normal there.
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
-pub struct SimFace { pub face: FaceRef, pub planar: bool }
+pub struct SimFace {
+    pub face: FaceRef,
+    pub planar: bool,
+}
 
 impl SimFace {
-    pub fn of(topo: &Topology, f: usize) -> SimFace { SimFace { face: topo.surface_ref(f), planar: topo.faces[f].planar } }
+    pub fn of(topo: &Topology, f: usize) -> SimFace {
+        SimFace { face: topo.surface_ref(f), planar: topo.faces[f].planar }
+    }
     pub fn resolve(&self, topo: &Topology) -> Option<usize> {
         if self.planar {
             let f = topo.match_face(self.face.point, self.face.normal)?;
             // the stored centre may lie in a hole of the face: only its plane has to agree
             ((self.face.point - topo.faces[f].center).dot(topo.faces[f].normal).abs() <= (topo.bbox.diagonal() * 2e-3).max(1e-3)).then_some(f)
-        } else { topo.match_surface(self.face.point, self.face.normal) }
+        } else {
+            topo.match_surface(self.face.point, self.face.normal)
+        }
     }
 }
 
@@ -144,21 +197,32 @@ pub const MATERIALS: [Material; 9] = [
     Material { name: "Nylon (PA6)", e: 2700.0, nu: 0.39, rho: 1140.0, alpha: 8.0e-5, k: 0.25, yield_mpa: 70.0 },
 ];
 
-pub fn material(name: &str) -> Material { MATERIALS.iter().copied().find(|m| m.name == name).unwrap_or(MATERIALS[0]) }
+pub fn material(name: &str) -> Material {
+    MATERIALS.iter().copied().find(|m| m.name == name).unwrap_or(MATERIALS[0])
+}
 
 #[derive(Clone, Copy, Debug, PartialEq)]
-pub struct Fluid { pub name: &'static str, /** kg/m³ */ pub rho: f64, /** kinematic viscosity m²/s */ pub nu: f64 }
+pub struct Fluid {
+    pub name: &'static str,
+    /** kg/m³ */
+    pub rho: f64,
+    /** kinematic viscosity m²/s */
+    pub nu: f64,
+}
 
-pub const FLUIDS: [Fluid; 3] = [
-    Fluid { name: "Luft", rho: 1.204, nu: 1.516e-5 },
-    Fluid { name: "Wasser", rho: 998.2, nu: 1.004e-6 },
-    Fluid { name: "Öl (ISO VG 46)", rho: 870.0, nu: 4.6e-5 },
-];
+pub const FLUIDS: [Fluid; 3] =
+    [Fluid { name: "Luft", rho: 1.204, nu: 1.516e-5 }, Fluid { name: "Wasser", rho: 998.2, nu: 1.004e-6 }, Fluid { name: "Öl (ISO VG 46)", rho: 870.0, nu: 4.6e-5 }];
 
-pub fn fluid(name: &str) -> Fluid { FLUIDS.iter().copied().find(|m| m.name == name).unwrap_or(FLUIDS[0]) }
+pub fn fluid(name: &str) -> Fluid {
+    FLUIDS.iter().copied().find(|m| m.name == name).unwrap_or(FLUIDS[0])
+}
 
-fn default_modes() -> usize { 4 }
-fn default_ref_temp() -> f64 { 20.0 }
+fn default_modes() -> usize {
+    4
+}
+fn default_ref_temp() -> f64 {
+    20.0
+}
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Study {

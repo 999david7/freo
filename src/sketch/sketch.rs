@@ -15,7 +15,18 @@ pub struct SkPoint {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub enum SkKind { Line, Circle, Arc, Point, Spline, Ellipse, Conic, Text, Csys, Corner }
+pub enum SkKind {
+    Line,
+    Circle,
+    Arc,
+    Point,
+    Spline,
+    Ellipse,
+    Conic,
+    Text,
+    Csys,
+    Corner,
+}
 
 /// Sketch text (Creo's Text tool): the entity's two points give height and direction.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -53,8 +64,24 @@ pub struct SkEntity {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum SkCType {
-    Coincident, Horizontal, Vertical, Parallel, Perpendicular, Equal, Tangent, PointOn, Midpoint, Symmetric, Fix,
-    Distance, HDistance, VDistance, PointLine, Radius, Diameter, Angle,
+    Coincident,
+    Horizontal,
+    Vertical,
+    Parallel,
+    Perpendicular,
+    Equal,
+    Tangent,
+    PointOn,
+    Midpoint,
+    Symmetric,
+    Fix,
+    Distance,
+    HDistance,
+    VDistance,
+    PointLine,
+    Radius,
+    Diameter,
+    Angle,
     /// rho of a conic
     Rho,
     /// Umfang: total length of the chain `ents`; needs a variable dimension (`var`) that it drives
@@ -68,13 +95,35 @@ pub enum SkCType {
 
 impl SkCType {
     pub fn is_dimension(&self) -> bool {
-        matches!(self, SkCType::Distance | SkCType::HDistance | SkCType::VDistance | SkCType::PointLine | SkCType::Radius | SkCType::Diameter | SkCType::Angle | SkCType::Rho | SkCType::Perimeter | SkCType::Baseline | SkCType::Ordinate)
+        matches!(
+            self,
+            SkCType::Distance
+                | SkCType::HDistance
+                | SkCType::VDistance
+                | SkCType::PointLine
+                | SkCType::Radius
+                | SkCType::Diameter
+                | SkCType::Angle
+                | SkCType::Rho
+                | SkCType::Perimeter
+                | SkCType::Baseline
+                | SkCType::Ordinate
+        )
     }
     pub fn glyph(&self) -> &'static str {
         match self {
-            SkCType::Coincident => "●", SkCType::Horizontal => "H", SkCType::Vertical => "V", SkCType::Parallel => "∥",
-            SkCType::Perpendicular => "⊥", SkCType::Equal => "=", SkCType::Tangent => "T", SkCType::PointOn => "◦",
-            SkCType::Midpoint => "M", SkCType::Symmetric => "↔", SkCType::Fix => "⚓", _ => "",
+            SkCType::Coincident => "●",
+            SkCType::Horizontal => "H",
+            SkCType::Vertical => "V",
+            SkCType::Parallel => "∥",
+            SkCType::Perpendicular => "⊥",
+            SkCType::Equal => "=",
+            SkCType::Tangent => "T",
+            SkCType::PointOn => "◦",
+            SkCType::Midpoint => "M",
+            SkCType::Symmetric => "↔",
+            SkCType::Fix => "⚓",
+            _ => "",
         }
     }
 }
@@ -114,7 +163,9 @@ impl SkConstraint {
     }
 
     /// Identity used to keep label positions of regenerated weak dimensions.
-    pub fn key(&self) -> (SkCType, Vec<i64>, Vec<i64>) { (self.ty, self.pts.clone(), self.ents.clone()) }
+    pub fn key(&self) -> (SkCType, Vec<i64>, Vec<i64>) {
+        (self.ty, self.pts.clone(), self.ents.clone())
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -137,7 +188,16 @@ pub struct Sketch {
 
 impl Default for Sketch {
     fn default() -> Self {
-        Sketch { points: vec![SkPoint { id: 0, p: V2::ZERO }], entities: vec![], constraints: vec![], ref_lines: vec![], next_id: 1, extra_refs: vec![], hidden_refs: vec![], axes_off: [false; 2] }
+        Sketch {
+            points: vec![SkPoint { id: 0, p: V2::ZERO }],
+            entities: vec![],
+            constraints: vec![],
+            ref_lines: vec![],
+            next_id: 1,
+            extra_refs: vec![],
+            hidden_refs: vec![],
+            axes_off: [false; 2],
+        }
     }
 }
 
@@ -149,7 +209,9 @@ pub struct ProfileLoop {
 }
 
 impl ProfileLoop {
-    pub fn area(&self) -> f64 { polygon_area2(&self.pts) }
+    pub fn area(&self) -> f64 {
+        polygon_area2(&self.pts)
+    }
 
     pub fn reversed(&self) -> ProfileLoop {
         let n = self.pts.len();
@@ -169,20 +231,28 @@ impl ProfileLoop {
         let f = safe_norm2(perp_right(b - a), V2::X);
         match self.seg_rad[i] {
             None => (f, f),
-            Some((ra, rb)) => { let s = if (ra + rb).dot(f) >= 0.0 { 1.0 } else { -1.0 }; (ra * s, rb * s) }
+            Some((ra, rb)) => {
+                let s = if (ra + rb).dot(f) >= 0.0 { 1.0 } else { -1.0 };
+                (ra * s, rb * s)
+            }
         }
     }
 
     pub fn resampled(&self, count: usize) -> Vec<V2> {
         let n = self.pts.len();
         let mut lens = vec![0.0];
-        for i in 0..n { let l = lens[i] + (self.pts[(i + 1) % n] - self.pts[i]).length(); lens.push(l); }
+        for i in 0..n {
+            let l = lens[i] + (self.pts[(i + 1) % n] - self.pts[i]).length();
+            lens.push(l);
+        }
         let total = lens[n];
         let mut seg = 0;
         (0..count)
             .map(|k| {
                 let s = total * k as f64 / count as f64;
-                while seg < n - 1 && lens[seg + 1] < s { seg += 1; }
+                while seg < n - 1 && lens[seg + 1] < s {
+                    seg += 1;
+                }
                 let l = lens[seg + 1] - lens[seg];
                 let t = if l > 0.0 { (s - lens[seg]) / l } else { 0.0 };
                 self.pts[seg] + (self.pts[(seg + 1) % n] - self.pts[seg]) * t
@@ -198,20 +268,31 @@ pub struct ProfileRegion {
 }
 
 impl Sketch {
-    pub fn is_empty(&self) -> bool { self.entities.is_empty() }
+    pub fn is_empty(&self) -> bool {
+        self.entities.is_empty()
+    }
 
-    pub fn new_id(&mut self) -> i64 { self.next_id += 1; self.next_id - 1 }
+    pub fn new_id(&mut self) -> i64 {
+        self.next_id += 1;
+        self.next_id - 1
+    }
 
     pub fn point(&self, id: i64) -> V2 {
-        if id == 0 { return V2::ZERO; }
+        if id == 0 {
+            return V2::ZERO;
+        }
         self.points.iter().find(|p| p.id == id).map(|p| p.p).unwrap_or(V2::ZERO)
     }
 
     pub fn set_point(&mut self, id: i64, p: V2) {
-        if let Some(q) = self.points.iter_mut().find(|q| q.id == id) { q.p = p; }
+        if let Some(q) = self.points.iter_mut().find(|q| q.id == id) {
+            q.p = p;
+        }
     }
 
-    pub fn entity(&self, id: i64) -> Option<&SkEntity> { self.entities.iter().find(|e| e.id == id) }
+    pub fn entity(&self, id: i64) -> Option<&SkEntity> {
+        self.entities.iter().find(|e| e.id == id)
+    }
 
     pub fn add_point(&mut self, p: V2) -> i64 {
         let id = self.new_id();
@@ -225,9 +306,15 @@ impl Sketch {
         id
     }
 
-    pub fn add_line(&mut self, a: i64, b: i64) -> i64 { self.add_entity(SkKind::Line, vec![a, b], 0.0, false, false) }
-    pub fn add_circle(&mut self, c: i64, r: f64) -> i64 { self.add_entity(SkKind::Circle, vec![c], r, false, false) }
-    pub fn add_arc(&mut self, c: i64, s: i64, e: i64) -> i64 { self.add_entity(SkKind::Arc, vec![c, s, e], 0.0, false, false) }
+    pub fn add_line(&mut self, a: i64, b: i64) -> i64 {
+        self.add_entity(SkKind::Line, vec![a, b], 0.0, false, false)
+    }
+    pub fn add_circle(&mut self, c: i64, r: f64) -> i64 {
+        self.add_entity(SkKind::Circle, vec![c], r, false, false)
+    }
+    pub fn add_arc(&mut self, c: i64, s: i64, e: i64) -> i64 {
+        self.add_entity(SkKind::Arc, vec![c, s, e], 0.0, false, false)
+    }
 
     pub fn add_constraint(&mut self, mut c: SkConstraint) -> i64 {
         c.id = self.new_id();
@@ -237,11 +324,19 @@ impl Sketch {
     }
 
     pub fn line_ends(&self, id: i64) -> Option<(V2, V2)> {
-        if id == REF_H { return Some((V2::ZERO, V2::X)); }
-        if id == REF_V { return Some((V2::ZERO, V2::Y)); }
-        if id <= -10 { return self.ref_lines.get((-10 - id) as usize).map(|l| (l[0], l[1])); }
+        if id == REF_H {
+            return Some((V2::ZERO, V2::X));
+        }
+        if id == REF_V {
+            return Some((V2::ZERO, V2::Y));
+        }
+        if id <= -10 {
+            return self.ref_lines.get((-10 - id) as usize).map(|l| (l[0], l[1]));
+        }
         let e = self.entity(id)?;
-        if e.kind != SkKind::Line { return None; }
+        if e.kind != SkKind::Line {
+            return None;
+        }
         Some((self.point(e.pts[0]), self.point(e.pts[1])))
     }
 
@@ -257,7 +352,9 @@ impl Sketch {
         let (c, s, en) = (self.point(e.pts[0]), self.point(e.pts[1]), self.point(e.pts[2]));
         let a0 = (s.y - c.y).atan2(s.x - c.x);
         let mut a1 = (en.y - c.y).atan2(en.x - c.x);
-        while a1 <= a0 + 1e-12 { a1 += std::f64::consts::TAU; }
+        while a1 <= a0 + 1e-12 {
+            a1 += std::f64::consts::TAU;
+        }
         (a0, a1)
     }
 
@@ -266,7 +363,9 @@ impl Sketch {
         self.entities.retain(|x| x.id != id);
         self.constraints.retain(|c| !c.ents.contains(&id));
         for p in e.pts {
-            if p == 0 { continue; }
+            if p == 0 {
+                continue;
+            }
             if !self.entities.iter().any(|x| x.pts.contains(&p)) {
                 self.points.retain(|q| q.id != p);
                 self.constraints.retain(|c| !c.pts.contains(&p));
@@ -275,9 +374,23 @@ impl Sketch {
     }
 
     pub fn merge_point(&mut self, from: i64, into: i64) {
-        if from == into { return; }
-        for e in &mut self.entities { for p in &mut e.pts { if *p == from { *p = into; } } }
-        for c in &mut self.constraints { for p in &mut c.pts { if *p == from { *p = into; } } }
+        if from == into {
+            return;
+        }
+        for e in &mut self.entities {
+            for p in &mut e.pts {
+                if *p == from {
+                    *p = into;
+                }
+            }
+        }
+        for c in &mut self.constraints {
+            for p in &mut c.pts {
+                if *p == from {
+                    *p = into;
+                }
+            }
+        }
         self.points.retain(|q| q.id != from);
         self.constraints.retain(|c| !(c.ty == SkCType::Coincident && c.pts.len() == 2 && c.pts[0] == c.pts[1]));
     }
@@ -316,9 +429,14 @@ impl Sketch {
         let mut changed = false;
         for c in &mut self.constraints {
             let Some(e) = &c.expr else { continue };
-            if e.trim().is_empty() { continue; }
+            if e.trim().is_empty() {
+                continue;
+            }
             let v = crate::model::expr::eval(e, vars)?;
-            if (v - c.value).abs() > 1e-12 { c.value = v; changed = true; }
+            if (v - c.value).abs() > 1e-12 {
+                c.value = v;
+                changed = true;
+            }
         }
         Ok(changed)
     }
@@ -329,7 +447,12 @@ impl Sketch {
             SkKind::Point => vec![self.point(e.pts[0])],
             SkKind::Circle => {
                 let c = self.point(e.pts[0]);
-                (0..=per_circle).map(|i| { let t = i as f64 / per_circle as f64 * std::f64::consts::TAU; c + V2::new(t.cos(), t.sin()) * e.r }).collect()
+                (0..=per_circle)
+                    .map(|i| {
+                        let t = i as f64 / per_circle as f64 * std::f64::consts::TAU;
+                        c + V2::new(t.cos(), t.sin()) * e.r
+                    })
+                    .collect()
             }
             SkKind::Spline => {
                 let pts: Vec<V2> = e.pts.iter().map(|p| self.point(*p)).collect();
@@ -341,7 +464,12 @@ impl Sketch {
                 let rx = (a - c).length();
                 let u = safe_norm2(a - c, V2::X);
                 let v = perp_left(u);
-                (0..=per_circle).map(|i| { let t = i as f64 / per_circle as f64 * std::f64::consts::TAU; c + u * (rx * t.cos()) + v * (e.r * t.sin()) }).collect()
+                (0..=per_circle)
+                    .map(|i| {
+                        let t = i as f64 / per_circle as f64 * std::f64::consts::TAU;
+                        c + u * (rx * t.cos()) + v * (e.r * t.sin())
+                    })
+                    .collect()
             }
             SkKind::Conic => {
                 let (p0, p2, c) = (self.point(e.pts[0]), self.point(e.pts[1]), self.point(e.pts[2]));
@@ -363,7 +491,12 @@ impl Sketch {
                 let r = self.radius(e);
                 let (a0, a1) = self.arc_angles(e);
                 let n = (((a1 - a0) / std::f64::consts::TAU * per_circle as f64).ceil() as usize).max(2);
-                let mut out: Vec<V2> = (0..=n).map(|i| { let t = a0 + (a1 - a0) * i as f64 / n as f64; c + V2::new(t.cos(), t.sin()) * r }).collect();
+                let mut out: Vec<V2> = (0..=n)
+                    .map(|i| {
+                        let t = a0 + (a1 - a0) * i as f64 / n as f64;
+                        c + V2::new(t.cos(), t.sin()) * r
+                    })
+                    .collect();
                 out[0] = self.point(e.pts[1]);
                 out[n] = self.point(e.pts[2]);
                 out
@@ -375,8 +508,18 @@ impl Sketch {
         let mut mn = V2::splat(f64::INFINITY);
         let mut mx = V2::splat(f64::NEG_INFINITY);
         let mut any = false;
-        for e in &self.entities { for p in self.sample(e, 32) { mn = mn.min(p); mx = mx.max(p); any = true; } }
-        if any { Some((mn, mx)) } else { None }
+        for e in &self.entities {
+            for p in self.sample(e, 32) {
+                mn = mn.min(p);
+                mx = mx.max(p);
+                any = true;
+            }
+        }
+        if any {
+            Some((mn, mx))
+        } else {
+            None
+        }
     }
 
     pub fn profile_entities(&self) -> Vec<&SkEntity> {
@@ -395,7 +538,14 @@ impl Sketch {
         match e.kind {
             SkKind::Line => (self.point(e.pts[1]) - self.point(e.pts[0])).length(),
             SkKind::Circle => std::f64::consts::TAU * e.r,
-            SkKind::Arc => { let (a0, a1) = self.arc_angles(e); let mut s = a1 - a0; if s < 0.0 { s += std::f64::consts::TAU; } self.radius(e) * s }
+            SkKind::Arc => {
+                let (a0, a1) = self.arc_angles(e);
+                let mut s = a1 - a0;
+                if s < 0.0 {
+                    s += std::f64::consts::TAU;
+                }
+                self.radius(e) * s
+            }
             SkKind::Point | SkKind::Csys | SkKind::Text => 0.0,
             _ => self.sample(e, 128).windows(2).map(|w| (w[1] - w[0]).length()).sum(),
         }
@@ -409,11 +559,21 @@ impl Sketch {
 
     fn canonical(&self) -> HashMap<i64, i64> {
         let mut parent: HashMap<i64, i64> = HashMap::new();
-        fn find(p: &HashMap<i64, i64>, mut x: i64) -> i64 { while let Some(&q) = p.get(&x) { if q == x { break; } x = q; } x }
+        fn find(p: &HashMap<i64, i64>, mut x: i64) -> i64 {
+            while let Some(&q) = p.get(&x) {
+                if q == x {
+                    break;
+                }
+                x = q;
+            }
+            x
+        }
         for c in &self.constraints {
             if c.ty == SkCType::Coincident && c.pts.len() == 2 {
                 let (a, b) = (find(&parent, c.pts[0]), find(&parent, c.pts[1]));
-                if a != b { parent.insert(a, b); }
+                if a != b {
+                    parent.insert(a, b);
+                }
             }
         }
         self.points.iter().map(|p| (p.id, find(&parent, p.id))).collect()
@@ -426,10 +586,22 @@ impl Sketch {
         let mut deg: HashMap<i64, i32> = HashMap::new();
         for e in self.profile_entities() {
             match e.kind {
-                SkKind::Line => { *deg.entry(c(e.pts[0])).or_default() += 1; *deg.entry(c(e.pts[1])).or_default() += 1; }
-                SkKind::Arc => { *deg.entry(c(e.pts[1])).or_default() += 1; *deg.entry(c(e.pts[2])).or_default() += 1; }
-                SkKind::Spline => { *deg.entry(c(e.pts[0])).or_default() += 1; *deg.entry(c(*e.pts.last().unwrap())).or_default() += 1; }
-                SkKind::Conic | SkKind::Corner => { *deg.entry(c(e.pts[0])).or_default() += 1; *deg.entry(c(e.pts[1])).or_default() += 1; }
+                SkKind::Line => {
+                    *deg.entry(c(e.pts[0])).or_default() += 1;
+                    *deg.entry(c(e.pts[1])).or_default() += 1;
+                }
+                SkKind::Arc => {
+                    *deg.entry(c(e.pts[1])).or_default() += 1;
+                    *deg.entry(c(e.pts[2])).or_default() += 1;
+                }
+                SkKind::Spline => {
+                    *deg.entry(c(e.pts[0])).or_default() += 1;
+                    *deg.entry(c(*e.pts.last().unwrap())).or_default() += 1;
+                }
+                SkKind::Conic | SkKind::Corner => {
+                    *deg.entry(c(e.pts[0])).or_default() += 1;
+                    *deg.entry(c(e.pts[1])).or_default() += 1;
+                }
                 _ => {}
             }
         }
@@ -439,7 +611,11 @@ impl Sketch {
     fn walk(&self, allow_open: bool) -> Result<Vec<(ProfileLoop, bool)>, String> {
         let canon = self.canonical();
         let cp = |p: i64| *canon.get(&p).unwrap_or(&p);
-        struct Edge<'a> { a: i64, b: i64, e: &'a SkEntity }
+        struct Edge<'a> {
+            a: i64,
+            b: i64,
+            e: &'a SkEntity,
+        }
         let mut edges: Vec<Edge> = Vec::new();
         let mut result = Vec::new();
         for e in self.profile_entities() {
@@ -450,8 +626,12 @@ impl Sketch {
                 SkKind::Conic | SkKind::Corner => edges.push(Edge { a: cp(e.pts[0]), b: cp(e.pts[1]), e }),
                 SkKind::Text => {
                     for mut s in self.text_loops(e) {
-                        if s.len() > 1 && (s[0] - s[s.len() - 1]).length() < 1e-12 { s.pop(); }
-                        if s.len() < 3 { continue; }
+                        if s.len() > 1 && (s[0] - s[s.len() - 1]).length() < 1e-12 {
+                            s.pop();
+                        }
+                        if s.len() < 3 {
+                            continue;
+                        }
                         let n = s.len();
                         result.push((ProfileLoop { pts: s, seg_ent: vec![e.id; n], seg_rad: vec![None; n] }, true));
                     }
@@ -476,7 +656,10 @@ impl Sketch {
             }
         }
         let mut adj: HashMap<i64, Vec<usize>> = HashMap::new();
-        for (i, ed) in edges.iter().enumerate() { adj.entry(ed.a).or_default().push(i); adj.entry(ed.b).or_default().push(i); }
+        for (i, ed) in edges.iter().enumerate() {
+            adj.entry(ed.a).or_default().push(i);
+            adj.entry(ed.b).or_default().push(i);
+        }
         if let Some((p, _)) = adj.iter().find(|(_, l)| l.len() > 2) {
             let q = self.point(*p);
             return Err(format!("Mehr als zwei Elemente treffen sich bei ({}, {}).", fmt_num(q.x, 3), fmt_num(q.y, 3)));
@@ -499,7 +682,9 @@ impl Sketch {
                 let ed = &edges[ei];
                 let fwd = ed.a == v;
                 let mut s = self.sample(ed.e, 64);
-                if !fwd { s.reverse(); }
+                if !fwd {
+                    s.reverse();
+                }
                 let c = if ed.e.kind == SkKind::Arc { Some(self.point(ed.e.pts[0])) } else { None };
                 let spline = matches!(ed.e.kind, SkKind::Spline | SkKind::Conic | SkKind::Corner);
                 let m = s.len();
@@ -507,14 +692,25 @@ impl Sketch {
                 for k in 0..m - 1 {
                     lp.pts.push(s[k]);
                     lp.seg_ent.push(ed.e.id);
-                    if spline { lp.seg_rad.push(Some((tn(k), tn(k + 1)))); }
-                    else { lp.seg_rad.push(c.map(|c| (safe_norm2(s[k] - c, V2::X), safe_norm2(s[k + 1] - c, V2::X)))); }
+                    if spline {
+                        lp.seg_rad.push(Some((tn(k), tn(k + 1))));
+                    } else {
+                        lp.seg_rad.push(c.map(|c| (safe_norm2(s[k] - c, V2::X), safe_norm2(s[k + 1] - c, V2::X))));
+                    }
                 }
                 v = if fwd { ed.b } else { ed.a };
-                if v == sv { closed = true; break; }
-                match adj[&v].iter().copied().find(|&i| !used[i]) { Some(n) => ei = n, None => break }
+                if v == sv {
+                    closed = true;
+                    break;
+                }
+                match adj[&v].iter().copied().find(|&i| !used[i]) {
+                    Some(n) => ei = n,
+                    None => break,
+                }
             }
-            if !closed { lp.pts.push(self.point(v)); }
+            if !closed {
+                lp.pts.push(self.point(v));
+            }
             result.push((lp, closed));
         }
         Ok(result)
@@ -522,7 +718,9 @@ impl Sketch {
 
     pub fn profile_regions(&self) -> Result<Vec<ProfileRegion>, String> {
         let loops: Vec<ProfileLoop> = self.walk(false)?.into_iter().map(|l| l.0).filter(|l| l.pts.len() >= 3 && l.area().abs() > 1e-9).collect();
-        if loops.is_empty() { return Err("Die Skizze enthält keine geschlossenen Schleifen.".into()); }
+        if loops.is_empty() {
+            return Err("Die Skizze enthält keine geschlossenen Schleifen.".into());
+        }
         let mut order: Vec<usize> = (0..loops.len()).collect();
         order.sort_by(|&a, &b| loops[b].area().abs().partial_cmp(&loops[a].area().abs()).unwrap());
         let mut container = vec![usize::MAX; loops.len()];
@@ -530,7 +728,11 @@ impl Sketch {
         for (oi, &i) in order.iter().enumerate() {
             let probe = loops[i].pts[0];
             for &j in order[..oi].iter().rev() {
-                if point_in_polygon2(probe, &loops[j].pts) { container[i] = j; depth[i] = depth[j] + 1; break; }
+                if point_in_polygon2(probe, &loops[j].pts) {
+                    container[i] = j;
+                    depth[i] = depth[j] + 1;
+                    break;
+                }
             }
         }
         let mut regions: HashMap<usize, ProfileRegion> = HashMap::new();
@@ -543,7 +745,9 @@ impl Sketch {
         for &i in &order {
             if depth[i] % 2 == 1 {
                 let l = if loops[i].area() > 0.0 { loops[i].reversed() } else { loops[i].clone() };
-                if let Some(r) = regions.get_mut(&container[i]) { r.holes.push(l); }
+                if let Some(r) = regions.get_mut(&container[i]) {
+                    r.holes.push(l);
+                }
             }
         }
         Ok(order.iter().filter_map(|i| regions.remove(i)).collect())
@@ -571,7 +775,11 @@ impl Sketch {
         let mut out = vec![];
         let (bmin, bmax) = self.bounds().unwrap_or((V2::splat(-1.0), V2::splat(1.0)));
         let centroid = (bmin + bmax) * 0.5;
-        let mk = |ty, pts: Vec<i64>, ents: Vec<i64>, label: V2| { let mut c = SkConstraint::new(ty, pts, ents); c.label = label; c };
+        let mk = |ty, pts: Vec<i64>, ents: Vec<i64>, label: V2| {
+            let mut c = SkConstraint::new(ty, pts, ents);
+            c.label = label;
+            c
+        };
         for e in &self.entities {
             match e.kind {
                 SkKind::Circle => out.push(mk(SkCType::Diameter, vec![], vec![e.id], V2::new(0.7071, 0.7071) * (e.r + off))),
@@ -595,49 +803,83 @@ impl Sketch {
             let (a, b) = (self.point(e.pts[0]), self.point(e.pts[1]));
             let mid = (a + b) * 0.5;
             let mut n = safe_norm2(perp_left(b - a), V2::Y);
-            if n.dot(mid - centroid) < 0.0 { n = -n; }
+            if n.dot(mid - centroid) < 0.0 {
+                n = -n;
+            }
             out.push(mk(SkCType::Distance, e.pts.clone(), vec![e.id], n * off * 1.3));
         }
         for e in &lines {
             let (a, b) = (self.point(e.pts[0]), self.point(e.pts[1]));
             let d = b - a;
             let len = d.length();
-            if len < 1e-9 || d.x.abs() < 1e-6 * len || d.y.abs() < 1e-6 * len { continue; }
+            if len < 1e-9 || d.x.abs() < 1e-6 * len || d.y.abs() < 1e-6 * len {
+                continue;
+            }
             let du = d / len;
             let nb = lines.iter().find(|o| {
-                if o.id == e.id || !(o.pts.contains(&e.pts[0]) || o.pts.contains(&e.pts[1])) { return false; }
+                if o.id == e.id || !(o.pts.contains(&e.pts[0]) || o.pts.contains(&e.pts[1])) {
+                    return false;
+                }
                 let od = self.point(o.pts[1]) - self.point(o.pts[0]);
                 cross2(du, safe_norm2(od, V2::X)).abs() > 1e-3
             });
-            let fallback = if !self.axes_off[0] { Some(REF_H) } else if !self.axes_off[1] { Some(REF_V) } else if self.ref_lines.is_empty() { None } else { Some(-10) };
+            let fallback = if !self.axes_off[0] {
+                Some(REF_H)
+            } else if !self.axes_off[1] {
+                Some(REF_V)
+            } else if self.ref_lines.is_empty() {
+                None
+            } else {
+                Some(-10)
+            };
             let Some(other) = nb.map(|o| o.id).or(fallback) else { continue };
             let mut c = mk(SkCType::Angle, vec![], vec![e.id, other], V2::ZERO);
-            if self.measure(&c) > 90.0 { c.aux = 1.0; }
+            if self.measure(&c) > 90.0 {
+                c.aux = 1.0;
+            }
             let (oa, ob) = self.line_ends(other).unwrap_or((V2::ZERO, V2::X));
             let mut d2 = safe_norm2(ob - oa, V2::X);
-            if c.aux != 0.0 { d2 = -d2; }
+            if c.aux != 0.0 {
+                d2 = -d2;
+            }
             c.label = safe_norm2(du + d2, du) * off * 2.4;
             out.push(c);
         }
         let mut pts: Vec<(i64, V2)> = vec![];
         for e in &self.entities {
-            for &p in &e.pts { if p != 0 && !pts.iter().any(|q| q.0 == p) { pts.push((p, self.point(p))); } }
+            for &p in &e.pts {
+                if p != 0 && !pts.iter().any(|q| q.0 == p) {
+                    pts.push((p, self.point(p)));
+                }
+            }
         }
         pts.sort_by(|a, b| a.1.length().partial_cmp(&b.1.length()).unwrap_or(std::cmp::Ordering::Equal));
         let ref_pts: Vec<i64> = self.entities.iter().filter(|e| !e.ref_name.is_empty()).map(|e| e.pts[0]).collect();
         for (id, p) in pts {
-            if ref_pts.contains(&id) { continue; }
-            if p.x.abs() > 1e-7 && !self.axes_off[1] { out.push(mk(SkCType::PointLine, vec![id], vec![REF_V], V2::new(0.0, -off * 1.2))); }
-            if p.y.abs() > 1e-7 && !self.axes_off[0] { out.push(mk(SkCType::PointLine, vec![id], vec![REF_H], V2::new(-off * 1.2, 0.0))); }
+            if ref_pts.contains(&id) {
+                continue;
+            }
+            if p.x.abs() > 1e-7 && !self.axes_off[1] {
+                out.push(mk(SkCType::PointLine, vec![id], vec![REF_V], V2::new(0.0, -off * 1.2)));
+            }
+            if p.y.abs() > 1e-7 && !self.axes_off[0] {
+                out.push(mk(SkCType::PointLine, vec![id], vec![REF_H], V2::new(-off * 1.2, 0.0)));
+            }
             if self.axes_off[0] || self.axes_off[1] {
                 // without the default references, position against the remaining ones
                 for (i, l) in self.ref_lines.iter().enumerate() {
-                    if cross2(l[1] - l[0], p - l[0]).abs() > 1e-7 * (l[1] - l[0]).length() { out.push(mk(SkCType::PointLine, vec![id], vec![-10 - i as i64], V2::new(off, off))); }
+                    if cross2(l[1] - l[0], p - l[0]).abs() > 1e-7 * (l[1] - l[0]).length() {
+                        out.push(mk(SkCType::PointLine, vec![id], vec![-10 - i as i64], V2::new(off, off)));
+                    }
                 }
                 for &r in &ref_pts {
                     let q = self.point(r);
-                    if (p.x - q.x).abs() > 1e-7 { out.push(mk(SkCType::HDistance, vec![r, id], vec![], V2::new(0.0, -off * 1.2))); }
-                    if (p.y - q.y).abs() > 1e-7 { out.push(mk(SkCType::VDistance, vec![r, id], vec![], V2::new(-off * 1.2, 0.0))); }
+                    if (p.x - q.x).abs() > 1e-7 {
+                        out.push(mk(SkCType::HDistance, vec![r, id], vec![], V2::new(0.0, -off * 1.2)));
+                    }
+                    if (p.y - q.y).abs() > 1e-7 {
+                        out.push(mk(SkCType::VDistance, vec![r, id], vec![], V2::new(-off * 1.2, 0.0)));
+                    }
                 }
             }
         }
@@ -671,15 +913,26 @@ impl Sketch {
 /// Centripetal Catmull-Rom spline through `p` with `per_seg` samples per span.
 pub fn catmull_rom(p: &[V2], per_seg: usize, closed: bool) -> Vec<V2> {
     let mut pts: Vec<V2> = p.to_vec();
-    if closed && pts.len() > 2 { pts.pop(); }
+    if closed && pts.len() > 2 {
+        pts.pop();
+    }
     let n = pts.len();
-    if n < 2 { return pts; }
-    if n == 2 && !closed { return pts; }
+    if n < 2 {
+        return pts;
+    }
+    if n == 2 && !closed {
+        return pts;
+    }
     let get = |i: isize| -> V2 {
-        if closed { pts[i.rem_euclid(n as isize) as usize] }
-        else if i < 0 { pts[0] * 2.0 - pts[1] }
-        else if i as usize >= n { pts[n - 1] * 2.0 - pts[n - 2] }
-        else { pts[i as usize] }
+        if closed {
+            pts[i.rem_euclid(n as isize) as usize]
+        } else if i < 0 {
+            pts[0] * 2.0 - pts[1]
+        } else if i as usize >= n {
+            pts[n - 1] * 2.0 - pts[n - 2]
+        } else {
+            pts[i as usize]
+        }
     };
     let spans = if closed { n } else { n - 1 };
     let mut out = vec![pts[0]];
@@ -707,11 +960,13 @@ pub fn catmull_rom(p: &[V2], per_seg: usize, closed: bool) -> Vec<V2> {
 pub fn conic_points(p0: V2, c: V2, p2: V2, rho: f64, n: usize) -> Vec<V2> {
     let rho = rho.clamp(0.05, 0.95);
     let w = rho / (1.0 - rho);
-    (0..=n).map(|i| {
-        let t = i as f64 / n as f64;
-        let (b0, b1, b2) = ((1.0 - t) * (1.0 - t), 2.0 * t * (1.0 - t) * w, t * t);
-        (p0 * b0 + c * b1 + p2 * b2) / (b0 + b1 + b2)
-    }).collect()
+    (0..=n)
+        .map(|i| {
+            let t = i as f64 / n as f64;
+            let (b0, b1, b2) = ((1.0 - t) * (1.0 - t), 2.0 * t * (1.0 - t) * w, t * t);
+            (p0 * b0 + c * b1 + p2 * b2) / (b0 + b1 + b2)
+        })
+        .collect()
 }
 
 /// Distance of `q` from a baseline constraint (line baseline: perpendicular distance; point
@@ -723,5 +978,9 @@ pub fn ordinate(q: V2, b: &SkConstraint, line: impl Fn(i64) -> Option<(V2, V2)>,
     }
     let Some(&p) = b.pts.first() else { return 0.0 };
     let o = point(p);
-    if b.aux == 0.0 { (q.x - o.x).abs() } else { (q.y - o.y).abs() }
+    if b.aux == 0.0 {
+        (q.x - o.x).abs()
+    } else {
+        (q.y - o.y).abs()
+    }
 }

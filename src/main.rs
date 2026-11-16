@@ -17,7 +17,12 @@ fn style(ctx: &egui::Context) {
     v.selection.bg_fill = Color32::from_rgb(204, 227, 248);
     v.selection.stroke = Stroke::new(1.0_f32, Color32::from_rgb(30, 80, 160));
     let border = Color32::from_rgb(196, 203, 211);
-    for (w, fill) in [(&mut v.widgets.inactive, Color32::from_rgb(248, 249, 250)), (&mut v.widgets.hovered, Color32::from_rgb(228, 240, 252)), (&mut v.widgets.active, Color32::from_rgb(204, 227, 248)), (&mut v.widgets.open, Color32::from_rgb(228, 240, 252))] {
+    for (w, fill) in [
+        (&mut v.widgets.inactive, Color32::from_rgb(248, 249, 250)),
+        (&mut v.widgets.hovered, Color32::from_rgb(228, 240, 252)),
+        (&mut v.widgets.active, Color32::from_rgb(204, 227, 248)),
+        (&mut v.widgets.open, Color32::from_rgb(228, 240, 252)),
+    ] {
         w.bg_fill = fill;
         w.weak_bg_fill = fill;
         w.corner_radius = CornerRadius::same(2);
@@ -36,7 +41,8 @@ fn style(ctx: &egui::Context) {
         (TextStyle::Button, FontId::new(12.5, FontFamily::Proportional)),
         (TextStyle::Small, FontId::new(10.5, FontFamily::Proportional)),
         (TextStyle::Monospace, FontId::new(12.0, FontFamily::Monospace)),
-    ].into();
+    ]
+    .into();
     ctx.set_style(s);
 
     // Arial reads like Creo's Windows UI font; Apple Symbols / Arial Unicode cover the glyphs.
@@ -45,8 +51,14 @@ fn style(ctx: &egui::Context) {
         if let Ok(bytes) = std::fs::read(path) {
             fonts.font_data.insert(name.into(), Arc::new(egui::FontData::from_owned(bytes)));
             let fam = fonts.families.entry(FontFamily::Proportional).or_default();
-            if front { fam.insert(0, name.into()); } else { fam.push(name.into()); }
-            if !front { fonts.families.entry(FontFamily::Monospace).or_default().push(name.into()); }
+            if front {
+                fam.insert(0, name.into());
+            } else {
+                fam.push(name.into());
+            }
+            if !front {
+                fonts.families.entry(FontFamily::Monospace).or_default().push(name.into());
+            }
         }
     };
     add("arial", "/System/Library/Fonts/Supplemental/Arial.ttf", true);
@@ -70,7 +82,9 @@ fn migrate_settings() {
 /// draw the same icon as `make_icon`.
 fn app_icon() -> egui::IconData {
     let bundled = std::env::current_exe().map(|p| p.to_string_lossy().contains(".app/Contents/MacOS")).unwrap_or(false);
-    if bundled { return egui::IconData::default(); }
+    if bundled {
+        return egui::IconData::default();
+    }
     let size = 256;
     egui::IconData { rgba: freo::icon::render_icon(size), width: size as u32, height: size as u32 }
 }
@@ -78,7 +92,10 @@ fn app_icon() -> egui::IconData {
 fn main() -> eframe::Result<()> {
     // `freo --mcp`: headless MCP server on stdio for AI assistants (same as the freo-mcp binary)
     if std::env::args().skip(1).any(|a| a == "--mcp") {
-        if let Err(e) = freo::mcp::serve_stdio() { eprintln!("freo --mcp: {}", e); std::process::exit(1); }
+        if let Err(e) = freo::mcp::serve_stdio() {
+            eprintln!("freo --mcp: {}", e);
+            std::process::exit(1);
+        }
         return Ok(());
     }
     migrate_settings();
@@ -121,7 +138,9 @@ fn main() -> eframe::Result<()> {
                 app.say(format!("Arbeitsverzeichnis: {}", app.work_dir.display()), freo::app::MsgKind::Info);
             }
             if let Some(path) = std::env::args().nth(1).map(std::path::PathBuf::from) {
-                if path.exists() { app.load(path); }
+                if path.exists() {
+                    app.load(path);
+                }
             }
             Ok(Box::new(app))
         }),

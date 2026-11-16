@@ -18,7 +18,12 @@ fn add_block(app: &mut App) {
     e.plane = Some(PlaneRef::Datum(TOP_ID));
     e.sketch = Sketch::rect(60.0, 40.0, 0.0, 0.0);
     e.depth = Dim::v(15.0);
-    app.commit("block", |d| { let id = d.next_id; let name = d.next_name(&FeatureKind::Extrude(e.clone())); d.features.push(Feature { id, name, suppressed: false, hidden: false, kind: FeatureKind::Extrude(e) }); d.next_id += 1; });
+    app.commit("block", |d| {
+        let id = d.next_id;
+        let name = d.next_name(&FeatureKind::Extrude(e.clone()));
+        d.features.push(Feature { id, name, suppressed: false, hidden: false, kind: FeatureKind::Extrude(e) });
+        d.next_id += 1;
+    });
 }
 
 #[test]
@@ -41,7 +46,9 @@ fn startseite_to_part_to_every_format_and_back() {
     assert_eq!(app.data.features.last().unwrap().name, "Profil 1");
 
     // every export format writes; STEP and STL read back to the same solid
-    for f in Format::ALL { write(&app.result, &app.data, f, &d.join(format!("halter.{}", f.ext()))).unwrap(); }
+    for f in Format::ALL {
+        write(&app.result, &app.data, f, &d.join(format!("halter.{}", f.ext()))).unwrap();
+    }
     for f in ["halter.stp", "halter.stl", "halter.obj"] {
         let mut b = App::new(None);
         b.load(d.join(f));
@@ -137,7 +144,13 @@ fn export_dialog_and_drawings() {
     assert_eq!(e.format, Some(Format::StlBinary));
     assert_eq!(e.name, "x");
     app.creo.export = None;
-    app.new_drawing(&freo::app::drawui::NewDrawing { name: "X".into(), size: freo::model::drawing::SheetSize::A3, orient: freo::model::drawing::Orientation::Landscape, template: true, projection: freo::model::drawing::Projection::Third });
+    app.new_drawing(&freo::app::drawui::NewDrawing {
+        name: "X".into(),
+        size: freo::model::drawing::SheetSize::A3,
+        orient: freo::model::drawing::Orientation::Landscape,
+        template: true,
+        projection: freo::model::drawing::Projection::Third,
+    });
     assert!(app.drawing_active());
     app.export_dialog(None);
     assert!(app.creo.export.is_none(), "drawings export from their own Datei entries");
@@ -156,7 +169,13 @@ fn new_models_are_saved_into_the_working_directory() {
     assert_eq!(app.path.as_deref(), Some(work.join("halter.pfprt").as_path()));
     assert!(work.join("halter.pfprt").is_file() && !app.dirty);
     // drawing of it
-    app.new_drawing(&freo::app::drawui::NewDrawing { name: "HALTER".into(), size: freo::model::drawing::SheetSize::A3, orient: freo::model::drawing::Orientation::Landscape, template: true, projection: freo::model::drawing::Projection::Third });
+    app.new_drawing(&freo::app::drawui::NewDrawing {
+        name: "HALTER".into(),
+        size: freo::model::drawing::SheetSize::A3,
+        orient: freo::model::drawing::Orientation::Landscape,
+        template: true,
+        projection: freo::model::drawing::Projection::Third,
+    });
     app.save(false);
     assert!(work.join("halter.pfdrw").is_file());
     // assembly

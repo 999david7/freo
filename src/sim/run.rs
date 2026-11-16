@@ -33,14 +33,27 @@ pub struct Field {
 impl Field {
     fn new(name: &str, unit: &str, vals: Vec<f32>, disp: Option<usize>) -> Field {
         let (mut min, mut max) = (f32::INFINITY, f32::NEG_INFINITY);
-        for v in &vals { if v.is_finite() { min = min.min(*v); max = max.max(*v); } }
-        if min > max { min = 0.0; max = 0.0; }
+        for v in &vals {
+            if v.is_finite() {
+                min = min.min(*v);
+                max = max.max(*v);
+            }
+        }
+        if min > max {
+            min = 0.0;
+            max = 0.0;
+        }
         Field { name: name.into(), unit: unit.into(), vals, min, max, disp, low_is_bad: false }
     }
 }
 
 /// Displacement of the display surface and its edges (mm; mode shapes are scaled to 1).
-pub struct DispSet { pub d: Vec<[f32; 3]>, pub edge_d: Vec<[f32; 3]>, pub max: f32, pub harmonic: bool }
+pub struct DispSet {
+    pub d: Vec<[f32; 3]>,
+    pub edge_d: Vec<[f32; 3]>,
+    pub max: f32,
+    pub harmonic: bool,
+}
 
 #[derive(Default)]
 pub struct Surface {
@@ -78,17 +91,25 @@ pub struct Shared {
 }
 
 impl Shared {
-    pub fn progress(&self) -> f32 { f32::from_bits(self.progress.load(Ordering::Relaxed)) }
-    fn stage(&self, s: &str) { *self.stage.lock().unwrap() = s.into(); }
+    pub fn progress(&self) -> f32 {
+        f32::from_bits(self.progress.load(Ordering::Relaxed))
+    }
+    fn stage(&self, s: &str) {
+        *self.stage.lock().unwrap() = s.into();
+    }
 }
 
 /// Starts the study on its own thread.
 pub fn spawn(input: SimInput) -> Arc<Shared> {
-    let sh = Arc::new(Shared { progress: AtomicU32::new(0), cancel: AtomicBool::new(false), stage: Mutex::new("Vernetzen".into()), partial: Mutex::new(None), done: Mutex::new(None) });
+    let sh =
+        Arc::new(Shared { progress: AtomicU32::new(0), cancel: AtomicBool::new(false), stage: Mutex::new("Vernetzen".into()), partial: Mutex::new(None), done: Mutex::new(None) });
     let s2 = sh.clone();
     std::thread::spawn(move || {
         let t0 = std::time::Instant::now();
-        let r = run(&input, &s2).map(|mut o| { o.seconds = t0.elapsed().as_secs_f64(); o });
+        let r = run(&input, &s2).map(|mut o| {
+            o.seconds = t0.elapsed().as_secs_f64();
+            o
+        });
         *s2.done.lock().unwrap() = Some(r);
     });
     sh
@@ -113,18 +134,39 @@ pub fn budget(kind: StudyKind, fidelity: f32) -> usize {
 
 fn fmt(v: f64) -> String {
     let a = v.abs();
-    if a == 0.0 { "0".into() } else if a >= 1e5 || a < 1e-3 { format!("{:.3e}", v) } else if a >= 100.0 { format!("{:.1}", v) } else if a >= 1.0 { format!("{:.3}", v) } else { format!("{:.4}", v) }
+    if a == 0.0 {
+        "0".into()
+    } else if a >= 1e5 || a < 1e-3 {
+        format!("{:.3e}", v)
+    } else if a >= 100.0 {
+        format!("{:.1}", v)
+    } else if a >= 1.0 {
+        format!("{:.3}", v)
+    } else {
+        format!("{:.4}", v)
+    }
 }
 
-fn f3(v: V3) -> [f32; 3] { [v.x as f32, v.y as f32, v.z as f32] }
+fn f3(v: V3) -> [f32; 3] {
+    [v.x as f32, v.y as f32, v.z as f32]
+}
 
 /// Fine triangles and edge pieces of the part (no edge longer than `max_edge`).
 fn build_surface(topo: &Topology, mut max_edge: f64) -> (Surface, Vec<V3>) {
     fn split(p: [V3; 3], n: [V3; 3], max2: f64, depth: u32, out: &mut Surface) {
         let l = [(p[1] - p[0]).length_squared(), (p[2] - p[1]).length_squared(), (p[0] - p[2]).length_squared()];
-        let k = if l[0] >= l[1] && l[0] >= l[2] { 0 } else if l[1] >= l[2] { 1 } else { 2 };
+        let k = if l[0] >= l[1] && l[0] >= l[2] {
+            0
+        } else if l[1] >= l[2] {
+            1
+        } else {
+            2
+        };
         if l[k] <= max2 || depth == 0 {
-            for i in 0..3 { out.pos.push(f3(p[i])); out.nrm.push(f3(n[i])); }
+            for i in 0..3 {
+                out.pos.push(f3(p[i]));
+                out.nrm.push(f3(n[i]));
+            }
             return;
         }
         let (a, b, c) = (k, (k + 1) % 3, (k + 2) % 3);
@@ -140,34 +182,59 @@ fn build_surface(topo: &Topology, mut max_edge: f64) -> (Surface, Vec<V3>) {
     for (pi, p) in topo.polys.iter().enumerate() {
         for k in 1..p.len() - 1 {
             let before = s.pos.len();
-            split([topo.positions[p[0]], topo.positions[p[k]], topo.positions[p[k + 1]]], [topo.vnormals[pi][0], topo.vnormals[pi][k], topo.vnormals[pi][k + 1]], max_edge * max_edge, 16, &mut s);
+            split(
+                [topo.positions[p[0]], topo.positions[p[k]], topo.positions[p[k + 1]]],
+                [topo.vnormals[pi][0], topo.vnormals[pi][k], topo.vnormals[pi][k + 1]],
+                max_edge * max_edge,
+                16,
+                &mut s,
+            );
             face_n.resize(face_n.len() + s.pos.len() - before, topo.planes[pi].n);
         }
     }
     for &(a, b) in &topo.draw_edges {
         let (pa, pb) = (topo.positions[a], topo.positions[b]);
         let n = (((pb - pa).length() / (max_edge * 1.5)).ceil() as usize).clamp(1, 400);
-        for i in 0..n { s.edges.push(f3(pa.lerp(pb, i as f64 / n as f64))); s.edges.push(f3(pa.lerp(pb, (i + 1) as f64 / n as f64))); }
+        for i in 0..n {
+            s.edges.push(f3(pa.lerp(pb, i as f64 / n as f64)));
+            s.edges.push(f3(pa.lerp(pb, (i + 1) as f64 / n as f64)));
+        }
     }
     (s, face_n)
 }
 
 /// Interpolation of nodal results at the display vertices.
-struct Sampler { nodes: Vec<[u32; 8]>, w: Vec<[f32; 8]>, edge_nodes: Vec<[u32; 8]>, edge_w: Vec<[f32; 8]> }
+struct Sampler {
+    nodes: Vec<[u32; 8]>,
+    w: Vec<[f32; 8]>,
+    edge_nodes: Vec<[u32; 8]>,
+    edge_w: Vec<[f32; 8]>,
+}
 
 impl Sampler {
     fn new(mesh: &Mesh, s: &Surface, face_n: &[V3]) -> Sampler {
         let at = |p: [f32; 3], n: V3| {
             let p = V3::new(p[0] as f64, p[1] as f64, p[2] as f64);
             match mesh.locate(p, n) {
-                Some((e, l)) => { let w = Mesh::weights(l); (mesh.elems[e], [w[0] as f32, w[1] as f32, w[2] as f32, w[3] as f32, w[4] as f32, w[5] as f32, w[6] as f32, w[7] as f32]) }
+                Some((e, l)) => {
+                    let w = Mesh::weights(l);
+                    (mesh.elems[e], [w[0] as f32, w[1] as f32, w[2] as f32, w[3] as f32, w[4] as f32, w[5] as f32, w[6] as f32, w[7] as f32])
+                }
                 None => ([0; 8], [0.0; 8]),
             }
         };
         let (mut nodes, mut w) = (Vec::with_capacity(s.pos.len()), Vec::with_capacity(s.pos.len()));
-        for (i, p) in s.pos.iter().enumerate() { let (a, b) = at(*p, face_n[i]); nodes.push(a); w.push(b); }
+        for (i, p) in s.pos.iter().enumerate() {
+            let (a, b) = at(*p, face_n[i]);
+            nodes.push(a);
+            w.push(b);
+        }
         let (mut edge_nodes, mut edge_w) = (vec![], vec![]);
-        for p in &s.edges { let (a, b) = at(*p, V3::ZERO); edge_nodes.push(a); edge_w.push(b); }
+        for p in &s.edges {
+            let (a, b) = at(*p, V3::ZERO);
+            edge_nodes.push(a);
+            edge_w.push(b);
+        }
         Sampler { nodes, w, edge_nodes, edge_w }
     }
     fn scalar(&self, v: &[f64]) -> Vec<f32> {
@@ -175,7 +242,16 @@ impl Sampler {
     }
     fn vector(&self, v: &[V3], edges: bool) -> Vec<[f32; 3]> {
         let (ns, ws) = if edges { (&self.edge_nodes, &self.edge_w) } else { (&self.nodes, &self.w) };
-        ns.iter().zip(ws).map(|(n, w)| { let mut s = V3::ZERO; for a in 0..8 { s += v[n[a] as usize] * w[a] as f64; } f3(s) }).collect()
+        ns.iter()
+            .zip(ws)
+            .map(|(n, w)| {
+                let mut s = V3::ZERO;
+                for a in 0..8 {
+                    s += v[n[a] as usize] * w[a] as f64;
+                }
+                f3(s)
+            })
+            .collect()
     }
     fn disp(&self, u: &[V3], harmonic: bool) -> DispSet {
         DispSet { d: self.vector(u, false), edge_d: self.vector(u, true), max: u.iter().map(|v| v.length()).fold(0.0, f64::max) as f32, harmonic }
@@ -187,8 +263,12 @@ fn item_faces(topo: &Topology, it: &SimItem, warnings: &mut Vec<String>) -> Resu
     let mut ids: Vec<usize> = it.faces.iter().filter_map(|f| f.resolve(topo)).collect();
     ids.sort();
     ids.dedup();
-    if ids.is_empty() { return Err(format!("{}: keine Fläche gewählt oder die Referenz fehlt nach der Regenerierung.", it.name)); }
-    if ids.len() < it.faces.len() { warnings.push(format!("{}: {} Referenz(en) wurden nicht mehr gefunden.", it.name, it.faces.len() - ids.len())); }
+    if ids.is_empty() {
+        return Err(format!("{}: keine Fläche gewählt oder die Referenz fehlt nach der Regenerierung.", it.name));
+    }
+    if ids.len() < it.faces.len() {
+        warnings.push(format!("{}: {} Referenz(en) wurden nicht mehr gefunden.", it.name, it.faces.len() - ids.len()));
+    }
     Ok(ids)
 }
 
@@ -216,14 +296,24 @@ fn thermal_input(mesh: &Mesh, topo: &Topology, study: &Study, mat: &Material, wa
 fn struct_input(mesh: &Mesh, topo: &Topology, study: &Study, mat: &Material, warnings: &mut Vec<String>) -> Result<StructIn, String> {
     let mut inp = StructIn { e: mat.e, nu: mat.nu, rho: mat.rho * 1e-12, alpha: mat.alpha, ..Default::default() };
     for it in &study.items {
-        if it.kind.is_thermal() || it.kind.is_fluid() { continue; }
+        if it.kind.is_thermal() || it.kind.is_fluid() {
+            continue;
+        }
         match it.kind {
-            ItemKind::Gravity => { inp.accel += V3::from_array(it.vec); continue; }
+            ItemKind::Gravity => {
+                inp.accel += V3::from_array(it.vec);
+                continue;
+            }
             // the body is accelerated: its inertia loads it the other way
-            ItemKind::LinAccel => { inp.accel -= V3::from_array(it.vec); continue; }
+            ItemKind::LinAccel => {
+                inp.accel -= V3::from_array(it.vec);
+                continue;
+            }
             ItemKind::Centrifugal => {
                 let ax = V3::from_array(it.vec).normalize_or_zero();
-                if ax == V3::ZERO { return Err(format!("{}: die Drehachse hat keine Richtung.", it.name)); }
+                if ax == V3::ZERO {
+                    return Err(format!("{}: die Drehachse hat keine Richtung.", it.name));
+                }
                 inp.spin = Some((V3::ZERO, ax, it.value * std::f64::consts::TAU / 60.0));
                 continue;
             }
@@ -233,9 +323,14 @@ fn struct_input(mesh: &Mesh, topo: &Topology, study: &Study, mat: &Material, war
         let wsum: f64 = map.nodes.iter().map(|n| n.1).sum::<f64>().max(1e-300);
         match it.kind {
             ItemKind::Fixed => inp.fixed.extend(map.nodes.iter().map(|n| (n.0, [Some(0.0); 3]))),
-            ItemKind::Displacement => inp.fixed.extend(map.nodes.iter().map(|n| (n.0, [it.fixed[0].then_some(it.vec[0]), it.fixed[1].then_some(it.vec[1]), it.fixed[2].then_some(it.vec[2])]))),
+            ItemKind::Displacement => {
+                inp.fixed.extend(map.nodes.iter().map(|n| (n.0, [it.fixed[0].then_some(it.vec[0]), it.fixed[1].then_some(it.vec[1]), it.fixed[2].then_some(it.vec[2])])))
+            }
             ItemKind::Frictionless | ItemKind::Symmetry => inp.slide.extend(map.nodes.iter().map(|n| (n.0, n.2))),
-            ItemKind::Force => { let f = V3::from_array(it.vec); inp.forces.extend(map.nodes.iter().map(|n| (n.0, f * (n.1 / wsum)))); }
+            ItemKind::Force => {
+                let f = V3::from_array(it.vec);
+                inp.forces.extend(map.nodes.iter().map(|n| (n.0, f * (n.1 / wsum))));
+            }
             ItemKind::Pressure => inp.forces.extend(map.nodes.iter().map(|n| (n.0, n.2 * -it.value))),
             ItemKind::Moment => {
                 let m = V3::from_array(it.vec);
@@ -253,14 +348,26 @@ fn struct_input(mesh: &Mesh, topo: &Topology, study: &Study, mat: &Material, war
 }
 
 fn mesh_info(mesh: &Mesh, summary: &mut Vec<(String, String)>, warnings: &mut Vec<String>) {
-    summary.push(("Netz".into(), format!("{} Elemente, {} Knoten ({} × {} × {} mm)", mesh.elems.len(), mesh.nodes.len(), fmt(mesh.grid.h.x), fmt(mesh.grid.h.y), fmt(mesh.grid.h.z))));
-    if mesh.dropped > 0.01 { warnings.push(format!("{:.0} % des Volumens hängen im Netz nicht am Hauptkörper und wurden weggelassen.", mesh.dropped * 100.0)); }
+    summary
+        .push(("Netz".into(), format!("{} Elemente, {} Knoten ({} × {} × {} mm)", mesh.elems.len(), mesh.nodes.len(), fmt(mesh.grid.h.x), fmt(mesh.grid.h.y), fmt(mesh.grid.h.z))));
+    if mesh.dropped > 0.01 {
+        warnings.push(format!("{:.0} % des Volumens hängen im Netz nicht am Hauptkörper und wurden weggelassen.", mesh.dropped * 100.0));
+    }
 }
 
 fn node_table(mesh: &Mesh, cols: &[(&str, Vec<f32>)]) -> (Vec<String>, Vec<Vec<f32>>) {
     let mut head: Vec<String> = vec!["x_mm".into(), "y_mm".into(), "z_mm".into()];
     head.extend(cols.iter().map(|c| c.0.to_string()));
-    let rows = mesh.nodes.iter().enumerate().map(|(i, p)| { let mut r = vec![p.x as f32, p.y as f32, p.z as f32]; r.extend(cols.iter().map(|c| c.1[i])); r }).collect();
+    let rows = mesh
+        .nodes
+        .iter()
+        .enumerate()
+        .map(|(i, p)| {
+            let mut r = vec![p.x as f32, p.y as f32, p.z as f32];
+            r.extend(cols.iter().map(|c| c.1[i]));
+            r
+        })
+        .collect();
     (head, rows)
 }
 
@@ -270,7 +377,9 @@ fn run(input: &SimInput, sh: &Shared) -> Result<SimOutput, String> {
     let mat = material(&study.material);
     let mut warnings = vec![];
     let mut summary: Vec<(String, String)> = vec![];
-    if study.kind == StudyKind::Fluid { return run_fluid(input, sh, &ctl); }
+    if study.kind == StudyKind::Fluid {
+        return run_fluid(input, sh, &ctl);
+    }
     sh.stage("Vernetzen");
     let mesh = Mesh::build(topo, budget(study.kind, input.fidelity))?;
     ctl.set(0.03);
@@ -278,7 +387,19 @@ fn run(input: &SimInput, sh: &Shared) -> Result<SimOutput, String> {
     let sampler = Sampler::new(&mesh, &surface, &face_n);
     summary.push(("Material".into(), mat.name.into()));
     mesh_info(&mesh, &mut summary, &mut warnings);
-    let mut out = SimOutput { kind: study.kind, surface: Arc::new(surface), fields: vec![], disps: vec![], lines: vec![], summary: vec![], warnings: vec![], table: (vec![], vec![]), partial: false, seconds: 0.0, see_through: false };
+    let mut out = SimOutput {
+        kind: study.kind,
+        surface: Arc::new(surface),
+        fields: vec![],
+        disps: vec![],
+        lines: vec![],
+        summary: vec![],
+        warnings: vec![],
+        table: (vec![], vec![]),
+        partial: false,
+        seconds: 0.0,
+        see_through: false,
+    };
     let f32s = |v: &[f64]| v.iter().map(|x| *x as f32).collect::<Vec<f32>>();
     match study.kind {
         StudyKind::Structural => {
@@ -290,7 +411,12 @@ fn run(input: &SimInput, sh: &Shared) -> Result<SimOutput, String> {
                 inp.dtemp = Some(t.t.iter().map(|v| v - study.ref_temp).collect());
                 temp = Some(t.t);
             }
-            if inp.forces.is_empty() && inp.accel == V3::ZERO && inp.spin.is_none() && inp.dtemp.is_none() && !inp.fixed.iter().any(|f| f.1.iter().any(|v| v.is_some_and(|x| x != 0.0))) {
+            if inp.forces.is_empty()
+                && inp.accel == V3::ZERO
+                && inp.spin.is_none()
+                && inp.dtemp.is_none()
+                && !inp.fixed.iter().any(|f| f.1.iter().any(|v| v.is_some_and(|x| x != 0.0)))
+            {
                 warnings.push("Es ist keine Last definiert: das Ergebnis ist null.".into());
             }
             sh.stage("Spannungen lösen");
@@ -313,17 +439,29 @@ fn run(input: &SimInput, sh: &Shared) -> Result<SimOutput, String> {
             let mut fs = Field::new("Sicherheitsfaktor", "", sampler.scalar(&sf), Some(0));
             fs.low_is_bad = true;
             out.fields.push(fs);
-            let mut cols = vec![("ux_mm", r.u.iter().map(|u| u.x as f32).collect::<Vec<f32>>()), ("uy_mm", r.u.iter().map(|u| u.y as f32).collect()), ("uz_mm", r.u.iter().map(|u| u.z as f32).collect()), ("von_mises_MPa", f32s(&vm)), ("max_hauptspannung_MPa", f32s(&p1))];
-            if let Some(t) = &temp { out.fields.push(Field::new("Temperatur", "°C", sampler.scalar(t), Some(0))); cols.push(("temperatur_C", f32s(t))); }
+            let mut cols = vec![
+                ("ux_mm", r.u.iter().map(|u| u.x as f32).collect::<Vec<f32>>()),
+                ("uy_mm", r.u.iter().map(|u| u.y as f32).collect()),
+                ("uz_mm", r.u.iter().map(|u| u.z as f32).collect()),
+                ("von_mises_MPa", f32s(&vm)),
+                ("max_hauptspannung_MPa", f32s(&p1)),
+            ];
+            if let Some(t) = &temp {
+                out.fields.push(Field::new("Temperatur", "°C", sampler.scalar(t), Some(0)));
+                cols.push(("temperatur_C", f32s(t)));
+            }
             out.table = node_table(&mesh, &cols);
             let umax = out.fields[1].max as f64;
             summary.push(("Max. Von-Mises-Spannung".into(), format!("{} MPa", fmt(vmax))));
             summary.push(("Max. Verschiebung".into(), format!("{} mm", fmt(umax))));
-            summary.push(("Min. Sicherheitsfaktor".into(), if vmax > 1e-9 { format!("{} (Streckgrenze {} MPa)", fmt(mat.yield_mpa / vmax), fmt(mat.yield_mpa)) } else { "–".into() }));
+            summary
+                .push(("Min. Sicherheitsfaktor".into(), if vmax > 1e-9 { format!("{} (Streckgrenze {} MPa)", fmt(mat.yield_mpa / vmax), fmt(mat.yield_mpa)) } else { "–".into() }));
             summary.push(("Aufgebrachte Last".into(), format!("{} N  ({}, {}, {})", fmt(r.applied.length()), fmt(r.applied.x), fmt(r.applied.y), fmt(r.applied.z))));
             summary.push(("Reaktionskraft".into(), format!("{} N  ({}, {}, {})", fmt(r.reaction.length()), fmt(r.reaction.x), fmt(r.reaction.y), fmt(r.reaction.z))));
             summary.push(("Löser".into(), format!("{} Iterationen, Restfehler {:.1e}", r.iters, r.resid)));
-            if vmax > mat.yield_mpa { warnings.push(format!("Die Spannung überschreitet die Streckgrenze von {} ({} MPa): das lineare Ergebnis gilt dort nicht mehr.", mat.name, fmt(mat.yield_mpa))); }
+            if vmax > mat.yield_mpa {
+                warnings.push(format!("Die Spannung überschreitet die Streckgrenze von {} ({} MPa): das lineare Ergebnis gilt dort nicht mehr.", mat.name, fmt(mat.yield_mpa)));
+            }
         }
         StudyKind::Thermal => {
             sh.stage("Temperaturfeld lösen");
@@ -356,7 +494,9 @@ fn run(input: &SimInput, sh: &Shared) -> Result<SimOutput, String> {
             }
             let cref: Vec<(&str, Vec<f32>)> = cols.iter().map(|c| (c.0.as_str(), c.1.clone())).collect();
             out.table = node_table(&mesh, &cref);
-            if inp.fixed.is_empty() && inp.slide.is_empty() { warnings.push("Ohne Randbedingung schwingt das Teil frei: die sechs Starrkörpermoden (0 Hz) sind ausgelassen.".into()); }
+            if inp.fixed.is_empty() && inp.slide.is_empty() {
+                warnings.push("Ohne Randbedingung schwingt das Teil frei: die sechs Starrkörpermoden (0 Hz) sind ausgelassen.".into());
+            }
         }
         StudyKind::Fluid => unreachable!(),
     }
@@ -368,7 +508,9 @@ fn run(input: &SimInput, sh: &Shared) -> Result<SimOutput, String> {
 
 fn run_fluid(input: &SimInput, sh: &Shared, ctl: &Ctl) -> Result<SimOutput, String> {
     let (topo, study) = (&*input.topo, &input.study);
-    if topo.polys.is_empty() { return Err("Das Modell enthält kein Volumen.".into()); }
+    if topo.polys.is_empty() {
+        return Err("Das Modell enthält kein Volumen.".into());
+    }
     let fl = crate::model::sim::fluid(&study.fluid);
     let tris = tris_of(topo);
     let cells = budget(StudyKind::Fluid, input.fidelity);
@@ -378,18 +520,28 @@ fn run_fluid(input: &SimInput, sh: &Shared, ctl: &Ctl) -> Result<SimOutput, Stri
     let wind = study.items.iter().find(|i| i.kind == ItemKind::Wind);
     sh.stage("Strömungsgitter aufbauen");
     let mut setup = if !inlets.is_empty() || !outlets.is_empty() {
-        if inlets.is_empty() { return Err("Für eine interne Strömung wird ein Einlass benötigt.".into()); }
+        if inlets.is_empty() {
+            return Err("Für eine interne Strömung wird ein Einlass benötigt.".into());
+        }
         let mut ops = vec![];
         for it in inlets.iter().chain(outlets.iter()) {
             for f in item_faces(topo, it, &mut warnings)? {
                 let face = &topo.faces[f];
-                if !face.planar { return Err(format!("{}: Ein- und Auslässe brauchen ebene Flächen.", it.name)); }
+                if !face.planar {
+                    return Err(format!("{}: Ein- und Auslässe brauchen ebene Flächen.", it.name));
+                }
                 let mut bb = BBox::default();
-                for &pi in &face.polys { for &v in &topo.polys[pi] { bb.add(topo.positions[v]); } }
+                for &pi in &face.polys {
+                    for &v in &topo.polys[pi] {
+                        bb.add(topo.positions[v]);
+                    }
+                }
                 ops.push(fluid::Opening { point: face.center, normal: face.normal, bbox: bb, inlet: it.kind == ItemKind::Inlet, speed: it.value });
             }
         }
-        if wind.is_some() { warnings.push("Die Anströmung wird ignoriert: mit Ein- und Auslass wird die interne Strömung gerechnet.".into()); }
+        if wind.is_some() {
+            warnings.push("Die Anströmung wird ignoriert: mit Ein- und Auslass wird die interne Strömung gerechnet.".into());
+        }
         fluid::internal(&tris, &topo.bbox, &ops, &fl, cells)?
     } else if let Some(w) = wind {
         fluid::external(&tris, &topo.bbox, V3::from_array(w.vec), w.value, &fl, cells)?
@@ -422,34 +574,58 @@ fn run_fluid(input: &SimInput, sh: &Shared, ctl: &Ctl) -> Result<SimOutput, Stri
             ("Reynolds-Zahl".into(), fmt(re)),
             ("Max. Geschwindigkeit".into(), format!("{} m/s", fmt(vmax as f64))),
         ];
-        if internal { summary.push(("Druckabfall Einlass → Auslass".into(), format!("{} Pa", fmt(f.dp)))); }
+        if internal {
+            summary.push(("Druckabfall Einlass → Auslass".into(), format!("{} Pa", fmt(f.dp))));
+        }
         summary.push(("Kraft auf das Teil".into(), format!("{} N  ({}, {}, {})", fmt(f.force.length()), fmt(f.force.x), fmt(f.force.y), fmt(f.force.z))));
         summary.push(("Zeitschritte".into(), format!("{} von {}", (f.done * steps as f32) as usize, steps)));
         let mut rows = vec![];
         if f.done >= 1.0 {
             let st = (nfluid / 60_000).max(1);
             let mut c = 0;
-            for k in 0..n[2] { for j in 0..n[1] { for i in 0..n[0] {
-                let idx = i + n[0] * (j + n[1] * k);
-                if f.kind[idx] != fluid::FLUID { continue; }
-                c += 1;
-                if c % st != 0 { continue; }
-                let q = f.origin + V3::new(i as f64 + 0.5, j as f64 + 0.5, k as f64 + 0.5) * f.dx;
-                rows.push(vec![q.x as f32, q.y as f32, q.z as f32, f.u[idx][0], f.u[idx][1], f.u[idx][2], f.p[idx]]);
-            } } }
+            for k in 0..n[2] {
+                for j in 0..n[1] {
+                    for i in 0..n[0] {
+                        let idx = i + n[0] * (j + n[1] * k);
+                        if f.kind[idx] != fluid::FLUID {
+                            continue;
+                        }
+                        c += 1;
+                        if c % st != 0 {
+                            continue;
+                        }
+                        let q = f.origin + V3::new(i as f64 + 0.5, j as f64 + 0.5, k as f64 + 0.5) * f.dx;
+                        rows.push(vec![q.x as f32, q.y as f32, q.z as f32, f.u[idx][0], f.u[idx][1], f.u[idx][2], f.p[idx]]);
+                    }
+                }
+            }
         }
         SimOutput {
-            kind: StudyKind::Fluid, surface: surface.clone(), fields, disps: vec![], lines, summary, warnings: warnings.to_vec(),
+            kind: StudyKind::Fluid,
+            surface: surface.clone(),
+            fields,
+            disps: vec![],
+            lines,
+            summary,
+            warnings: warnings.to_vec(),
             table: (["x_mm", "y_mm", "z_mm", "u_m_s", "v_m_s", "w_m_s", "p_Pa"].iter().map(|s| s.to_string()).collect(), rows),
-            partial: f.done < 1.0, seconds: 0.0, see_through: f.internal,
+            partial: f.done < 1.0,
+            seconds: 0.0,
+            see_through: f.internal,
         }
     };
-    if re > 4000.0 { warnings.push("Turbulente Strömung: das grobe Gitter löst die Grenzschicht nicht auf, die Werte sind Richtwerte.".into()); }
+    if re > 4000.0 {
+        warnings.push("Turbulente Strömung: das grobe Gitter löst die Grenzschicht nicht auf, die Werte sind Richtwerte.".into());
+    }
     sh.stage("Strömung berechnen");
     let mut last = None;
     fluid::run(&mut setup, ctl, &mut |f| {
         let o = make(f, &warnings);
-        if o.partial { *sh.partial.lock().unwrap() = Some(o); } else { last = Some(o); }
+        if o.partial {
+            *sh.partial.lock().unwrap() = Some(o);
+        } else {
+            last = Some(o);
+        }
     })?;
     ctl.set(1.0);
     last.ok_or_else(|| "Die Strömungsberechnung lieferte kein Ergebnis.".into())

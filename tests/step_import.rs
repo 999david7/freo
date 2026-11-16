@@ -9,17 +9,29 @@ use freo::sketch::sketch::Sketch;
 use std::collections::HashMap;
 
 fn volume(faces: &[FaceMesh]) -> f64 {
-    faces.iter().flat_map(|f| f.tris.iter().map(move |t| { let (a, b, c) = (f.verts[t[0] as usize].0, f.verts[t[1] as usize].0, f.verts[t[2] as usize].0); a.dot(b.cross(c)) / 6.0 })).sum()
+    faces
+        .iter()
+        .flat_map(|f| {
+            f.tris.iter().map(move |t| {
+                let (a, b, c) = (f.verts[t[0] as usize].0, f.verts[t[1] as usize].0, f.verts[t[2] as usize].0);
+                a.dot(b.cross(c)) / 6.0
+            })
+        })
+        .sum()
 }
 
 /// Number of edges not shared by exactly one opposite-direction neighbour.
 fn open_edges(faces: &[FaceMesh]) -> usize {
     let key = |v: V3| ((v.x * 1e4).round() as i64, (v.y * 1e4).round() as i64, (v.z * 1e4).round() as i64);
     let mut e: HashMap<_, i32> = HashMap::new();
-    for f in faces { for t in &f.tris { for k in 0..3 {
-        let (a, b) = (key(f.verts[t[k] as usize].0), key(f.verts[t[(k + 1) % 3] as usize].0));
-        *e.entry(if a < b { (a, b) } else { (b, a) }).or_default() += if a < b { 1 } else { -1 };
-    } } }
+    for f in faces {
+        for t in &f.tris {
+            for k in 0..3 {
+                let (a, b) = (key(f.verts[t[k] as usize].0), key(f.verts[t[(k + 1) % 3] as usize].0));
+                *e.entry(if a < b { (a, b) } else { (b, a) }).or_default() += if a < b { 1 } else { -1 };
+            }
+        }
+    }
     e.values().filter(|v| **v != 0).count()
 }
 
@@ -145,8 +157,16 @@ fn opening_a_step_file_creates_a_part_with_an_import_feature() {
     // the imported faces can take further features: a cut through the cylinder
     let id = imp.id;
     let FeatureKind::Extrude(mut d) = FeatureKind::new_extrude() else { unreachable!() };
-    d.plane = Some(PlaneRef::Datum(FRONT_ID)); d.sketch = Sketch::rect(4.0, 60.0, 0.0, 0.0); d.depth_type = DepthType::Symmetric; d.depth = Dim::v(40.0); d.remove = true;
-    app.commit("cut", |m| { let nid = m.next_id; m.features.push(Feature { id: nid, name: "Schnitt".into(), suppressed: false, hidden: false, kind: FeatureKind::Extrude(d) }); m.next_id += 1; });
+    d.plane = Some(PlaneRef::Datum(FRONT_ID));
+    d.sketch = Sketch::rect(4.0, 60.0, 0.0, 0.0);
+    d.depth_type = DepthType::Symmetric;
+    d.depth = Dim::v(40.0);
+    d.remove = true;
+    app.commit("cut", |m| {
+        let nid = m.next_id;
+        m.features.push(Feature { id: nid, name: "Schnitt".into(), suppressed: false, hidden: false, kind: FeatureKind::Extrude(d) });
+        m.next_id += 1;
+    });
     let cut = freo::app::export::mass_properties(&app.result, 1.0);
     assert!(cut.volume < m.volume - 100.0, "cut removed material: {} -> {}", m.volume, cut.volume);
     assert!(app.data.feature(id).is_some());
@@ -174,9 +194,13 @@ fn creo_files_are_recognised() {
 fn creo_files_show_up_where_parts_are_opened() {
     use freo::app::creo::{is_creo_kind, OpenKind};
     // Oeffnen Part / Importieren list Creo files too (with version numbers)
-    for n in ["halter.prt", "HALTER.PRT.3", "x.pfprt"] { assert!(OpenKind::Part.accepts(n), "{}", n); }
+    for n in ["halter.prt", "HALTER.PRT.3", "x.pfprt"] {
+        assert!(OpenKind::Part.accepts(n), "{}", n);
+    }
     assert!(!OpenKind::Part.accepts("baugruppe.asm"));
     assert!(OpenKind::Assembly.accepts("top.asm.12") && OpenKind::Drawing.accepts("halter.drw.2"));
-    for n in ["a.stp", "b.STEP", "c.stl", "d.obj", "e.prt.4"] { assert!(OpenKind::Import.accepts(n), "{}", n); }
+    for n in ["a.stp", "b.STEP", "c.stl", "d.obj", "e.prt.4"] {
+        assert!(OpenKind::Import.accepts(n), "{}", n);
+    }
     assert!(is_creo_kind("bracket.prt.17", "prt") && !is_creo_kind("bracket.prtx", "prt"));
 }

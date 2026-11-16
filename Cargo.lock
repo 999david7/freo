@@ -991,13 +991,14 @@ dependencies = [
 
 [[package]]
 name = "freo"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "ab_glyph",
  "eframe",
  "egui",
  "epaint_default_fonts",
  "glam",
+ "image",
  "miniz_oxide 0.8.9",
  "rfd",
  "serde",

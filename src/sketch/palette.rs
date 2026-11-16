@@ -29,7 +29,10 @@ impl PaletteItem {
     pub fn bounds(&self, all: bool) -> (V2, V2) {
         let (mut mn, mut mx) = (V2::splat(f64::INFINITY), V2::splat(f64::NEG_INFINITY));
         for e in self.sketch.entities.iter().filter(|e| all || !(e.centerline || e.construction)) {
-            for q in self.sketch.sample(e, 48) { mn = mn.min(q); mx = mx.max(q); }
+            for q in self.sketch.sample(e, 48) {
+                mn = mn.min(q);
+                mx = mx.max(q);
+            }
         }
         (mn, mx)
     }
@@ -43,8 +46,12 @@ impl PaletteItem {
     /// The shape scaled about its placement point.
     pub fn scaled(&self, k: f64) -> Sketch {
         let mut s = self.sketch.clone();
-        for p in &mut s.points { p.p = p.p * k; }
-        for e in &mut s.entities { e.r *= k; }
+        for p in &mut s.points {
+            p.p = p.p * k;
+        }
+        for e in &mut s.entities {
+            e.r *= k;
+        }
         s
     }
 }
@@ -54,21 +61,33 @@ struct B {
     pts: Vec<(V2, i64)>,
 }
 
-fn v(x: f64, y: f64) -> V2 { V2::new(x, y) }
-fn polar(c: V2, r: f64, deg: f64) -> V2 { let t = deg.to_radians(); c + V2::new(t.cos(), t.sin()) * r }
+fn v(x: f64, y: f64) -> V2 {
+    V2::new(x, y)
+}
+fn polar(c: V2, r: f64, deg: f64) -> V2 {
+    let t = deg.to_radians();
+    c + V2::new(t.cos(), t.sin()) * r
+}
 
 impl B {
-    fn new() -> B { B { sk: Sketch::default(), pts: vec![] } }
+    fn new() -> B {
+        B { sk: Sketch::default(), pts: vec![] }
+    }
 
     /// Profile point; points at the same place are shared so chains stay connected.
     fn p(&mut self, q: V2) -> i64 {
-        if let Some(f) = self.pts.iter().find(|f| (f.0 - q).length() < 1e-6) { return f.1; }
+        if let Some(f) = self.pts.iter().find(|f| (f.0 - q).length() < 1e-6) {
+            return f.1;
+        }
         let id = self.sk.add_point(q);
         self.pts.push((q, id));
         id
     }
 
-    fn line(&mut self, a: V2, b: V2) -> i64 { let (ia, ib) = (self.p(a), self.p(b)); self.sk.add_line(ia, ib) }
+    fn line(&mut self, a: V2, b: V2) -> i64 {
+        let (ia, ib) = (self.p(a), self.p(b));
+        self.sk.add_line(ia, ib)
+    }
 
     fn chain(&mut self, pts: &[V2], closed: bool) -> Vec<i64> {
         let n = pts.len();
@@ -92,19 +111,31 @@ impl B {
         let (ia, ib) = (self.sk.add_point(a), self.sk.add_point(b));
         let id = self.sk.add_entity(SkKind::Line, vec![ia, ib], 0.0, true, true);
         let d = b - a;
-        if d.y.abs() < 1e-9 { self.con(SkCType::Horizontal, vec![], vec![id]); } else if d.x.abs() < 1e-9 { self.con(SkCType::Vertical, vec![], vec![id]); }
+        if d.y.abs() < 1e-9 {
+            self.con(SkCType::Horizontal, vec![], vec![id]);
+        } else if d.x.abs() < 1e-9 {
+            self.con(SkCType::Vertical, vec![], vec![id]);
+        }
         id
     }
 
     /// Horizontal and/or vertical centerline through the placement point.
     fn axes(&mut self, hx: f64, hy: f64) {
-        if hx > 0.0 { self.centerline(v(-hx, 0.0), v(hx, 0.0)); }
-        if hy > 0.0 { self.centerline(v(0.0, -hy), v(0.0, hy)); }
+        if hx > 0.0 {
+            self.centerline(v(-hx, 0.0), v(hx, 0.0));
+        }
+        if hy > 0.0 {
+            self.centerline(v(0.0, -hy), v(0.0, hy));
+        }
     }
 
-    fn con(&mut self, ty: SkCType, pts: Vec<i64>, ents: Vec<i64>) { self.sk.add_constraint(SkConstraint::new(ty, pts, ents)); }
+    fn con(&mut self, ty: SkCType, pts: Vec<i64>, ents: Vec<i64>) {
+        self.sk.add_constraint(SkConstraint::new(ty, pts, ents));
+    }
 
-    fn done(self, name: &str, real: bool) -> PaletteItem { PaletteItem { name: name.to_string(), sketch: self.sk, real } }
+    fn done(self, name: &str, real: bool) -> PaletteItem {
+        PaletteItem { name: name.to_string(), sketch: self.sk, real }
+    }
 }
 
 /// Regular polygon inscribed in a construction circle, sides equal (as Creo's palette polygons).
@@ -115,8 +146,12 @@ fn polygon_into(b: &mut B, n: usize) {
     let pts: Vec<V2> = (0..n).map(|k| polar(V2::ZERO, r, a0 + 360.0 * k as f64 / n as f64)).collect();
     let ids: Vec<i64> = pts.iter().map(|q| b.p(*q)).collect();
     let lines = b.chain(&pts, true);
-    for id in ids { b.con(SkCType::PointOn, vec![id], vec![circ]); }
-    for k in 1..n { b.con(SkCType::Equal, vec![], vec![lines[0], lines[k]]); }
+    for id in ids {
+        b.con(SkCType::PointOn, vec![id], vec![circ]);
+    }
+    for k in 1..n {
+        b.con(SkCType::Equal, vec![], vec![lines[0], lines[k]]);
+    }
 }
 
 fn polygon(name: &str, n: usize) -> PaletteItem {
@@ -129,7 +164,11 @@ fn star(name: &str, n: usize) -> PaletteItem {
     let mut b = B::new();
     let ro = 10.0;
     // the regular star {n/2}; three and four tips have no such star and get slim tips
-    let ri = match n { 3 => 2.5, 4 => 3.0, _ => ro * (360.0 / n as f64).to_radians().cos() / (180.0 / n as f64).to_radians().cos() };
+    let ri = match n {
+        3 => 2.5,
+        4 => 3.0,
+        _ => ro * (360.0 / n as f64).to_radians().cos() / (180.0 / n as f64).to_radians().cos(),
+    };
     let pts: Vec<V2> = (0..2 * n).map(|k| polar(V2::ZERO, if k % 2 == 0 { ro } else { ri }, 90.0 + 180.0 * k as f64 / n as f64)).collect();
     b.chain(&pts, true);
     b.axes(0.0, 13.0);
@@ -207,7 +246,12 @@ fn wave_arcs(name: &str) -> PaletteItem {
 /// Wave as a sine spline over one period.
 fn wave_spline(name: &str) -> PaletteItem {
     let mut b = B::new();
-    let ids: Vec<i64> = (0..=8).map(|k| { let x = -20.0 + 5.0 * k as f64; b.p(v(x, -5.0 * (x * std::f64::consts::PI / 20.0).sin())) }).collect();
+    let ids: Vec<i64> = (0..=8)
+        .map(|k| {
+            let x = -20.0 + 5.0 * k as f64;
+            b.p(v(x, -5.0 * (x * std::f64::consts::PI / 20.0).sin()))
+        })
+        .collect();
     b.sk.add_entity(SkKind::Spline, ids, 0.0, false, false);
     b.axes(26.0, 10.0);
     b.centerline(v(-20.0, -10.0), v(-20.0, 10.0));
@@ -221,7 +265,11 @@ fn bore(name: &str, sink: Option<f64>) -> PaletteItem {
     let tip = r / 59f64.to_radians().tan();
     let mut pts = vec![v(0.0, 0.0)];
     match sink {
-        Some(angle) => { let rs = 2.0 * r; pts.push(v(rs, 0.0)); pts.push(v(r, -(rs - r) / (angle / 2.0).to_radians().tan())); }
+        Some(angle) => {
+            let rs = 2.0 * r;
+            pts.push(v(rs, 0.0));
+            pts.push(v(r, -(rs - r) / (angle / 2.0).to_radians().tan()));
+        }
         None => pts.push(v(r, 0.0)),
     }
     pts.push(v(r, -depth));
@@ -253,14 +301,21 @@ fn channel(name: &str, h: f64, w: f64, tw: f64, tf: f64, real: bool, horizontal_
     let mut b = B::new();
     let (x0, y) = (if horizontal_axis { -w / 2.0 } else { -w / 3.0 }, h / 2.0);
     b.chain(&[v(x0, -y), v(x0 + w, -y), v(x0 + w, -y + tf), v(x0 + tw, -y + tf), v(x0 + tw, y - tf), v(x0 + w, y - tf), v(x0 + w, y), v(x0, y)], true);
-    if horizontal_axis { b.axes(w * 0.75, 0.0); } else { b.axes(0.0, h * 0.6); }
+    if horizontal_axis {
+        b.axes(w * 0.75, 0.0);
+    } else {
+        b.axes(0.0, h * 0.6);
+    }
     b.done(name, real)
 }
 
 fn i_beam(name: &str, h: f64, w: f64, tw: f64, tf: f64, real: bool) -> PaletteItem {
     let mut b = B::new();
     let (x, y, s) = (w / 2.0, h / 2.0, tw / 2.0);
-    b.chain(&[v(-x, -y), v(x, -y), v(x, -y + tf), v(s, -y + tf), v(s, y - tf), v(x, y - tf), v(x, y), v(-x, y), v(-x, y - tf), v(-s, y - tf), v(-s, -y + tf), v(-x, -y + tf)], true);
+    b.chain(
+        &[v(-x, -y), v(x, -y), v(x, -y + tf), v(s, -y + tf), v(s, y - tf), v(x, y - tf), v(x, y), v(-x, y), v(-x, y - tf), v(-s, y - tf), v(-s, -y + tf), v(-x, -y + tf)],
+        true,
+    );
     b.axes(w * 0.7, h * 0.6);
     b.done(name, real)
 }
@@ -268,7 +323,10 @@ fn i_beam(name: &str, h: f64, w: f64, tw: f64, tf: f64, real: bool) -> PaletteIt
 fn t_beam(name: &str) -> PaletteItem {
     let mut b = B::new();
     let (x, h, t) = (20.0, 40.0, 8.0);
-    b.chain(&[v(-t / 2.0, -h / 2.0), v(t / 2.0, -h / 2.0), v(t / 2.0, h / 2.0 - t), v(x, h / 2.0 - t), v(x, h / 2.0), v(-x, h / 2.0), v(-x, h / 2.0 - t), v(-t / 2.0, h / 2.0 - t)], true);
+    b.chain(
+        &[v(-t / 2.0, -h / 2.0), v(t / 2.0, -h / 2.0), v(t / 2.0, h / 2.0 - t), v(x, h / 2.0 - t), v(x, h / 2.0), v(-x, h / 2.0), v(-x, h / 2.0 - t), v(-t / 2.0, h / 2.0 - t)],
+        true,
+    );
     b.axes(0.0, h * 0.6);
     b.done(name, false)
 }
@@ -299,30 +357,98 @@ fn hollow(name: &str, h: f64, w: f64, t: f64) -> PaletteItem {
 fn build() -> Vec<PaletteTab> {
     const NS: [usize; 11] = [3, 4, 5, 6, 7, 8, 9, 10, 12, 16, 20];
     let german = ["Dreieck", "Viereck", "Fünfeck", "Sechseck", "Siebeneck", "Achteck", "Neuneck", "Zehneck", "Zwölfeck", "Sechzehneck", "Zwanzigeck"];
-    let english = [("decagon", 10), ("dodecagon", 12), ("dreieck", 3), ("heptagon", 7), ("hexagon", 6), ("hexdecagon", 16), ("icosagon", 20), ("nonagon", 9), ("octagon", 8), ("pentagon", 5), ("quadrat", 4)];
-    let mut sections: Vec<PaletteItem> = [("50x30", 50.0, 30.0, 3.0), ("60x40", 60.0, 40.0, 4.0), ("70x40", 70.0, 40.0, 4.0), ("80x40", 80.0, 40.0, 4.0), ("100x50", 100.0, 50.0, 5.0)]
-        .iter().map(|s| hollow(s.0, s.1, s.2, s.3)).collect();
+    let english = [
+        ("decagon", 10),
+        ("dodecagon", 12),
+        ("dreieck", 3),
+        ("heptagon", 7),
+        ("hexagon", 6),
+        ("hexdecagon", 16),
+        ("icosagon", 20),
+        ("nonagon", 9),
+        ("octagon", 8),
+        ("pentagon", 5),
+        ("quadrat", 4),
+    ];
+    let mut sections: Vec<PaletteItem> =
+        [("50x30", 50.0, 30.0, 3.0), ("60x40", 60.0, 40.0, 4.0), ("70x40", 70.0, 40.0, 4.0), ("80x40", 80.0, 40.0, 4.0), ("100x50", 100.0, 50.0, 5.0)]
+            .iter()
+            .map(|s| hollow(s.0, s.1, s.2, s.3))
+            .collect();
     sections.push(i_beam("I-Profil", 100.0, 55.0, 4.1, 5.7, true));
     // angles as Creo sorts them (by name), leg × leg × thickness
-    for (a, bw, t) in [(100.0, 100.0, 10.0), (100.0, 50.0, 8.0), (20.0, 20.0, 3.0), (30.0, 30.0, 3.0), (40.0, 40.0, 4.0), (50.0, 40.0, 5.0), (50.0, 50.0, 5.0), (60.0, 40.0, 5.0), (60.0, 60.0, 6.0),
-        (70.0, 70.0, 7.0), (80.0, 60.0, 7.0), (80.0, 80.0, 8.0), (90.0, 90.0, 9.0)] {
+    for (a, bw, t) in [
+        (100.0, 100.0, 10.0),
+        (100.0, 50.0, 8.0),
+        (20.0, 20.0, 3.0),
+        (30.0, 30.0, 3.0),
+        (40.0, 40.0, 4.0),
+        (50.0, 40.0, 5.0),
+        (50.0, 50.0, 5.0),
+        (60.0, 40.0, 5.0),
+        (60.0, 60.0, 6.0),
+        (70.0, 70.0, 7.0),
+        (80.0, 60.0, 7.0),
+        (80.0, 80.0, 8.0),
+        (90.0, 90.0, 9.0),
+    ] {
         let name = if a == bw { format!("L{}x{}", a, t) } else { format!("L{}x{}x{}", a, bw, t) };
         sections.push(angle(&name, a, bw, t, t, true));
     }
     // U channels (DIN 1026): height, flange width, web, flange
-    for (n, h, w, tw, tf) in [("u100", 100.0, 50.0, 6.0, 8.5), ("u160", 160.0, 65.0, 7.5, 10.5), ("u180", 180.0, 70.0, 8.0, 11.0), ("u200", 200.0, 75.0, 8.5, 11.5), ("u300", 300.0, 100.0, 10.0, 16.0),
-        ("u50", 50.0, 38.0, 5.0, 7.0), ("u60", 60.0, 30.0, 6.0, 6.0), ("u80", 80.0, 45.0, 6.0, 8.0)] {
+    for (n, h, w, tw, tf) in [
+        ("u100", 100.0, 50.0, 6.0, 8.5),
+        ("u160", 160.0, 65.0, 7.5, 10.5),
+        ("u180", 180.0, 70.0, 8.0, 11.0),
+        ("u200", 200.0, 75.0, 8.5, 11.5),
+        ("u300", 300.0, 100.0, 10.0, 16.0),
+        ("u50", 50.0, 38.0, 5.0, 7.0),
+        ("u60", 60.0, 30.0, 6.0, 6.0),
+        ("u80", 80.0, 45.0, 6.0, 8.0),
+    ] {
         sections.push(channel(n, h, w, tw, tf, true, false));
     }
     vec![
-        PaletteTab { name: "Profile", items: vec![channel("C-Profil", 40.0, 26.0, 8.0, 8.0, false, true), i_beam("I-Profil", 40.0, 30.0, 8.0, 8.0, false), angle("L-Profil", 40.0, 30.0, 8.0, 0.0, false), t_beam("T-Profil")] },
-        PaletteTab { name: "Formen", items: vec![curved_racetrack("Gebogene Rennbahn"), cross("Quer"), oval("Oval"), racetrack("Rennbahn"), rounded_rect("Abgerundetes Rechteck"), wave_arcs("Welle 1"), wave_spline("Welle 2")] },
+        PaletteTab {
+            name: "Profile",
+            items: vec![
+                channel("C-Profil", 40.0, 26.0, 8.0, 8.0, false, true),
+                i_beam("I-Profil", 40.0, 30.0, 8.0, 8.0, false),
+                angle("L-Profil", 40.0, 30.0, 8.0, 0.0, false),
+                t_beam("T-Profil"),
+            ],
+        },
+        PaletteTab {
+            name: "Formen",
+            items: vec![
+                curved_racetrack("Gebogene Rennbahn"),
+                cross("Quer"),
+                oval("Oval"),
+                racetrack("Rennbahn"),
+                rounded_rect("Abgerundetes Rechteck"),
+                wave_arcs("Welle 1"),
+                wave_spline("Welle 2"),
+            ],
+        },
         PaletteTab { name: "Sterne", items: NS.iter().map(|n| star(&format!("{}-zackiger Stern", n), *n)).collect() },
         PaletteTab { name: "Profile", items: sections },
         PaletteTab { name: "Sterne", items: NS.iter().map(|n| star(&format!("{}_tip_star", n), *n)).collect() },
         PaletteTab { name: "Polygone", items: english.iter().map(|(n, k)| polygon(n, *k)).collect() },
-        PaletteTab { name: "Allgemeines", items: vec![bore("bo_senk60", Some(60.0)), bore("bo_senk90", Some(90.0)), curved_racetrack("bogen"), bore("bohrung", None), cross("kreuz"), racetrack("racetrack"),
-            rounded_rect("rechteck-gerundet"), dovetail("schwalbenschwanz"), wave_arcs("welle_1"), wave_spline("welle_2")] },
+        PaletteTab {
+            name: "Allgemeines",
+            items: vec![
+                bore("bo_senk60", Some(60.0)),
+                bore("bo_senk90", Some(90.0)),
+                curved_racetrack("bogen"),
+                bore("bohrung", None),
+                cross("kreuz"),
+                racetrack("racetrack"),
+                rounded_rect("rechteck-gerundet"),
+                dovetail("schwalbenschwanz"),
+                wave_arcs("welle_1"),
+                wave_spline("welle_2"),
+            ],
+        },
         PaletteTab { name: "HTL", items: vec![hexagon_axes("6_eck"), racetrack("langloch")] },
         PaletteTab { name: "Polygone", items: NS.iter().zip(german).map(|(n, name)| polygon(name, *n)).collect() },
     ]

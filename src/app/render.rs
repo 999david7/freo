@@ -6,19 +6,37 @@ use glam::Mat4;
 use std::sync::Arc;
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub enum Style { Reflect, ShadedEdges, Shaded, NoHidden, HiddenLine, Wireframe }
+pub enum Style {
+    Reflect,
+    ShadedEdges,
+    Shaded,
+    NoHidden,
+    HiddenLine,
+    Wireframe,
+}
 
 impl Style {
     /// In Creo's order; Strg+1 … Strg+6.
     pub const ALL: [Style; 6] = [Style::Reflect, Style::ShadedEdges, Style::Shaded, Style::NoHidden, Style::HiddenLine, Style::Wireframe];
     pub fn name(&self) -> &'static str {
         match self {
-            Style::Reflect => "Schattierung mit Reflexion", Style::ShadedEdges => "Schattierung mit Kanten", Style::Shaded => "Schattierung",
-            Style::NoHidden => "Sichtbare Kanten", Style::HiddenLine => "Verdeckte Kanten", Style::Wireframe => "Drahtmodell",
+            Style::Reflect => "Schattierung mit Reflexion",
+            Style::ShadedEdges => "Schattierung mit Kanten",
+            Style::Shaded => "Schattierung",
+            Style::NoHidden => "Sichtbare Kanten",
+            Style::HiddenLine => "Verdeckte Kanten",
+            Style::Wireframe => "Drahtmodell",
         }
     }
     pub fn shortcut(&self) -> &'static str {
-        match self { Style::Reflect => "Strg+1", Style::ShadedEdges => "Strg+2", Style::Shaded => "Strg+3", Style::NoHidden => "Strg+4", Style::HiddenLine => "Strg+5", Style::Wireframe => "Strg+6" }
+        match self {
+            Style::Reflect => "Strg+1",
+            Style::ShadedEdges => "Strg+2",
+            Style::Shaded => "Strg+3",
+            Style::NoHidden => "Strg+4",
+            Style::HiddenLine => "Strg+5",
+            Style::Wireframe => "Strg+6",
+        }
     }
 }
 
@@ -44,6 +62,8 @@ pub struct FrameData {
     pub hl_tris: Vec<f32>,
     pub hl_color: [f32; 4],
     pub hover_tris: Vec<f32>,
+    /// analysis colours: triangles (pos(3) normal(3)) per colour, drawn over the model
+    pub overlay: Arc<Vec<(Vec<f32>, [f32; 4])>>,
     /// pos(3) rgba(4)
     pub lines: Vec<f32>,
     /// pos(3) rgba(4), drawn translucent without depth writes
@@ -51,7 +71,11 @@ pub struct FrameData {
     pub depth_bias: f32,
 }
 
-struct Mesh { vao: glow::VertexArray, vbo: glow::Buffer, count: i32 }
+struct Mesh {
+    vao: glow::VertexArray,
+    vbo: glow::Buffer,
+    count: i32,
+}
 
 pub struct Renderer {
     lit: glow::Program,
@@ -128,15 +152,24 @@ unsafe fn program(gl: &glow::Context, vs: &str, fs: &str, attrs: &[&str]) -> glo
         let s = gl.create_shader(ty).expect("shader");
         gl.shader_source(s, &format!("{}{}", header, src));
         gl.compile_shader(s);
-        if !gl.get_shader_compile_status(s) { panic!("shader compile error: {}", gl.get_shader_info_log(s)); }
+        if !gl.get_shader_compile_status(s) {
+            panic!("shader compile error: {}", gl.get_shader_info_log(s));
+        }
         gl.attach_shader(p, s);
         shaders.push(s);
     }
-    for (i, a) in attrs.iter().enumerate() { gl.bind_attrib_location(p, i as u32, a); }
+    for (i, a) in attrs.iter().enumerate() {
+        gl.bind_attrib_location(p, i as u32, a);
+    }
     gl.bind_frag_data_location(p, 0, "frag");
     gl.link_program(p);
-    if !gl.get_program_link_status(p) { panic!("link error: {}", gl.get_program_info_log(p)); }
-    for s in shaders { gl.detach_shader(p, s); gl.delete_shader(s); }
+    if !gl.get_program_link_status(p) {
+        panic!("link error: {}", gl.get_program_info_log(p));
+    }
+    for s in shaders {
+        gl.detach_shader(p, s);
+        gl.delete_shader(s);
+    }
     p
 }
 
@@ -157,7 +190,9 @@ unsafe fn upload(gl: &glow::Context, data: &[f32], layout: &[i32]) -> Mesh {
     Mesh { vao, vbo, count: (data.len() as i32) / stride }
 }
 
-fn bytes(d: &[f32]) -> &[u8] { unsafe { std::slice::from_raw_parts(d.as_ptr() as *const u8, std::mem::size_of_val(d)) } }
+fn bytes(d: &[f32]) -> &[u8] {
+    unsafe { std::slice::from_raw_parts(d.as_ptr() as *const u8, std::mem::size_of_val(d)) }
+}
 
 impl Renderer {
     pub fn new(gl: &glow::Context) -> Renderer {
@@ -175,7 +210,10 @@ impl Renderer {
     }
 
     unsafe fn free(gl: &glow::Context, m: Option<Mesh>) {
-        if let Some(m) = m { gl.delete_vertex_array(m.vao); gl.delete_buffer(m.vbo); }
+        if let Some(m) = m {
+            gl.delete_vertex_array(m.vao);
+            gl.delete_buffer(m.vbo);
+        }
     }
 
     unsafe fn dynamic(gl: &glow::Context, slot: &mut Option<(glow::VertexArray, glow::Buffer)>, data: &[f32], layout: &[i32]) -> i32 {
@@ -205,7 +243,9 @@ impl Renderer {
             if self.generation != f.model.generation {
                 Self::free(gl, self.solid.take());
                 Self::free(gl, self.edges.take());
-                if !f.model.solid.is_empty() { self.solid = Some(upload(gl, &f.model.solid, &[3, 3, 3])); }
+                if !f.model.solid.is_empty() {
+                    self.solid = Some(upload(gl, &f.model.solid, &[3, 3, 3]));
+                }
                 if !f.model.edges.is_empty() {
                     let colored: Vec<f32> = f.model.edges.chunks(3).flat_map(|p| [p[0], p[1], p[2], 0.0, 0.0, 0.0, 1.0]).collect();
                     self.edges = Some(upload(gl, &colored, &[3, 4]));
@@ -233,11 +273,17 @@ impl Renderer {
             let draw_solid = !matches!(f.style, Style::Wireframe);
             set_common(self.lit);
             gl.uniform_matrix_4_f32_slice(gl.get_uniform_location(self.lit, "u_view").as_ref(), false, &f.view.to_cols_array());
-            let mode = match f.style { Style::HiddenLine | Style::NoHidden => 2, Style::Reflect => 3, _ => 0 };
+            let mode = match f.style {
+                Style::HiddenLine | Style::NoHidden => 2,
+                Style::Reflect => 3,
+                _ => 0,
+            };
             if let (Some(m), true) = (&self.solid, draw_solid) {
                 gl.uniform_1_i32(gl.get_uniform_location(self.lit, "u_mode").as_ref(), mode);
                 gl.uniform_4_f32(gl.get_uniform_location(self.lit, "u_color").as_ref(), f.color[0], f.color[1], f.color[2], if mode != 2 { f.opacity } else { 1.0 });
-                if f.opacity < 0.999 && mode != 2 { gl.depth_mask(false); }
+                if f.opacity < 0.999 && mode != 2 {
+                    gl.depth_mask(false);
+                }
                 gl.enable(glow::POLYGON_OFFSET_FILL);
                 gl.polygon_offset(1.0, 1.0);
                 gl.bind_vertex_array(Some(m.vao));
@@ -245,9 +291,24 @@ impl Renderer {
                 gl.disable(glow::POLYGON_OFFSET_FILL);
                 gl.depth_mask(true);
             }
+            // colours of an analysis (Schräge, Dicke, Krümmung, ...) cover the model
+            for (tris, col) in f.overlay.iter() {
+                if tris.is_empty() {
+                    continue;
+                }
+                gl.use_program(Some(self.lit));
+                gl.uniform_1_i32(gl.get_uniform_location(self.lit, "u_mode").as_ref(), 1);
+                gl.uniform_4_f32(gl.get_uniform_location(self.lit, "u_color").as_ref(), col[0], col[1], col[2], col[3]);
+                let n = Self::dynamic(gl, &mut self.scratch_lit, tris, &[3, 3]);
+                gl.depth_mask(false);
+                gl.draw_arrays(glow::TRIANGLES, 0, n);
+                gl.depth_mask(true);
+            }
             // highlights (selected / preselected faces)
             for (tris, col) in [(&f.hover_tris, [0.35, 0.75, 1.0, 0.55]), (&f.hl_tris, f.hl_color)] {
-                if tris.is_empty() { continue; }
+                if tris.is_empty() {
+                    continue;
+                }
                 gl.use_program(Some(self.lit));
                 gl.uniform_1_i32(gl.get_uniform_location(self.lit, "u_mode").as_ref(), 1);
                 gl.uniform_4_f32(gl.get_uniform_location(self.lit, "u_color").as_ref(), col[0], col[1], col[2], col[3]);

@@ -12,7 +12,9 @@ use std::sync::Mutex;
 static OPENED: Mutex<Vec<PathBuf>> = Mutex::new(Vec::new());
 
 /// Paths Finder asked us to open since the last call.
-pub fn take() -> Vec<PathBuf> { OPENED.lock().map(|mut v| std::mem::take(&mut *v)).unwrap_or_default() }
+pub fn take() -> Vec<PathBuf> {
+    OPENED.lock().map(|mut v| std::mem::take(&mut *v)).unwrap_or_default()
+}
 
 #[cfg(target_os = "macos")]
 mod imp {
@@ -30,7 +32,9 @@ mod imp {
     #[link(name = "AppKit", kind = "framework")]
     extern "C" {}
 
-    fn sel(s: &CStr) -> Sel { unsafe { sel_registerName(s.as_ptr()) } }
+    fn sel(s: &CStr) -> Sel {
+        unsafe { sel_registerName(s.as_ptr()) }
+    }
 
     unsafe fn send_ptr(obj: Id, s: Sel, p: *const c_char) -> Id {
         let f: unsafe extern "C" fn(Id, Sel, *const c_char) -> Id = std::mem::transmute(objc_msgSend as unsafe extern "C" fn());
@@ -49,7 +53,9 @@ mod imp {
             let s = send_ptr(objc_getClass(c"NSString".as_ptr()), sel(c"stringWithUTF8String:"), c.as_ptr());
             let url = send_id(objc_getClass(c"NSURL".as_ptr()), sel(c"fileURLWithPath:"), s);
             let fm = send0(objc_getClass(c"NSFileManager".as_ptr()), sel(c"defaultManager"));
-            if url.is_null() || fm.is_null() { return Err("Papierkorb nicht verfügbar".into()); }
+            if url.is_null() || fm.is_null() {
+                return Err("Papierkorb nicht verfügbar".into());
+            }
             let mut out: Id = std::ptr::null_mut();
             let mut err: Id = std::ptr::null_mut();
             let f: unsafe extern "C" fn(Id, Sel, Id, *mut Id, *mut Id) -> i8 = std::mem::transmute(objc_msgSend as unsafe extern "C" fn());
@@ -77,9 +83,15 @@ mod imp {
     }
 
     unsafe fn nsstring(s: Id) -> Option<String> {
-        if s.is_null() { return None; }
+        if s.is_null() {
+            return None;
+        }
         let p = send0(s, sel(c"UTF8String")) as *const c_char;
-        if p.is_null() { None } else { Some(CStr::from_ptr(p).to_string_lossy().into_owned()) }
+        if p.is_null() {
+            None
+        } else {
+            Some(CStr::from_ptr(p).to_string_lossy().into_owned())
+        }
     }
 
     extern "C" fn open_urls(_this: Id, _cmd: Sel, _app: Id, urls: Id) {
@@ -87,8 +99,12 @@ mod imp {
             for i in 0..count(urls) {
                 let url = send_usize(urls, sel(c"objectAtIndex:"), i);
                 if let Some(p) = nsstring(send0(url, sel(c"path"))) {
-                    if std::env::var("FREO_DEBUG_OPEN").is_ok() { eprintln!("open-url {}", p); }
-                    if let Ok(mut v) = super::OPENED.lock() { v.push(p.into()); }
+                    if std::env::var("FREO_DEBUG_OPEN").is_ok() {
+                        eprintln!("open-url {}", p);
+                    }
+                    if let Ok(mut v) = super::OPENED.lock() {
+                        v.push(p.into());
+                    }
                 }
             }
         }
@@ -101,9 +117,13 @@ mod imp {
     pub fn install() {
         unsafe {
             let root = objc_getClass(c"NSObject".as_ptr());
-            if root.is_null() { return; }
+            if root.is_null() {
+                return;
+            }
             let ok = class_addMethod(root, sel(c"application:openURLs:"), open_urls as *const c_void, c"v@:@@".as_ptr());
-            if std::env::var("FREO_DEBUG_OPEN").is_ok() { eprintln!("open-url handler installed: {}", ok); }
+            if std::env::var("FREO_DEBUG_OPEN").is_ok() {
+                eprintln!("open-url handler installed: {}", ok);
+            }
         }
     }
 }
@@ -115,4 +135,6 @@ pub use imp::{install, trash};
 pub fn install() {}
 
 #[cfg(not(target_os = "macos"))]
-pub fn trash(_path: &std::path::Path) -> Result<std::path::PathBuf, String> { Err("Der Papierkorb wird nur unter macOS unterstützt.".into()) }
+pub fn trash(_path: &std::path::Path) -> Result<std::path::PathBuf, String> {
+    Err("Der Papierkorb wird nur unter macOS unterstützt.".into())
+}

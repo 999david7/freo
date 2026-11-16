@@ -1,0 +1,4 @@
+# One consistent layout for the whole code base. The code is written densely (one statement or
+# one table row per line), so lines may be long; rustfmt keeps short blocks on one line.
+max_width = 180
+use_small_heuristics = "Max"

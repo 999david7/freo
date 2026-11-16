@@ -13,12 +13,7 @@ struct Client {
 
 impl Client {
     fn start() -> Client {
-        let mut child = Command::new(env!("CARGO_BIN_EXE_freo-mcp"))
-            .stdin(Stdio::piped())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::inherit())
-            .spawn()
-            .expect("start freo-mcp");
+        let mut child = Command::new(env!("CARGO_BIN_EXE_freo-mcp")).stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::inherit()).spawn().expect("start freo-mcp");
         let stdin = child.stdin.take().unwrap();
         let stdout = BufReader::new(child.stdout.take().unwrap());
         Client { child, stdin, stdout, next_id: 1 }
@@ -82,10 +77,15 @@ impl Client {
 }
 
 impl Drop for Client {
-    fn drop(&mut self) { let _ = self.child.kill(); let _ = self.child.wait(); }
+    fn drop(&mut self) {
+        let _ = self.child.kill();
+        let _ = self.child.wait();
+    }
 }
 
-fn vol(v: &Value) -> f64 { v["model"]["volume_mm3"].as_f64().unwrap() }
+fn vol(v: &Value) -> f64 {
+    v["model"]["volume_mm3"].as_f64().unwrap()
+}
 
 fn out_dir() -> std::path::PathBuf {
     let d = std::env::temp_dir().join(format!("freo_mcp_test_{}", std::process::id()));
@@ -110,8 +110,28 @@ fn handshake_tools_and_protocol_errors() {
     let tools = c.request("tools/list", json!({}));
     let tools = tools["result"]["tools"].as_array().unwrap();
     let names: Vec<&str> = tools.iter().map(|t| t["name"].as_str().unwrap()).collect();
-    for n in ["new_part", "open_model", "save_model", "list_features", "add_datum_plane", "add_sketch", "add_extrude", "add_revolve", "add_hole", "add_round",
-        "add_chamfer", "edit_feature", "suppress_features", "resume_features", "delete_features", "regenerate", "mass_properties", "get_model_info", "export_model", "render_png"] {
+    for n in [
+        "new_part",
+        "open_model",
+        "save_model",
+        "list_features",
+        "add_datum_plane",
+        "add_sketch",
+        "add_extrude",
+        "add_revolve",
+        "add_hole",
+        "add_round",
+        "add_chamfer",
+        "edit_feature",
+        "suppress_features",
+        "resume_features",
+        "delete_features",
+        "regenerate",
+        "mass_properties",
+        "get_model_info",
+        "export_model",
+        "render_png",
+    ] {
         assert!(names.contains(&n), "missing tool {}", n);
     }
     for t in tools {
@@ -245,10 +265,13 @@ fn datum_plane_sketch_revolve_pattern_and_shell() {
     c.initialize();
     c.call("new_part", json!({ "name": "flange" }));
     // a revolved disc: profile on FRONT, revolved about the vertical centerline
-    let rev = c.call("add_revolve", json!({ "plane": "FRONT", "shapes": [
+    let rev = c.call(
+        "add_revolve",
+        json!({ "plane": "FRONT", "shapes": [
         { "type": "centerline", "from": [0, -10], "to": [0, 10] },
         { "type": "rect", "width": 40, "height": 10, "cx": 20, "cy": 5 }
-    ] }));
+    ] }),
+    );
     let disc = std::f64::consts::PI * 40.0 * 40.0 * 10.0;
     assert!((vol(&rev) - disc).abs() / disc < 0.01, "disc {}", vol(&rev));
     assert!(c.call_err("add_revolve", json!({ "plane": "FRONT", "shapes": [{ "type": "circle", "radius": 5, "cx": 20 }] })).contains("centerline"));
@@ -263,7 +286,10 @@ fn datum_plane_sketch_revolve_pattern_and_shell() {
     // bolt hole on the flange face, patterned 6× around Y
     // "+Y" would pick the boss top (the outermost face), so pick the flange face by index
     let faces = c.call("list_geometry", json!({ "kind": "faces" }));
-    let flange_top = faces["faces"].as_array().unwrap().iter()
+    let flange_top = faces["faces"]
+        .as_array()
+        .unwrap()
+        .iter()
         .find(|f| f["planar"] == true && f["normal"] == json!([0.0, 1.0, 0.0]) && f["center"][1] == 10.0 && f["area"].as_f64().unwrap() > 3000.0)
         .map(|f| f["index"].as_u64().unwrap());
     let h = c.call("add_hole", json!({ "plane": { "face": flange_top.expect("flange top face") }, "x": 30, "y": 0, "diameter": 6, "through_all": true }));

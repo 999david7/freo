@@ -7,13 +7,18 @@ use std::collections::HashMap;
 
 pub const NONE: u32 = u32::MAX;
 
-pub fn threads() -> usize { std::thread::available_parallelism().map(|n| n.get()).unwrap_or(4).clamp(1, 12) }
+pub fn threads() -> usize {
+    std::thread::available_parallelism().map(|n| n.get()).unwrap_or(4).clamp(1, 12)
+}
 
 /// Runs `f(start, chunk)` on slices of `data` in parallel; chunk lengths are multiples of `unit`.
 pub fn par_chunks<T: Send>(data: &mut [T], unit: usize, f: impl Fn(usize, &mut [T]) + Sync) {
     let units = data.len() / unit.max(1);
     let t = threads().min(units.max(1));
-    if t <= 1 || data.len() < 16_384 { f(0, data); return; }
+    if t <= 1 || data.len() < 16_384 {
+        f(0, data);
+        return;
+    }
     let per = units.div_ceil(t) * unit;
     std::thread::scope(|s| {
         for (i, c) in data.chunks_mut(per).enumerate() {
@@ -26,7 +31,9 @@ pub fn par_chunks<T: Send>(data: &mut [T], unit: usize, f: impl Fn(usize, &mut [
 pub fn tris_of(topo: &Topology) -> Vec<[V3; 3]> {
     let mut out = vec![];
     for p in &topo.polys {
-        for k in 1..p.len() - 1 { out.push([topo.positions[p[0]], topo.positions[p[k]], topo.positions[p[k + 1]]]); }
+        for k in 1..p.len() - 1 {
+            out.push([topo.positions[p[0]], topo.positions[p[k]], topo.positions[p[k + 1]]]);
+        }
     }
     out
 }
@@ -34,8 +41,17 @@ pub fn tris_of(topo: &Topology) -> Vec<[V3; 3]> {
 /// Splits a triangle (longest edge first) until no edge is longer than `max_edge`.
 pub fn subdivide(t: [V3; 3], max_edge: f64, depth: u32, f: &mut impl FnMut([V3; 3])) {
     let l = [(t[1] - t[0]).length_squared(), (t[2] - t[1]).length_squared(), (t[0] - t[2]).length_squared()];
-    let k = if l[0] >= l[1] && l[0] >= l[2] { 0 } else if l[1] >= l[2] { 1 } else { 2 };
-    if l[k] <= max_edge * max_edge || depth == 0 { f(t); return; }
+    let k = if l[0] >= l[1] && l[0] >= l[2] {
+        0
+    } else if l[1] >= l[2] {
+        1
+    } else {
+        2
+    };
+    if l[k] <= max_edge * max_edge || depth == 0 {
+        f(t);
+        return;
+    }
     let (a, b, c) = (t[k], t[(k + 1) % 3], t[(k + 2) % 3]);
     let m = (a + b) * 0.5;
     subdivide([a, m, c], max_edge, depth - 1, f);
@@ -51,13 +67,21 @@ pub struct Grid {
 }
 
 impl Grid {
-    pub fn cell(&self, i: usize, j: usize, k: usize) -> usize { i + self.n[0] * (j + self.n[1] * k) }
-    pub fn cells(&self) -> usize { self.n[0] * self.n[1] * self.n[2] }
-    pub fn center(&self, i: usize, j: usize, k: usize) -> V3 { self.origin + V3::new((i as f64 + 0.5) * self.h.x, (j as f64 + 0.5) * self.h.y, (k as f64 + 0.5) * self.h.z) }
+    pub fn cell(&self, i: usize, j: usize, k: usize) -> usize {
+        i + self.n[0] * (j + self.n[1] * k)
+    }
+    pub fn cells(&self) -> usize {
+        self.n[0] * self.n[1] * self.n[2]
+    }
+    pub fn center(&self, i: usize, j: usize, k: usize) -> V3 {
+        self.origin + V3::new((i as f64 + 0.5) * self.h.x, (j as f64 + 0.5) * self.h.y, (k as f64 + 0.5) * self.h.z)
+    }
     /// Cell containing `p`, if inside the grid.
     pub fn cell_at(&self, p: V3) -> Option<[usize; 3]> {
         let r = (p - self.origin) / self.h;
-        if r.x < 0.0 || r.y < 0.0 || r.z < 0.0 { return None; }
+        if r.x < 0.0 || r.y < 0.0 || r.z < 0.0 {
+            return None;
+        }
         let c = [r.x as usize, r.y as usize, r.z as usize];
         (c[0] < self.n[0] && c[1] < self.n[1] && c[2] < self.n[2]).then_some(c)
     }
@@ -91,17 +115,23 @@ impl Grid {
             let k0 = (((z0 - oz) / h.z).ceil().max(0.0)) as usize;
             let j1 = ((y1 - oy) / h.y).floor();
             let k1 = ((z1 - oz) / h.z).floor();
-            if j1 < 0.0 || k1 < 0.0 { continue; }
+            if j1 < 0.0 || k1 < 0.0 {
+                continue;
+            }
             let (j1, k1) = ((j1 as usize).min(n[1] - 1), (k1 as usize).min(n[2] - 1));
             let (e1, e2) = (t[1] - t[0], t[2] - t[0]);
             let det = e1.y * e2.z - e1.z * e2.y;
-            if det.abs() < 1e-14 { continue; }
+            if det.abs() < 1e-14 {
+                continue;
+            }
             for k in k0..=k1 {
                 for j in j0..=j1 {
                     let (py, pz) = (oy + j as f64 * h.y - t[0].y, oz + k as f64 * h.z - t[0].z);
                     let u = (py * e2.z - pz * e2.y) / det;
                     let v = (e1.y * pz - e1.z * py) / det;
-                    if u < 0.0 || v < 0.0 || u + v > 1.0 { continue; }
+                    if u < 0.0 || v < 0.0 || u + v > 1.0 {
+                        continue;
+                    }
                     hits[j + n[1] * k].push((t[0].x + u * e1.x + v * e2.x) as f32);
                 }
             }
@@ -110,14 +140,22 @@ impl Grid {
         for k in 0..n[2] {
             for j in 0..n[1] {
                 let row = &mut hits[j + n[1] * k];
-                if row.len() < 2 { continue; }
+                if row.len() < 2 {
+                    continue;
+                }
                 row.sort_by(|a, b| a.partial_cmp(b).unwrap());
                 for pair in row.chunks(2) {
-                    if pair.len() < 2 { break; }
+                    if pair.len() < 2 {
+                        break;
+                    }
                     let i0 = (((pair[0] as f64 - origin.x) / h.x - 0.5).ceil().max(0.0)) as usize;
                     let i1 = ((pair[1] as f64 - origin.x) / h.x - 0.5).floor();
-                    if i1 < 0.0 { continue; }
-                    for i in i0..=(i1 as usize).min(n[0] - 1) { solid[i + n[0] * (j + n[1] * k)] = true; }
+                    if i1 < 0.0 {
+                        continue;
+                    }
+                    for i in i0..=(i1 as usize).min(n[0] - 1) {
+                        solid[i + n[0] * (j + n[1] * k)] = true;
+                    }
                 }
             }
         }
@@ -152,7 +190,9 @@ pub struct FaceMap {
 impl Mesh {
     /// Meshes `topo` with about `target` elements.
     pub fn build(topo: &Topology, target: usize) -> Result<Mesh, String> {
-        if topo.polys.is_empty() || topo.bbox.is_empty() { return Err("Das Modell enthält kein Volumen.".into()); }
+        if topo.polys.is_empty() || topo.bbox.is_empty() {
+            return Err("Das Modell enthält kein Volumen.".into());
+        }
         let tris = tris_of(topo);
         let (origin, size) = (topo.bbox.min, topo.bbox.size());
         let mut want = target.max(64);
@@ -165,7 +205,9 @@ impl Mesh {
             let filled = g.solid.iter().filter(|s| **s).count();
             let ratio = filled as f64 / g.cells() as f64;
             grid = Some(g);
-            if filled == 0 || ratio > 0.7 || (filled as f64) > target as f64 * 0.7 { break; }
+            if filled == 0 || ratio > 0.7 || (filled as f64) > target as f64 * 0.7 {
+                break;
+            }
             want = ((target as f64 / ratio.max(0.02)) as usize).min(target * 40);
         }
         Mesh::from_grid(grid.unwrap())
@@ -174,13 +216,17 @@ impl Mesh {
     pub fn from_grid(mut grid: Grid) -> Result<Mesh, String> {
         let n = grid.n;
         let total = grid.solid.iter().filter(|s| **s).count();
-        if total == 0 { return Err("Das Modell ist für das Simulationsnetz zu dünn oder enthält kein Volumen.".into()); }
+        if total == 0 {
+            return Err("Das Modell ist für das Simulationsnetz zu dünn oder enthält kein Volumen.".into());
+        }
         // keep the largest face-connected body: loose cells would float freely
         let mut comp = vec![0u32; grid.cells()];
         let mut sizes = vec![0usize];
         let mut stack = vec![];
         for start in 0..grid.cells() {
-            if !grid.solid[start] || comp[start] != 0 { continue; }
+            if !grid.solid[start] || comp[start] != 0 {
+                continue;
+            }
             let id = sizes.len() as u32;
             sizes.push(0);
             comp[start] = id;
@@ -188,17 +234,36 @@ impl Mesh {
             while let Some(c) = stack.pop() {
                 sizes[id as usize] += 1;
                 let (i, j, k) = (c % n[0], (c / n[0]) % n[1], c / (n[0] * n[1]));
-                let mut visit = |q: usize| if grid.solid[q] && comp[q] == 0 { comp[q] = id; stack.push(q); };
-                if i > 0 { visit(c - 1); }
-                if i + 1 < n[0] { visit(c + 1); }
-                if j > 0 { visit(c - n[0]); }
-                if j + 1 < n[1] { visit(c + n[0]); }
-                if k > 0 { visit(c - n[0] * n[1]); }
-                if k + 1 < n[2] { visit(c + n[0] * n[1]); }
+                let mut visit = |q: usize| {
+                    if grid.solid[q] && comp[q] == 0 {
+                        comp[q] = id;
+                        stack.push(q);
+                    }
+                };
+                if i > 0 {
+                    visit(c - 1);
+                }
+                if i + 1 < n[0] {
+                    visit(c + 1);
+                }
+                if j > 0 {
+                    visit(c - n[0]);
+                }
+                if j + 1 < n[1] {
+                    visit(c + n[0]);
+                }
+                if k > 0 {
+                    visit(c - n[0] * n[1]);
+                }
+                if k + 1 < n[2] {
+                    visit(c + n[0] * n[1]);
+                }
             }
         }
         let main = (1..sizes.len()).max_by_key(|&i| sizes[i]).unwrap() as u32;
-        for c in 0..grid.cells() { grid.solid[c] = comp[c] == main; }
+        for c in 0..grid.cells() {
+            grid.solid[c] = comp[c] == main;
+        }
         let kept = sizes[main as usize];
 
         let nn = [n[0] + 1, n[1] + 1, n[2] + 1];
@@ -209,7 +274,9 @@ impl Mesh {
             for j in 0..n[1] {
                 for i in 0..n[0] {
                     let c = grid.cell(i, j, k);
-                    if !grid.solid[c] { continue; }
+                    if !grid.solid[c] {
+                        continue;
+                    }
                     let e = elems.len() as u32;
                     let mut en = [0u32; 8];
                     for a in 0..8 {
@@ -232,7 +299,9 @@ impl Mesh {
         Ok(Mesh { grid, elems, elem_ijk, cell_elem, nodes, node_elems, dropped: 1.0 - kept as f64 / total as f64 })
     }
 
-    pub fn elem_volume(&self) -> f64 { self.grid.h.x * self.grid.h.y * self.grid.h.z }
+    pub fn elem_volume(&self) -> f64 {
+        self.grid.h.x * self.grid.h.y * self.grid.h.z
+    }
 
     /// The element that carries surface point `p` (outward normal `n`, zero if unknown) and
     /// the point's coordinates inside it (0..1 per axis, clamped).
@@ -246,7 +315,9 @@ impl Mesh {
             for s in [0.3, 0.8, 1.4] {
                 if let Some(c) = g.cell_at(p - n * g.h * s) {
                     let e = self.cell_elem[g.cell(c[0], c[1], c[2])];
-                    if e != NONE { return Some((e as usize, local(c))); }
+                    if e != NONE {
+                        return Some((e as usize, local(c)));
+                    }
                 }
             }
         }
@@ -257,11 +328,29 @@ impl Mesh {
             for dj in -2..=2i64 {
                 for di in -2..=2i64 {
                     let c = [base[0] + di, base[1] + dj, base[2] + dk];
-                    if (0..3).any(|a| c[a] < 0 || c[a] >= g.n[a] as i64) { continue; }
+                    if (0..3).any(|a| c[a] < 0 || c[a] >= g.n[a] as i64) {
+                        continue;
+                    }
                     let c = [c[0] as usize, c[1] as usize, c[2] as usize];
-                    if self.cell_elem[g.cell(c[0], c[1], c[2])] == NONE { continue; }
-                    let d: f64 = (0..3).map(|a| { let x = r[a] - c[a] as f64; let o = if x < 0.0 { -x } else if x > 1.0 { x - 1.0 } else { 0.0 }; o * o }).sum();
-                    if best.map_or(true, |b| d < b.0) { best = Some((d, c)); }
+                    if self.cell_elem[g.cell(c[0], c[1], c[2])] == NONE {
+                        continue;
+                    }
+                    let d: f64 = (0..3)
+                        .map(|a| {
+                            let x = r[a] - c[a] as f64;
+                            let o = if x < 0.0 {
+                                -x
+                            } else if x > 1.0 {
+                                x - 1.0
+                            } else {
+                                0.0
+                            };
+                            o * o
+                        })
+                        .sum();
+                    if best.map_or(true, |b| d < b.0) {
+                        best = Some((d, c));
+                    }
                 }
             }
         }
@@ -292,7 +381,9 @@ impl Mesh {
                 for k in 1..p.len() - 1 {
                     subdivide([topo.positions[p[0]], topo.positions[p[k]], topo.positions[p[k + 1]]], max_edge, 14, &mut |t| {
                         let a = (t[1] - t[0]).cross(t[2] - t[0]).length() * 0.5;
-                        if a <= 0.0 { return; }
+                        if a <= 0.0 {
+                            return;
+                        }
                         let c = (t[0] + t[1] + t[2]) / 3.0;
                         area += a;
                         cen += c * a;
@@ -303,9 +394,15 @@ impl Mesh {
                         let mut sum = 0.0;
                         for s in 0..8 {
                             let x = self.nodes[self.elems[e][s] as usize];
-                            if (x - c).dot(n) >= -0.5 * hn { sel[s] = w[s] + 1e-9; sum += sel[s]; }
+                            if (x - c).dot(n) >= -0.5 * hn {
+                                sel[s] = w[s] + 1e-9;
+                                sum += sel[s];
+                            }
                         }
-                        if sum <= 0.0 { sel = w; sum = 1.0; }
+                        if sum <= 0.0 {
+                            sel = w;
+                            sum = 1.0;
+                        }
                         for s in 0..8 {
                             if sel[s] > 0.0 {
                                 let en = acc.entry(self.elems[e][s]).or_insert((0.0, V3::ZERO));

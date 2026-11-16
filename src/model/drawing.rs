@@ -12,45 +12,94 @@ use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub enum SheetSize { A4, A3, A2, A1, A0, A, B, C, D, E }
+pub enum SheetSize {
+    A4,
+    A3,
+    A2,
+    A1,
+    A0,
+    A,
+    B,
+    C,
+    D,
+    E,
+}
 
 impl SheetSize {
-    pub const ALL: [SheetSize; 10] = [SheetSize::A4, SheetSize::A3, SheetSize::A2, SheetSize::A1, SheetSize::A0, SheetSize::A, SheetSize::B, SheetSize::C, SheetSize::D, SheetSize::E];
+    pub const ALL: [SheetSize; 10] =
+        [SheetSize::A4, SheetSize::A3, SheetSize::A2, SheetSize::A1, SheetSize::A0, SheetSize::A, SheetSize::B, SheetSize::C, SheetSize::D, SheetSize::E];
     pub fn name(&self) -> &'static str {
         match self {
-            SheetSize::A4 => "A4", SheetSize::A3 => "A3", SheetSize::A2 => "A2", SheetSize::A1 => "A1", SheetSize::A0 => "A0",
-            SheetSize::A => "A", SheetSize::B => "B", SheetSize::C => "C", SheetSize::D => "D", SheetSize::E => "E",
+            SheetSize::A4 => "A4",
+            SheetSize::A3 => "A3",
+            SheetSize::A2 => "A2",
+            SheetSize::A1 => "A1",
+            SheetSize::A0 => "A0",
+            SheetSize::A => "A",
+            SheetSize::B => "B",
+            SheetSize::C => "C",
+            SheetSize::D => "D",
+            SheetSize::E => "E",
         }
     }
     /// Landscape width and height in mm.
     pub fn landscape(&self) -> (f64, f64) {
         match self {
-            SheetSize::A4 => (297.0, 210.0), SheetSize::A3 => (420.0, 297.0), SheetSize::A2 => (594.0, 420.0),
-            SheetSize::A1 => (841.0, 594.0), SheetSize::A0 => (1189.0, 841.0),
-            SheetSize::A => (279.4, 215.9), SheetSize::B => (431.8, 279.4), SheetSize::C => (558.8, 431.8),
-            SheetSize::D => (863.6, 558.8), SheetSize::E => (1117.6, 863.6),
+            SheetSize::A4 => (297.0, 210.0),
+            SheetSize::A3 => (420.0, 297.0),
+            SheetSize::A2 => (594.0, 420.0),
+            SheetSize::A1 => (841.0, 594.0),
+            SheetSize::A0 => (1189.0, 841.0),
+            SheetSize::A => (279.4, 215.9),
+            SheetSize::B => (431.8, 279.4),
+            SheetSize::C => (558.8, 431.8),
+            SheetSize::D => (863.6, 558.8),
+            SheetSize::E => (1117.6, 863.6),
         }
     }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub enum Orientation { Landscape, Portrait }
+pub enum Orientation {
+    Landscape,
+    Portrait,
+}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub enum Projection { Third, First }
+pub enum Projection {
+    Third,
+    First,
+}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub enum ViewKind { General, Projection, Detail }
+pub enum ViewKind {
+    General,
+    Projection,
+    Detail,
+}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub enum Orient { Default, Front, Back, Top, Bottom, Left, Right }
+pub enum Orient {
+    Default,
+    Front,
+    Back,
+    Top,
+    Bottom,
+    Left,
+    Right,
+}
 
 impl Orient {
     pub const ALL: [Orient; 7] = [Orient::Default, Orient::Front, Orient::Back, Orient::Top, Orient::Bottom, Orient::Left, Orient::Right];
     pub fn name(&self) -> &'static str {
         match self {
-            Orient::Default => "Standardausrichtung", Orient::Front => "FRONT", Orient::Back => "BACK", Orient::Top => "TOP",
-            Orient::Bottom => "BOTTOM", Orient::Left => "LEFT", Orient::Right => "RIGHT",
+            Orient::Default => "Standardausrichtung",
+            Orient::Front => "FRONT",
+            Orient::Back => "BACK",
+            Orient::Top => "TOP",
+            Orient::Bottom => "BOTTOM",
+            Orient::Left => "LEFT",
+            Orient::Right => "RIGHT",
         }
     }
     /// View → world rotation, as the 3D standard orientations.
@@ -66,30 +115,64 @@ impl Orient {
             Orient::Right => DQuat::from_axis_angle(V3::Y, FRAC_PI_2),
         }
     }
-    pub fn pictorial(&self) -> bool { *self == Orient::Default }
+    pub fn pictorial(&self) -> bool {
+        *self == Orient::Default
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub enum LineStyle { Hidden, NoHidden, Wireframe }
+pub enum LineStyle {
+    Hidden,
+    NoHidden,
+    Wireframe,
+}
 
 impl LineStyle {
     pub const ALL: [LineStyle; 3] = [LineStyle::Wireframe, LineStyle::Hidden, LineStyle::NoHidden];
-    pub fn name(&self) -> &'static str { match self { LineStyle::Hidden => "Verdeckt", LineStyle::NoHidden => "Keine verdeckten", LineStyle::Wireframe => "Drahtmodell" } }
+    pub fn name(&self) -> &'static str {
+        match self {
+            LineStyle::Hidden => "Verdeckt",
+            LineStyle::NoHidden => "Keine verdeckten",
+            LineStyle::Wireframe => "Drahtmodell",
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub enum ProjSide { Right, Left, Top, Bottom }
+pub enum ProjSide {
+    Right,
+    Left,
+    Top,
+    Bottom,
+}
 
 impl ProjSide {
     pub fn label(self) -> &'static str {
-        match self { ProjSide::Right => "rechte", ProjSide::Left => "linke", ProjSide::Top => "obere", ProjSide::Bottom => "untere" }
+        match self {
+            ProjSide::Right => "rechte",
+            ProjSide::Left => "linke",
+            ProjSide::Top => "obere",
+            ProjSide::Bottom => "untere",
+        }
     }
 
     /// Placement side from the offset of the pointer to the parent view centre.
     pub fn from_offset(d: V2) -> ProjSide {
-        if d.x.abs() >= d.y.abs() { if d.x >= 0.0 { ProjSide::Right } else { ProjSide::Left } } else if d.y >= 0.0 { ProjSide::Top } else { ProjSide::Bottom }
+        if d.x.abs() >= d.y.abs() {
+            if d.x >= 0.0 {
+                ProjSide::Right
+            } else {
+                ProjSide::Left
+            }
+        } else if d.y >= 0.0 {
+            ProjSide::Top
+        } else {
+            ProjSide::Bottom
+        }
     }
-    pub fn horizontal(&self) -> bool { matches!(self, ProjSide::Right | ProjSide::Left) }
+    pub fn horizontal(&self) -> bool {
+        matches!(self, ProjSide::Right | ProjSide::Left)
+    }
 }
 
 /// Rotation (view → world) of a projection view placed on `side` of a view with `parent`.
@@ -151,25 +234,64 @@ pub struct DrawView {
 
 impl DrawView {
     pub fn new(id: u32, kind: ViewKind, rot: DQuat, pos: V2) -> DrawView {
-        DrawView { id, name: format!("new_view_{}", id), kind, parent: None, side: None, rot, orient: None, scale: None, pos, style: LineStyle::Hidden, axes: true, section: None, detail: None, letter: String::new(), exploded: false }
+        DrawView {
+            id,
+            name: format!("new_view_{}", id),
+            kind,
+            parent: None,
+            side: None,
+            rot,
+            orient: None,
+            scale: None,
+            pos,
+            style: LineStyle::Hidden,
+            axes: true,
+            section: None,
+            detail: None,
+            letter: String::new(),
+            exploded: false,
+        }
     }
     /// world → view rotation used for projection
-    pub fn world_to_view(&self) -> DQuat { self.rot.inverse() }
+    pub fn world_to_view(&self) -> DQuat {
+        self.rot.inverse()
+    }
 }
 
 /// Which point of a referenced edge a created dimension attaches to.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub enum RefAt { Start, End, Center, Edge }
+pub enum RefAt {
+    Start,
+    End,
+    Center,
+    Edge,
+}
 
-fn half() -> f64 { 0.5 }
+fn half() -> f64 {
+    0.5
+}
 
 /// Reference of a created dimension or annotation: a model point, re-resolved through its
 /// edge after the model changes (`t` is the arc-length fraction along the edge for `Edge`).
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
-pub struct DimRef { pub point: V3, pub edge: Option<EdgeRef>, pub at: RefAt, #[serde(default)] pub radius: f64, #[serde(default = "half")] pub t: f64 }
+pub struct DimRef {
+    pub point: V3,
+    pub edge: Option<EdgeRef>,
+    pub at: RefAt,
+    #[serde(default)]
+    pub radius: f64,
+    #[serde(default = "half")]
+    pub t: f64,
+}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub enum DimType { Horizontal, Vertical, Aligned, Radius, Diameter }
+pub enum DimType {
+    Horizontal,
+    Vertical,
+    Aligned,
+    Radius,
+    Diameter,
+}
 
 /// A dimension created in the drawing (driven: it measures the view geometry).
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -190,43 +312,114 @@ pub struct DrawnDim {
 
 /// A model dimension shown in a view; `key` identifies it in the model.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-pub struct ShownDim { pub key: String, pub view: u32, pub label: Option<V2>, #[serde(default)] pub tol: Tolerance }
+pub struct ShownDim {
+    pub key: String,
+    pub view: u32,
+    pub label: Option<V2>,
+    #[serde(default)]
+    pub tol: Tolerance,
+}
 
 /// Geometric characteristic of a feature control frame (ISO 1101 / ASME Y14.5).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub enum GChar { Straightness, Flatness, Circularity, Cylindricity, LineProfile, SurfaceProfile, Angularity, Perpendicularity, Parallelism, Position, Concentricity, Symmetry, CircularRunout, TotalRunout }
+pub enum GChar {
+    Straightness,
+    Flatness,
+    Circularity,
+    Cylindricity,
+    LineProfile,
+    SurfaceProfile,
+    Angularity,
+    Perpendicularity,
+    Parallelism,
+    Position,
+    Concentricity,
+    Symmetry,
+    CircularRunout,
+    TotalRunout,
+}
 
 impl GChar {
-    pub const ALL: [GChar; 14] = [GChar::Straightness, GChar::Flatness, GChar::Circularity, GChar::Cylindricity, GChar::LineProfile, GChar::SurfaceProfile, GChar::Angularity, GChar::Perpendicularity, GChar::Parallelism, GChar::Position, GChar::Concentricity, GChar::Symmetry, GChar::CircularRunout, GChar::TotalRunout];
+    pub const ALL: [GChar; 14] = [
+        GChar::Straightness,
+        GChar::Flatness,
+        GChar::Circularity,
+        GChar::Cylindricity,
+        GChar::LineProfile,
+        GChar::SurfaceProfile,
+        GChar::Angularity,
+        GChar::Perpendicularity,
+        GChar::Parallelism,
+        GChar::Position,
+        GChar::Concentricity,
+        GChar::Symmetry,
+        GChar::CircularRunout,
+        GChar::TotalRunout,
+    ];
     pub fn name(&self) -> &'static str {
         match self {
-            GChar::Straightness => "Geradheit", GChar::Flatness => "Ebenheit", GChar::Circularity => "Rundheit", GChar::Cylindricity => "Zylinderform",
-            GChar::LineProfile => "Linienform", GChar::SurfaceProfile => "Flächenform", GChar::Angularity => "Neigung",
-            GChar::Perpendicularity => "Rechtwinkligkeit", GChar::Parallelism => "Parallelität", GChar::Position => "Position",
-            GChar::Concentricity => "Konzentrizität", GChar::Symmetry => "Symmetrie", GChar::CircularRunout => "Lauf", GChar::TotalRunout => "Gesamtlauf",
+            GChar::Straightness => "Geradheit",
+            GChar::Flatness => "Ebenheit",
+            GChar::Circularity => "Rundheit",
+            GChar::Cylindricity => "Zylinderform",
+            GChar::LineProfile => "Linienform",
+            GChar::SurfaceProfile => "Flächenform",
+            GChar::Angularity => "Neigung",
+            GChar::Perpendicularity => "Rechtwinkligkeit",
+            GChar::Parallelism => "Parallelität",
+            GChar::Position => "Position",
+            GChar::Concentricity => "Konzentrizität",
+            GChar::Symmetry => "Symmetrie",
+            GChar::CircularRunout => "Lauf",
+            GChar::TotalRunout => "Gesamtlauf",
         }
     }
     /// Form tolerances take no datum references.
-    pub fn form(&self) -> bool { matches!(self, GChar::Straightness | GChar::Flatness | GChar::Circularity | GChar::Cylindricity) }
+    pub fn form(&self) -> bool {
+        matches!(self, GChar::Straightness | GChar::Flatness | GChar::Circularity | GChar::Cylindricity)
+    }
 }
 
 /// Material condition modifier: regardless of feature size, Ⓜ or Ⓛ.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, Default)]
-pub enum MatCond { #[default] Rfs, Mmc, Lmc }
+pub enum MatCond {
+    #[default]
+    Rfs,
+    Mmc,
+    Lmc,
+}
 
 impl MatCond {
     pub const ALL: [MatCond; 3] = [MatCond::Rfs, MatCond::Mmc, MatCond::Lmc];
-    pub fn name(&self) -> &'static str { match self { MatCond::Rfs => "RFS (keine)", MatCond::Mmc => "Ⓜ  Maximum-Material", MatCond::Lmc => "Ⓛ  Minimum-Material" } }
-    pub fn letter(&self) -> Option<&'static str> { match self { MatCond::Rfs => None, MatCond::Mmc => Some("M"), MatCond::Lmc => Some("L") } }
+    pub fn name(&self) -> &'static str {
+        match self {
+            MatCond::Rfs => "RFS (keine)",
+            MatCond::Mmc => "Ⓜ  Maximum-Material",
+            MatCond::Lmc => "Ⓛ  Minimum-Material",
+        }
+    }
+    pub fn letter(&self) -> Option<&'static str> {
+        match self {
+            MatCond::Rfs => None,
+            MatCond::Mmc => Some("M"),
+            MatCond::Lmc => Some("L"),
+        }
+    }
 }
 
 /// A dimension an annotation is attached to.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-pub enum DimTarget { Shown(String), Drawn(u32) }
+pub enum DimTarget {
+    Shown(String),
+    Drawn(u32),
+}
 
 /// Where an annotation points: a leader to model geometry in a view, or onto a dimension.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-pub enum Attach { Geom(DimRef), Dim(DimTarget) }
+pub enum Attach {
+    Geom(DimRef),
+    Dim(DimTarget),
+}
 
 /// Feature control frame.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -247,14 +440,31 @@ pub struct Gtol {
 
 /// Datum feature symbol (boxed letter with a filled triangle on the feature).
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-pub struct DatumSym { pub id: u32, pub view: u32, pub letter: String, pub at: DimRef, /** box centre, relative to the view position */ pub pos: V2 }
+pub struct DatumSym {
+    pub id: u32,
+    pub view: u32,
+    pub letter: String,
+    pub at: DimRef,
+    /** box centre, relative to the view position */
+    pub pos: V2,
+}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub enum FinishKind { Any, Removal, NoRemoval }
+pub enum FinishKind {
+    Any,
+    Removal,
+    NoRemoval,
+}
 
 impl FinishKind {
     pub const ALL: [FinishKind; 3] = [FinishKind::Any, FinishKind::Removal, FinishKind::NoRemoval];
-    pub fn name(&self) -> &'static str { match self { FinishKind::Any => "Beliebiges Verfahren", FinishKind::Removal => "Materialabtrag gefordert", FinishKind::NoRemoval => "Materialabtrag unzulässig" } }
+    pub fn name(&self) -> &'static str {
+        match self {
+            FinishKind::Any => "Beliebiges Verfahren",
+            FinishKind::Removal => "Materialabtrag gefordert",
+            FinishKind::NoRemoval => "Materialabtrag unzulässig",
+        }
+    }
 }
 
 /// Surface texture symbol (ISO 1302) standing on an edge.
@@ -277,14 +487,42 @@ pub struct Finish {
 pub const RA_VALUES: [&str; 8] = ["Ra 0.4", "Ra 0.8", "Ra 1.6", "Ra 3.2", "Ra 6.3", "Ra 12.5", "Ra 25", "Rz 6.3"];
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-pub struct Note { pub id: u32, pub pos: V2, pub text: String, #[serde(default)] pub leader: Option<V2> }
+pub struct Note {
+    pub id: u32,
+    pub pos: V2,
+    pub text: String,
+    #[serde(default)]
+    pub leader: Option<V2>,
+}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub enum BomCol { Index, Part, Qty, Mass, File }
+pub enum BomCol {
+    Index,
+    Part,
+    Qty,
+    Mass,
+    File,
+}
 
 impl BomCol {
-    pub fn title(&self) -> &'static str { match self { BomCol::Index => "POS.", BomCol::Part => "TEILENUMMER", BomCol::Qty => "MENGE", BomCol::Mass => "MASSE (kg)", BomCol::File => "DATEI" } }
-    pub fn width(&self) -> f64 { match self { BomCol::Index => 14.0, BomCol::Part => 56.0, BomCol::Qty => 14.0, BomCol::Mass => 24.0, BomCol::File => 40.0 } }
+    pub fn title(&self) -> &'static str {
+        match self {
+            BomCol::Index => "POS.",
+            BomCol::Part => "TEILENUMMER",
+            BomCol::Qty => "MENGE",
+            BomCol::Mass => "MASSE (kg)",
+            BomCol::File => "DATEI",
+        }
+    }
+    pub fn width(&self) -> f64 {
+        match self {
+            BomCol::Index => 14.0,
+            BomCol::Part => 56.0,
+            BomCol::Qty => 14.0,
+            BomCol::Mass => 24.0,
+            BomCol::File => 40.0,
+        }
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -340,17 +578,28 @@ impl Sheet {
     }
     pub fn dims_mm(&self) -> (f64, f64) {
         let (w, h) = self.size.landscape();
-        if self.orient == Orientation::Landscape { (w, h) } else { (h, w) }
+        if self.orient == Orientation::Landscape {
+            (w, h)
+        } else {
+            (h, w)
+        }
     }
-    pub fn view(&self, id: u32) -> Option<&DrawView> { self.views.iter().find(|v| v.id == id) }
-    pub fn view_mut(&mut self, id: u32) -> Option<&mut DrawView> { self.views.iter_mut().find(|v| v.id == id) }
+    pub fn view(&self, id: u32) -> Option<&DrawView> {
+        self.views.iter().find(|v| v.id == id)
+    }
+    pub fn view_mut(&mut self, id: u32) -> Option<&mut DrawView> {
+        self.views.iter_mut().find(|v| v.id == id)
+    }
 
     /// Scale of a view: projection views use their parent's.
     pub fn view_scale(&self, id: u32) -> f64 {
         let mut cur = self.view(id);
         for _ in 0..32 {
             let Some(v) = cur else { break };
-            if v.kind == ViewKind::Projection { cur = v.parent.and_then(|p| self.view(p)); continue; }
+            if v.kind == ViewKind::Projection {
+                cur = v.parent.and_then(|p| self.view(p));
+                continue;
+            }
             return v.scale.unwrap_or(self.scale);
         }
         self.scale
@@ -362,15 +611,25 @@ impl Sheet {
         let mut i = 0;
         while i < out.len() {
             let p = out[i];
-            for v in &self.views { if v.parent == Some(p) && !out.contains(&v.id) { out.push(v.id); } }
+            for v in &self.views {
+                if v.parent == Some(p) && !out.contains(&v.id) {
+                    out.push(v.id);
+                }
+            }
             i += 1;
         }
         out
     }
 
     /// Frame inside the border, and the title block rectangle (min, max).
-    pub fn frame(&self) -> (V2, V2) { let (w, h) = self.dims_mm(); (V2::new(10.0, 10.0), V2::new(w - 10.0, h - 10.0)) }
-    pub fn title_block(&self) -> (V2, V2) { let (_, mx) = self.frame(); (V2::new(mx.x - 180.0, 10.0), V2::new(mx.x, 10.0 + 40.0)) }
+    pub fn frame(&self) -> (V2, V2) {
+        let (w, h) = self.dims_mm();
+        (V2::new(10.0, 10.0), V2::new(w - 10.0, h - 10.0))
+    }
+    pub fn title_block(&self) -> (V2, V2) {
+        let (_, mx) = self.frame();
+        (V2::new(mx.x - 180.0, 10.0), V2::new(mx.x, 10.0 + 40.0))
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -396,7 +655,9 @@ pub struct DrawingData {
     pub general_tol: String,
 }
 
-fn three() -> usize { 3 }
+fn three() -> usize {
+    3
+}
 
 pub fn today() -> String {
     let secs = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0) as i64;
@@ -415,27 +676,53 @@ pub fn today() -> String {
 impl DrawingData {
     pub fn new(name: &str, model_name: &str, size: SheetSize, orient: Orientation) -> DrawingData {
         DrawingData {
-            name: name.into(), sheets: vec![Sheet::new(size, orient)], next_id: 1, projection: Projection::Third, decimals: 2, text_height: 3.5,
-            title: model_name.into(), company: "FREO".into(), drawn_by: String::new(), material: String::new(), date: today(),
-            tol_decimals: 3, general_tol: "ISO 2768-m".into(),
+            name: name.into(),
+            sheets: vec![Sheet::new(size, orient)],
+            next_id: 1,
+            projection: Projection::Third,
+            decimals: 2,
+            text_height: 3.5,
+            title: model_name.into(),
+            company: "FREO".into(),
+            drawn_by: String::new(),
+            material: String::new(),
+            date: today(),
+            tol_decimals: 3,
+            general_tol: "ISO 2768-m".into(),
         }
     }
-    pub fn take_id(&mut self) -> u32 { let i = self.next_id; self.next_id += 1; i }
+    pub fn take_id(&mut self) -> u32 {
+        let i = self.next_id;
+        self.next_id += 1;
+        i
+    }
     /// Sheet holding view `id`.
-    pub fn sheet_of(&self, id: u32) -> Option<usize> { self.sheets.iter().position(|s| s.view(id).is_some()) }
-    pub fn view(&self, id: u32) -> Option<&DrawView> { self.sheets.iter().find_map(|s| s.view(id)) }
+    pub fn sheet_of(&self, id: u32) -> Option<usize> {
+        self.sheets.iter().position(|s| s.view(id).is_some())
+    }
+    pub fn view(&self, id: u32) -> Option<&DrawView> {
+        self.sheets.iter().find_map(|s| s.view(id))
+    }
     pub fn fmt(&self, v: f64) -> String {
         let v = if v.abs() < 0.5 * 10f64.powi(-(self.decimals as i32)) { 0.0 } else { v };
         format!("{:.*}", self.decimals, v)
     }
     /// A tolerance deviation: signed, "0" when zero.
     pub fn fmt_dev(&self, v: f64) -> String {
-        if v.abs() < 0.5 * 10f64.powi(-(self.tol_decimals as i32)) { return "0".into(); }
+        if v.abs() < 0.5 * 10f64.powi(-(self.tol_decimals as i32)) {
+            return "0".into();
+        }
         let s = fmt_num(v.abs(), self.tol_decimals);
-        if v > 0.0 { format!("+{}", s) } else { format!("-{}", s) }
+        if v > 0.0 {
+            format!("+{}", s)
+        } else {
+            format!("-{}", s)
+        }
     }
     /// A tolerance value or limit (trailing zeros dropped).
-    pub fn fmt_tol(&self, v: f64) -> String { fmt_num(v, self.tol_decimals) }
+    pub fn fmt_tol(&self, v: f64) -> String {
+        fmt_num(v, self.tol_decimals)
+    }
     /// Next free letter for section / detail labels.
     pub fn next_letter(&self) -> String {
         let used: Vec<String> = self.sheets.iter().flat_map(|s| s.views.iter().map(|v| v.letter.clone())).collect();
@@ -447,7 +734,11 @@ impl DrawingData {
 pub const SCALES: [f64; 13] = [10.0, 5.0, 4.0, 2.0, 1.0, 0.5, 0.4, 0.25, 0.2, 0.1, 0.05, 0.02, 0.01];
 
 pub fn scale_text(s: f64) -> String {
-    if s >= 1.0 { format!("{}:1", fmt_num(s, 3)) } else { format!("1:{}", fmt_num(1.0 / s, 3)) }
+    if s >= 1.0 {
+        format!("{}:1", fmt_num(s, 3))
+    } else {
+        format!("1:{}", fmt_num(1.0 / s, 3))
+    }
 }
 
 /// Largest standard scale at which `need` (model mm) fits into `avail` (sheet mm).
@@ -513,7 +804,9 @@ pub fn standard_views(d: &mut DrawingData, sheet: usize, size: V3) {
     let iso_id = d.take_id();
     let mut iso = DrawView::new(iso_id, ViewKind::General, Orient::Default.rotation(), iso_c);
     iso.orient = Some(Orient::Default);
-    if iso_s < s { iso.scale = Some(iso_s); }
+    if iso_s < s {
+        iso.scale = Some(iso_s);
+    }
     iso.style = LineStyle::NoHidden;
     iso.axes = false;
     views.push(iso);

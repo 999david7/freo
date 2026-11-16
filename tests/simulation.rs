@@ -22,17 +22,26 @@ fn bar(len: f64, w: f64, t: f64) -> regen::RegenResult {
 
 fn face(r: &regen::RegenResult, n: V3) -> SimFace {
     let t = &r.topo;
-    let f = (0..t.faces.len()).filter(|&f| t.faces[f].planar && t.faces[f].normal.dot(n) > 0.999).max_by(|&a, &b| t.faces[a].center.dot(n).partial_cmp(&t.faces[b].center.dot(n)).unwrap()).expect("face");
+    let f = (0..t.faces.len())
+        .filter(|&f| t.faces[f].planar && t.faces[f].normal.dot(n) > 0.999)
+        .max_by(|&a, &b| t.faces[a].center.dot(n).partial_cmp(&t.faces[b].center.dot(n)).unwrap())
+        .expect("face");
     SimFace::of(t, f)
 }
 
-fn item(id: u64, kind: ItemKind, faces: Vec<SimFace>) -> SimItem { let mut i = SimItem::new(id, kind.name().into(), kind); i.faces = faces; i }
+fn item(id: u64, kind: ItemKind, faces: Vec<SimFace>) -> SimItem {
+    let mut i = SimItem::new(id, kind.name().into(), kind);
+    i.faces = faces;
+    i
+}
 
 fn solve(r: &regen::RegenResult, study: Study, fidelity: f32) -> SimOutput {
     run_blocking(&SimInput { topo: r.topo.clone(), study, fidelity }).expect("solve")
 }
 
-fn field<'a>(o: &'a SimOutput, name: &str) -> &'a freo::sim::run::Field { o.fields.iter().find(|f| f.name.starts_with(name)).expect("field") }
+fn field<'a>(o: &'a SimOutput, name: &str) -> &'a freo::sim::run::Field {
+    o.fields.iter().find(|f| f.name.starts_with(name)).expect("field")
+}
 
 #[test]
 fn cantilever_deflection_and_stress() {
@@ -88,7 +97,9 @@ fn conduction_is_linear_between_two_temperatures() {
     let o = solve(&r, s, 0.3);
     let t = field(&o, "Temperatur");
     assert!((t.max - 100.0).abs() < 0.01 && t.min.abs() < 0.01, "{} {}", t.min, t.max);
-    for (p, v) in o.surface.pos.iter().zip(&t.vals) { assert!((v - (100.0 - p[0])).abs() < 0.5, "T({}) = {}", p[0], v); }
+    for (p, v) in o.surface.pos.iter().zip(&t.vals) {
+        assert!((v - (100.0 - p[0])).abs() < 0.5, "T({}) = {}", p[0], v);
+    }
     // q = k ΔT / L = 50 W/(m·K) · 100 K / 0.1 m = 50 kW/m²
     let q = field(&o, "Wärmefluss");
     assert!((q.max - 50.0).abs() < 1.0 && (q.min - 50.0).abs() < 1.0, "{} {}", q.min, q.max);
@@ -164,7 +175,6 @@ fn wind_pushes_a_block_downstream() {
     assert!(mean > 30.0 && mean < 90.0, "pressure on the front face {} (½ρv² = 60 Pa)", mean);
 }
 
-
 /// Plate 60 × 60 × 30 with a Ø20 hole straight through (along Y).
 fn drilled_block() -> regen::RegenResult {
     let mut m = ModelData::new_part("ROHR");
@@ -201,19 +211,36 @@ fn water_flows_through_a_bore() {
     assert!(dp > 0.0, "pressure drop {}", dp);
     assert!(!o.lines.is_empty() && o.see_through);
     // the stream lines stay inside the bore (radius 10 around the Y axis)
-    for l in &o.lines { for (p, _) in l { if p.y > 1.0 && p.y < 29.0 { assert!(p.x.hypot(p.z) < 11.5, "stream line leaves the bore at {:?}", p); } } }
+    for l in &o.lines {
+        for (p, _) in l {
+            if p.y > 1.0 && p.y < 29.0 {
+                assert!(p.x.hypot(p.z) < 11.5, "stream line leaves the bore at {:?}", p);
+            }
+        }
+    }
 }
 
 #[test]
 fn study_through_the_app() {
     use freo::app::{App, Pick, Tab};
     let mut app = App::new(None);
-    app.data = { let mut m = ModelData::new_part("BAR"); let FeatureKind::Extrude(mut e) = FeatureKind::new_extrude() else { unreachable!() }; e.plane = Some(PlaneRef::Datum(TOP_ID)); e.sketch = Sketch::rect(100.0, 10.0, 50.0, 0.0); e.depth = Dim::v(10.0); m.features.push(Feature { id: 10, name: "Profil 1".into(), suppressed: false, hidden: false, kind: FeatureKind::Extrude(e) }); m };
+    app.data = {
+        let mut m = ModelData::new_part("BAR");
+        let FeatureKind::Extrude(mut e) = FeatureKind::new_extrude() else { unreachable!() };
+        e.plane = Some(PlaneRef::Datum(TOP_ID));
+        e.sketch = Sketch::rect(100.0, 10.0, 50.0, 0.0);
+        e.depth = Dim::v(10.0);
+        m.features.push(Feature { id: 10, name: "Profil 1".into(), suppressed: false, hidden: false, kind: FeatureKind::Extrude(e) });
+        m
+    };
     app.regenerate(false);
     app.tab = Tab::LiveSim;
     app.sim_new_study(StudyKind::Structural);
     assert_eq!(app.data.sims.len(), 1);
-    let fid = |app: &App, n: V3| { let t = &app.result.topo; (0..t.faces.len()).find(|&f| t.faces[f].planar && t.faces[f].normal.dot(n) > 0.999).unwrap() };
+    let fid = |app: &App, n: V3| {
+        let t = &app.result.topo;
+        (0..t.faces.len()).find(|&f| t.faces[f].planar && t.faces[f].normal.dot(n) > 0.999).unwrap()
+    };
     // object-action: the selected face becomes the reference
     let f0 = fid(&app, -V3::X);
     app.handle_pick(Some(Pick::Face(f0)), false);

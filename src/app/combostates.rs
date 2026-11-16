@@ -48,13 +48,18 @@ impl App {
     pub fn combo_activate(&mut self, i: Option<usize>) {
         self.push_view();
         self.creo.combo_active = i;
-        let state = match i { Some(i) => self.data.combos.get(i).cloned(), None => self.data.combo_default.clone() };
+        let state = match i {
+            Some(i) => self.data.combos.get(i).cloned(),
+            None => self.data.combo_default.clone(),
+        };
         match state {
             Some(c) => {
                 self.camera.rot = c.rot;
                 self.camera.target = c.target;
                 self.camera.scale = c.scale;
-                if let Some(s) = Style::ALL.get(c.style as usize) { self.style = *s; }
+                if let Some(s) = Style::ALL.get(c.style as usize) {
+                    self.style = *s;
+                }
                 self.transparent = c.transparent;
             }
             None => {
@@ -66,7 +71,9 @@ impl App {
 
     /// The state tabs along the bottom of the graphics window (shown on Anmerkungen erstellen).
     pub fn combo_bar(&mut self, ctx: &egui::Context, rect: Rect) {
-        if self.tab != Tab::Annot3d || self.sketch.is_some() || self.in_asm() { return; }
+        if self.tab != Tab::Annot3d || self.sketch.is_some() || self.in_asm() {
+            return;
+        }
         let n = self.data.combos.len();
         let active = self.creo.combo_active.filter(|i| *i < n);
         // order of the tabs: the states, then Standard Alle
@@ -85,14 +92,30 @@ impl App {
                 let b = Rect::from_min_size(pos2(*x, r.top() + 7.0), vec2(28.0, 26.0));
                 *x += 30.0;
                 let resp = ui.interact(b, ui.id().with(("combo_nav", glyph)), if enabled { Sense::click() } else { Sense::hover() }).on_hover_text(tip);
-                if enabled && resp.hovered() { ui.painter().rect_filled(b, 2.0, HOVER_BG); }
-                ui.painter().text(b.center(), Align2::CENTER_CENTER, glyph, FontId::proportional(13.0), if enabled { Color32::from_rgb(70, 74, 80) } else { Color32::from_rgb(180, 184, 188) });
+                if enabled && resp.hovered() {
+                    ui.painter().rect_filled(b, 2.0, HOVER_BG);
+                }
+                ui.painter().text(
+                    b.center(),
+                    Align2::CENTER_CENTER,
+                    glyph,
+                    FontId::proportional(13.0),
+                    if enabled { Color32::from_rgb(70, 74, 80) } else { Color32::from_rgb(180, 184, 188) },
+                );
                 resp.clicked()
             };
-            if small(ui, &mut x, "⏮", pos > 0, "Erster Zustand") { go = Some(order[0]); }
-            if small(ui, &mut x, "◀", pos > 0, "Vorheriger Zustand") { go = Some(order[pos - 1]); }
-            if small(ui, &mut x, "▶", pos + 1 < order.len(), "Nächster Zustand") { go = Some(order[pos + 1]); }
-            if small(ui, &mut x, "⏭", pos + 1 < order.len(), "Letzter Zustand") { go = Some(order[order.len() - 1]); }
+            if small(ui, &mut x, "⏮", pos > 0, "Erster Zustand") {
+                go = Some(order[0]);
+            }
+            if small(ui, &mut x, "◀", pos > 0, "Vorheriger Zustand") {
+                go = Some(order[pos - 1]);
+            }
+            if small(ui, &mut x, "▶", pos + 1 < order.len(), "Nächster Zustand") {
+                go = Some(order[pos + 1]);
+            }
+            if small(ui, &mut x, "⏭", pos + 1 < order.len(), "Letzter Zustand") {
+                go = Some(order[order.len() - 1]);
+            }
             x += 8.0;
             // + and the tabs sit on one framed strip
             let plus = Rect::from_min_size(pos2(x, r.top() + 4.0), vec2(34.0, BAR_H - 6.0));
@@ -101,27 +124,52 @@ impl App {
             p.rect_filled(plus, 0.0, if resp.hovered() { HOVER_BG } else { Color32::from_rgb(244, 245, 246) });
             p.rect_stroke(plus, 0.0, Stroke::new(1.0_f32, Color32::from_rgb(196, 200, 206)), egui::StrokeKind::Inside);
             p.text(plus.center(), Align2::CENTER_CENTER, "+", FontId::proportional(17.0), TEXT);
-            if resp.clicked() { new = true; }
+            if resp.clicked() {
+                new = true;
+            }
             x = plus.right();
             for o in &order {
-                let label = match o { Some(i) => self.data.combos[*i].name.clone(), None => "Standard Alle *".to_string() };
+                let label = match o {
+                    Some(i) => self.data.combos[*i].name.clone(),
+                    None => "Standard Alle *".to_string(),
+                };
                 let font = FontId::proportional(15.0);
                 let w = ui.fonts(|f| f.layout_no_wrap(label.clone(), font.clone(), TEXT).size().x) + 26.0;
                 let t = Rect::from_min_size(pos2(x, r.top() + 4.0), vec2(w, BAR_H - 6.0));
-                if t.left() > r.right() { break; }
+                if t.left() > r.right() {
+                    break;
+                }
                 x += w;
                 let sel = *o == active;
                 let resp = ui.interact(t, ui.id().with(("combo_tab", *o)), Sense::click());
                 let p = ui.painter();
-                p.rect_filled(t, 0.0, if sel { Color32::WHITE } else if resp.hovered() { HOVER_BG } else { Color32::from_rgb(244, 245, 246) });
+                p.rect_filled(
+                    t,
+                    0.0,
+                    if sel {
+                        Color32::WHITE
+                    } else if resp.hovered() {
+                        HOVER_BG
+                    } else {
+                        Color32::from_rgb(244, 245, 246)
+                    },
+                );
                 p.rect_stroke(t, 0.0, Stroke::new(1.0_f32, Color32::from_rgb(196, 200, 206)), egui::StrokeKind::Inside);
                 p.text(t.center(), Align2::CENTER_CENTER, &label, font.clone(), TEXT);
                 // the active state's name in bold
-                if sel { p.text(t.center() + vec2(0.6, 0.0), Align2::CENTER_CENTER, &label, font, TEXT); }
-                if resp.clicked() && !sel { go = Some(*o); }
+                if sel {
+                    p.text(t.center() + vec2(0.6, 0.0), Align2::CENTER_CENTER, &label, font, TEXT);
+                }
+                if resp.clicked() && !sel {
+                    go = Some(*o);
+                }
             }
         });
-        if new { self.combo_new(); }
-        if let Some(o) = go { self.combo_activate(o); }
+        if new {
+            self.combo_new();
+        }
+        if let Some(o) = go {
+            self.combo_activate(o);
+        }
     }
 }

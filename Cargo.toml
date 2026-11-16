@@ -1,6 +1,6 @@
 [package]
 name = "freo"
-version = "0.2.0"
+version = "0.3.0"
 edition = "2021"
 description = "Creo-style parametric 3D CAD for macOS, written in Rust"
 license = "MIT"
@@ -16,6 +16,7 @@ rfd = "0.15"
 ab_glyph = "0.2"
 epaint_default_fonts = "0.31"
 miniz_oxide = "0.8"
+image = { version = "0.25", default-features = false, features = ["png"] }
 
 # Linux needs a windowing backend; macOS uses AppKit without extra features
 [target.'cfg(target_os = "linux")'.dependencies]
@@ -26,3 +27,5 @@ opt-level = 2
 
 [profile.release]
 opt-level = 3
+lto = "thin"
+codegen-units = 1

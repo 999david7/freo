@@ -7,7 +7,9 @@ use freo::kernel::math::*;
 use freo::model::features::*;
 use freo::sketch::sketch::{SkCType, Sketch};
 
-fn vol(app: &App) -> f64 { signed_volume(&app.result.polys) }
+fn vol(app: &App) -> f64 {
+    signed_volume(&app.result.polys)
+}
 
 fn face_with_normal(app: &App, n: V3, y: f64) -> usize {
     let t = &app.result.topo;
@@ -43,7 +45,11 @@ fn extrude_hole_round_undo_redo() {
     assert_eq!(hv, 4, "auto H/V constraints inferred while drawing");
     assert!(s.sketch.open_ends().is_empty(), "loop must be closed");
     finish_sketch(&mut app);
-    app.update_editor(|f| if let FeatureKind::Extrude(d) = &mut f.kind { d.depth = Dim::v(20.0) });
+    app.update_editor(|f| {
+        if let FeatureKind::Extrude(d) = &mut f.kind {
+            d.depth = Dim::v(20.0)
+        }
+    });
     assert!(app.editor_error().is_none(), "{:?}", app.editor_error());
     app.finish_feature();
     assert_eq!(app.data.features.len(), 5);
@@ -53,7 +59,13 @@ fn extrude_hole_round_undo_redo() {
     let top = face_with_normal(&app, V3::Y, 20.0);
     app.handle_pick(Some(Pick::Face(top)), false);
     app.start_feature(FeatureKind::new_hole());
-    app.update_editor(|f| if let FeatureKind::Hole(d) = &mut f.kind { d.through_all = true; d.x = Dim::v(0.0); d.y = Dim::v(0.0) });
+    app.update_editor(|f| {
+        if let FeatureKind::Hole(d) = &mut f.kind {
+            d.through_all = true;
+            d.x = Dim::v(0.0);
+            d.y = Dim::v(0.0)
+        }
+    });
     assert!(app.editor_error().is_none(), "{:?}", app.editor_error());
     app.finish_feature();
     let v_hole = vol(&app);
@@ -65,8 +77,14 @@ fn extrude_hole_round_undo_redo() {
     let t = app.displayed().topo.clone();
     let picks: Vec<usize> = (0..t.chains.len()).filter(|&i| t.chains[i].is_straight() && (t.chains[i].points[0].y - t.chains[i].points.last().unwrap().y).abs() > 1.0).collect();
     assert_eq!(picks.len(), 4);
-    for i in picks { app.handle_pick(Some(Pick::Edge(i)), false); }
-    app.update_editor(|f| if let FeatureKind::Round(d) = &mut f.kind { d.sets[0].radius = Dim::v(5.0) });
+    for i in picks {
+        app.handle_pick(Some(Pick::Edge(i)), false);
+    }
+    app.update_editor(|f| {
+        if let FeatureKind::Round(d) = &mut f.kind {
+            d.sets[0].radius = Dim::v(5.0)
+        }
+    });
     app.finish_feature();
     assert!(app.result.errors.is_empty(), "{:?}", app.result.errors);
     let v_round = vol(&app);
@@ -148,7 +166,11 @@ fn tree_operations_dependencies_insert_and_files() {
     // datum plane offset from TOP, then an extrude sketched on it
     app.handle_pick(Some(Pick::Plane(TOP_ID)), false);
     app.start_feature(FeatureKind::new_plane());
-    app.update_editor(|f| if let FeatureKind::DatumPlane(d) = &mut f.kind { d.offset = Dim::v(30.0) });
+    app.update_editor(|f| {
+        if let FeatureKind::DatumPlane(d) = &mut f.kind {
+            d.offset = Dim::v(30.0)
+        }
+    });
     app.finish_feature();
     let dtm = app.data.features.last().unwrap().id;
     assert!(app.result.plane(dtm).is_some());
@@ -164,7 +186,12 @@ fn tree_operations_dependencies_insert_and_files() {
     // pattern of the extrude from a tree selection
     app.tree_click(ext, false);
     app.start_feature(FeatureKind::new_pattern());
-    app.update_editor(|f| if let FeatureKind::Pattern(d) = &mut f.kind { d.count1 = Dim::v(4.0); d.spacing1 = Dim::v(30.0) });
+    app.update_editor(|f| {
+        if let FeatureKind::Pattern(d) = &mut f.kind {
+            d.count1 = Dim::v(4.0);
+            d.spacing1 = Dim::v(30.0)
+        }
+    });
     app.finish_feature();
     let one = std::f64::consts::PI * 100.0 * 20.0;
     assert!((vol(&app) - 4.0 * one).abs() / one < 0.02, "pattern of 4: {}", vol(&app));
@@ -225,7 +252,11 @@ fn revolve_sweep_blend_mirror_shell_through_controller() {
     app.start_feature(FeatureKind::new_shell());
     let top = face_with_normal(&app, V3::Y, 30.0);
     app.handle_pick(Some(Pick::Face(top)), false);
-    app.update_editor(|f| if let FeatureKind::Shell(d) = &mut f.kind { d.thickness = Dim::v(2.0) });
+    app.update_editor(|f| {
+        if let FeatureKind::Shell(d) = &mut f.kind {
+            d.thickness = Dim::v(2.0)
+        }
+    });
     assert!(app.editor_error().is_none(), "{:?}", app.editor_error());
     app.finish_feature();
     assert!(vol(&app) < tube * 0.7 && vol(&app) > 0.0, "shelled {}", vol(&app));
@@ -245,7 +276,9 @@ fn revolve_sweep_blend_mirror_shell_through_controller() {
         let s = app.sketch.as_mut().unwrap();
         assert_eq!(s.slot, Slot::Trajectory);
         s.set_tool(Tool::Line);
-        for p in [V2::new(0.0, 0.0), V2::new(50.0, 0.0), V2::new(50.0, 40.0)] { s.click_at(p); }
+        for p in [V2::new(0.0, 0.0), V2::new(50.0, 0.0), V2::new(50.0, 40.0)] {
+            s.click_at(p);
+        }
         s.end_chain();
     }
     finish_sketch(&mut app);
@@ -299,7 +332,11 @@ fn profil_sketch_dialog_and_existing_sketch() {
     app.start_feature(FeatureKind::new_extrude());
     app.tree_click(sk_id, false);
     assert!(app.sketch.is_none(), "an existing sketch needs no sketcher");
-    app.update_editor(|f| if let FeatureKind::Extrude(d) = &mut f.kind { d.depth = Dim::v(10.0) });
+    app.update_editor(|f| {
+        if let FeatureKind::Extrude(d) = &mut f.kind {
+            d.depth = Dim::v(10.0)
+        }
+    });
     assert!(app.editor_error().is_none(), "{:?}", app.editor_error());
     app.finish_feature();
     assert!((vol(&app) - 12000.0).abs() < 0.5, "volume {}", vol(&app));

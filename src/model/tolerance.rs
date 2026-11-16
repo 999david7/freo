@@ -4,14 +4,28 @@
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, Default)]
-pub enum TolMode { #[default] Nominal, Limits, PlusMinus, Symmetric, Basic, Reference, Fit }
+pub enum TolMode {
+    #[default]
+    Nominal,
+    Limits,
+    PlusMinus,
+    Symmetric,
+    Basic,
+    Reference,
+    Fit,
+}
 
 impl TolMode {
     pub const ALL: [TolMode; 7] = [TolMode::Nominal, TolMode::Limits, TolMode::PlusMinus, TolMode::Symmetric, TolMode::Basic, TolMode::Reference, TolMode::Fit];
     pub fn name(&self) -> &'static str {
         match self {
-            TolMode::Nominal => "Nennmaß", TolMode::Limits => "Grenzmaße", TolMode::PlusMinus => "Plus-Minus", TolMode::Symmetric => "± Symmetrisch",
-            TolMode::Basic => "Theoretisch genau", TolMode::Reference => "Hilfsmaß", TolMode::Fit => "ISO-Passung",
+            TolMode::Nominal => "Nennmaß",
+            TolMode::Limits => "Grenzmaße",
+            TolMode::PlusMinus => "Plus-Minus",
+            TolMode::Symmetric => "± Symmetrisch",
+            TolMode::Basic => "Theoretisch genau",
+            TolMode::Reference => "Hilfsmaß",
+            TolMode::Fit => "ISO-Passung",
         }
     }
 }
@@ -26,7 +40,11 @@ pub struct Tolerance {
     pub fit: String,
 }
 
-impl Default for Tolerance { fn default() -> Self { Tolerance { mode: TolMode::Nominal, upper: 0.05, lower: -0.05, fit: "H7".into() } } }
+impl Default for Tolerance {
+    fn default() -> Self {
+        Tolerance { mode: TolMode::Nominal, upper: 0.05, lower: -0.05, fit: "H7".into() }
+    }
+}
 
 impl Tolerance {
     /// (upper, lower) deviations for a nominal size; None when an ISO class does not apply.
@@ -65,7 +83,9 @@ const DEV_P: [i32; 13] = [6, 12, 15, 18, 22, 26, 32, 37, 43, 50, 56, 62, 68];
 pub const COMMON_FITS: [&str; 16] = ["H7", "H8", "H9", "H11", "G7", "F8", "JS7", "h6", "h7", "h9", "g6", "f7", "js6", "k6", "n6", "p6"];
 
 fn range_index(size: f64) -> Option<usize> {
-    if !(size > 0.0) { return None; }
+    if !(size > 0.0) {
+        return None;
+    }
     RANGES.iter().position(|r| size <= *r + 1e-9)
 }
 
@@ -86,17 +106,38 @@ pub fn fit_deviations(class: &str, size: f64) -> Option<(f64, f64)> {
     let (es, ei) = match letters {
         // holes
         "H" => (it, 0.0),
-        "G" => { let ei = -DEV_G[i] as f64; (ei + it, ei) }
-        "F" => { let ei = -DEV_F[i] as f64; (ei + it, ei) }
+        "G" => {
+            let ei = -DEV_G[i] as f64;
+            (ei + it, ei)
+        }
+        "F" => {
+            let ei = -DEV_F[i] as f64;
+            (ei + it, ei)
+        }
         "JS" => (it / 2.0, -it / 2.0),
         // shafts
         "h" => (0.0, -it),
-        "g" => { let es = DEV_G[i] as f64; (es, es - it) }
-        "f" => { let es = DEV_F[i] as f64; (es, es - it) }
+        "g" => {
+            let es = DEV_G[i] as f64;
+            (es, es - it)
+        }
+        "f" => {
+            let es = DEV_F[i] as f64;
+            (es, es - it)
+        }
         "js" => (it / 2.0, -it / 2.0),
-        "k" => { let ei = if (4..=7).contains(&grade) { DEV_K[i] as f64 } else { 0.0 }; (ei + it, ei) }
-        "n" => { let ei = DEV_N[i] as f64; (ei + it, ei) }
-        "p" => { let ei = DEV_P[i] as f64; (ei + it, ei) }
+        "k" => {
+            let ei = if (4..=7).contains(&grade) { DEV_K[i] as f64 } else { 0.0 };
+            (ei + it, ei)
+        }
+        "n" => {
+            let ei = DEV_N[i] as f64;
+            (ei + it, ei)
+        }
+        "p" => {
+            let ei = DEV_P[i] as f64;
+            (ei + it, ei)
+        }
         _ => return None,
     };
     Some((um(es), um(ei)))

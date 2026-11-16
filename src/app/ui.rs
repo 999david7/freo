@@ -15,31 +15,68 @@ impl App {
         let (cmd, shift) = ctx.input(|i| (i.modifiers.command, i.modifiers.shift));
         let pressed = |k: egui::Key| ctx.input(|i| i.key_pressed(k));
         if cmd && pressed(egui::Key::Z) && !typing {
-            if let Some(s) = &mut self.sketch { if shift { s.redo() } else { s.undo() } }
-            else if shift { self.do_redo() } else { self.do_undo() }
+            if let Some(s) = &mut self.sketch {
+                if shift {
+                    s.redo()
+                } else {
+                    s.undo()
+                }
+            } else if shift {
+                self.do_redo()
+            } else {
+                self.do_undo()
+            }
         }
-        if cmd && pressed(egui::Key::S) { self.save(shift); }
-        if cmd && shift && pressed(egui::Key::E) { self.export_dialog(None); }
-        if cmd && pressed(egui::Key::O) { self.open(); }
-        if cmd && pressed(egui::Key::N) { self.confirm_new(); }
+        if cmd && pressed(egui::Key::S) {
+            self.save(shift);
+        }
+        if cmd && shift && pressed(egui::Key::E) {
+            self.export_dialog(None);
+        }
+        if cmd && pressed(egui::Key::O) {
+            self.open();
+        }
+        if cmd && pressed(egui::Key::N) {
+            self.confirm_new();
+        }
         // Anzeigestil: Strg+1 … Strg+6
         if cmd && !typing {
             for (k, st) in [egui::Key::Num1, egui::Key::Num2, egui::Key::Num3, egui::Key::Num4, egui::Key::Num5, egui::Key::Num6].into_iter().zip(Style::ALL) {
-                if pressed(k) { self.style = st; }
+                if pressed(k) {
+                    self.style = st;
+                }
             }
         }
-        if typing || self.sketch.is_some() { return; }
+        if typing || self.sketch.is_some() {
+            return;
+        }
+        // the question about the whole edge loop takes Enter (Ja) and Esc (Nein) itself
+        if self.loop_offer.is_some() {
+            return;
+        }
         // keys go to the file dialogs while one is open
-        if self.creo.open.is_some() || self.creo.export.is_some() || self.creo.name_dialog.is_some() || self.creo.browser.is_some() || self.creo.suppress.is_some() { return; }
+        if self.creo.open.is_some() || self.creo.export.is_some() || self.creo.name_dialog.is_some() || self.creo.browser.is_some() || self.creo.suppress.is_some() {
+            return;
+        }
         if self.placing() {
             if pressed(egui::Key::Escape) {
                 let side = self.place_editor().and_then(|e| e.side);
-                if self.dash_panel.is_some() { self.dash_panel = None; }
-                else if side.is_some() { if let Some(e) = self.asm.as_mut().and_then(|a| a.place.as_mut()) { e.side = None; } }
-                else { self.place_cancel(); }
+                if self.dash_panel.is_some() {
+                    self.dash_panel = None;
+                } else if side.is_some() {
+                    if let Some(e) = self.asm.as_mut().and_then(|a| a.place.as_mut()) {
+                        e.side = None;
+                    }
+                } else {
+                    self.place_cancel();
+                }
             }
-            if pressed(egui::Key::Enter) { self.place_finish(); }
-            if cmd && pressed(egui::Key::G) { self.place_update(); }
+            if pressed(egui::Key::Enter) {
+                self.place_finish();
+            }
+            if cmd && pressed(egui::Key::G) {
+                self.place_update();
+            }
             return;
         }
         if self.in_asm() && !cmd && (pressed(egui::Key::Delete) || pressed(egui::Key::Backspace)) && !self.tree_selection.is_empty() {
@@ -48,27 +85,69 @@ impl App {
             return;
         }
         if pressed(egui::Key::Escape) {
-            if self.file_menu { self.file_menu = false; }
-            else if self.edit_dims.is_some() { self.edit_dims = None; self.selection.clear(); }
-            else if let Some(ed) = &self.editor { if ed.pick.is_some() { self.set_pick_target(None); } else if self.dash_panel.is_some() { self.dash_panel = None; } else { self.cancel_feature(); } }
-            else { self.selection.clear(); self.tree_selection.clear(); self.measure = false; self.mini = None; }
+            if self.file_menu {
+                self.file_menu = false;
+            } else if self.edit_dims.is_some() {
+                self.edit_dims = None;
+                self.selection.clear();
+            } else if let Some(ed) = &self.editor {
+                if ed.pick.is_some() {
+                    self.set_pick_target(None);
+                } else if self.dash_panel.is_some() {
+                    self.dash_panel = None;
+                } else {
+                    self.cancel_feature();
+                }
+            } else {
+                self.selection.clear();
+                self.tree_selection.clear();
+                self.measure = false;
+                self.mini = None;
+            }
         }
-        if pressed(egui::Key::Enter) && self.editor.is_some() { self.finish_feature(); }
+        if pressed(egui::Key::Enter) && self.editor.is_some() {
+            self.finish_feature();
+        }
         // Creo: Strg+E Definition editieren, R Rundung on the selected edges
         if cmd && !shift && pressed(egui::Key::E) && self.editor.is_none() {
-            if let Some(o) = self.tree_selection.first().copied() { self.mini = None; self.edit_feature(o); }
+            if let Some(o) = self.tree_selection.first().copied() {
+                self.mini = None;
+                self.edit_feature(o);
+            }
         }
-        if !cmd && pressed(egui::Key::R) && self.editor.is_none() && self.selection.iter().any(|p| matches!(p, Pick::Edge(_))) {
-            self.mini = None;
-            self.start_feature(FeatureKind::new_round());
+        // Creo's keys of the Modell tab: R Rundung, X Profil, S Skizze
+        if !cmd && self.editor.is_none() && !self.in_asm() && !self.drawing_active() && !self.creo.home {
+            let kind = if pressed(egui::Key::R) {
+                Some(FeatureKind::new_round())
+            } else if pressed(egui::Key::X) {
+                Some(FeatureKind::new_extrude())
+            } else if pressed(egui::Key::S) {
+                Some(FeatureKind::new_sketch())
+            } else {
+                None
+            };
+            if let Some(k) = kind {
+                // a round needs solid geometry to attach to
+                if !matches!(k, FeatureKind::Round(_)) || !self.result.topo.polys.is_empty() {
+                    self.mini = None;
+                    self.start_feature(k);
+                }
+            }
         }
         if !cmd && (pressed(egui::Key::Delete) || pressed(egui::Key::Backspace)) && self.editor.is_none() && !self.tree_selection.is_empty() {
             let ids = self.tree_selection.clone();
             self.delete_features(&ids);
         }
-        if cmd && pressed(egui::Key::G) { self.regenerate(true); }
-        if cmd && pressed(egui::Key::D) { self.camera.rot = StdView::Standard.rotation(); self.fit_pending = true; }
-        if cmd && pressed(egui::Key::F) { self.fit_pending = true; }
+        if cmd && pressed(egui::Key::G) {
+            self.regenerate(true);
+        }
+        if cmd && pressed(egui::Key::D) {
+            self.camera.rot = StdView::Standard.rotation();
+            self.fit_pending = true;
+        }
+        if cmd && pressed(egui::Key::F) {
+            self.fit_pending = true;
+        }
     }
 
     pub fn status_bar(&mut self, ctx: &egui::Context) {
@@ -77,38 +156,57 @@ impl App {
             ui.painter().line_segment([r.left_top() - vec2(4.0, 2.0), r.right_top() + vec2(4.0, -2.0)], Stroke::new(1.0_f32, BORDER));
             ui.horizontal_centered(|ui| {
                 ui.spacing_mut().item_spacing.x = 3.0;
-                if icon_button(ui, Icon::TreeTab, "Navigator ein-/ausblenden", true, self.show_nav, 18.0).clicked() { self.show_nav = !self.show_nav; }
-                if icon_button(ui, Icon::Globe, "Ordner-Browser", true, self.nav_tab == NavTab::Browser && self.show_nav, 18.0).clicked() { self.nav_tab = NavTab::Browser; self.show_nav = true; }
+                if icon_button(ui, Icon::TreeTab, "Navigator ein-/ausblenden", true, self.show_nav, 18.0).clicked() {
+                    self.show_nav = !self.show_nav;
+                }
+                if icon_button(ui, Icon::Globe, "Ordner-Browser", true, self.nav_tab == NavTab::Browser && self.show_nav, 18.0).clicked() {
+                    self.nav_tab = NavTab::Browser;
+                    self.show_nav = true;
+                }
                 let full = ctx.input(|i| i.viewport().fullscreen.unwrap_or(false));
-                if icon_button(ui, Icon::FullScreen, "Vollbild", true, full, 18.0).clicked() { ctx.send_viewport_cmd(egui::ViewportCommand::Fullscreen(!full)); }
+                if icon_button(ui, Icon::FullScreen, "Vollbild", true, full, 18.0).clicked() {
+                    ctx.send_viewport_cmd(egui::ViewportCommand::Fullscreen(!full));
+                }
                 let (sep, _) = ui.allocate_exact_size(vec2(9.0, 36.0), egui::Sense::hover());
                 ui.painter().line_segment([sep.center_top(), sep.center_bottom()], Stroke::new(1.0_f32, SEP));
                 // Creo's message area: the last two messages, newest at the bottom with a bullet
                 let msgs: Vec<&Message> = self.messages.iter().rev().take(2).collect::<Vec<_>>().into_iter().rev().collect();
                 let w = (ui.available_width() - 330.0).max(160.0);
-                let resp = ui.allocate_ui(vec2(w, 40.0), |ui| {
-                    ui.vertical(|ui| {
-                        ui.spacing_mut().item_spacing.y = 1.0;
-                        if msgs.len() < 2 { ui.add_space(19.0); }
-                        for (i, m) in msgs.iter().enumerate() {
-                            let newest = i + 1 == msgs.len();
-                            let (icon, c) = match m.kind {
-                                MsgKind::Info => ("•", Color32::from_rgb(40, 110, 200)),
-                                MsgKind::Success => ("•", Color32::from_rgb(40, 110, 200)),
-                                MsgKind::Warning => ("⚠", Color32::from_rgb(200, 130, 0)),
-                                MsgKind::Error => ("⚠", Color32::from_rgb(200, 36, 28)),
-                                MsgKind::Prompt => ("➤", Color32::from_rgb(40, 110, 200)),
-                            };
-                            ui.horizontal(|ui| {
-                                ui.spacing_mut().item_spacing.x = 6.0;
-                                ui.label(RichText::new(if newest { icon } else { " " }).color(c).size(12.5));
-                                let tc = match m.kind { MsgKind::Error => Color32::from_rgb(190, 30, 24), MsgKind::Warning => Color32::from_rgb(150, 90, 0), _ => Color32::from_rgb(75, 75, 75) };
-                                ui.add(egui::Label::new(RichText::new(&m.text).color(tc).size(12.5)).truncate());
-                            });
-                        }
-                    }).response
-                }).inner.interact(egui::Sense::click());
-                if resp.on_hover_text("Klicken für das Meldungsprotokoll").clicked() { self.windows.messages = true; }
+                let resp = ui
+                    .allocate_ui(vec2(w, 40.0), |ui| {
+                        ui.vertical(|ui| {
+                            ui.spacing_mut().item_spacing.y = 1.0;
+                            if msgs.len() < 2 {
+                                ui.add_space(19.0);
+                            }
+                            for (i, m) in msgs.iter().enumerate() {
+                                let newest = i + 1 == msgs.len();
+                                let (icon, c) = match m.kind {
+                                    MsgKind::Info => ("•", Color32::from_rgb(40, 110, 200)),
+                                    MsgKind::Success => ("•", Color32::from_rgb(40, 110, 200)),
+                                    MsgKind::Warning => ("⚠", Color32::from_rgb(200, 130, 0)),
+                                    MsgKind::Error => ("⚠", Color32::from_rgb(200, 36, 28)),
+                                    MsgKind::Prompt => ("➤", Color32::from_rgb(40, 110, 200)),
+                                };
+                                ui.horizontal(|ui| {
+                                    ui.spacing_mut().item_spacing.x = 6.0;
+                                    ui.label(RichText::new(if newest { icon } else { " " }).color(c).size(12.5));
+                                    let tc = match m.kind {
+                                        MsgKind::Error => Color32::from_rgb(190, 30, 24),
+                                        MsgKind::Warning => Color32::from_rgb(150, 90, 0),
+                                        _ => Color32::from_rgb(75, 75, 75),
+                                    };
+                                    ui.add(egui::Label::new(RichText::new(&m.text).color(tc).size(12.5)).truncate());
+                                });
+                            }
+                        })
+                        .response
+                    })
+                    .inner
+                    .interact(egui::Sense::click());
+                if resp.on_hover_text("Klicken für das Meldungsprotokoll").clicked() {
+                    self.windows.messages = true;
+                }
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     ui.spacing_mut().item_spacing.x = 6.0;
                     let label = self.filter_label();
@@ -118,22 +216,47 @@ impl App {
                         if let Some(s) = &mut self.sketch {
                             cb.show_ui(ui, |ui| {
                                 menu_spacing(ui);
-                                for f in super::sketcher::SkFilter::ALL { if menu_row(ui, Some(f.icon()), f.name(), "", true, s.filter == f).clicked() { s.filter = f; } }
-                            }).response.on_hover_text("Auswahlfilter");
+                                for f in super::sketcher::SkFilter::ALL {
+                                    if menu_row(ui, Some(f.icon()), f.name(), "", true, s.filter == f).clicked() {
+                                        s.filter = f;
+                                    }
+                                }
+                            })
+                            .response
+                            .on_hover_text("Auswahlfilter");
                         } else {
                             cb.show_ui(ui, |ui| {
                                 menu_spacing(ui);
-                                for f in Filter::ALL { if menu_row(ui, Some(f.icon()), f.name(), "", true, self.filter == f).clicked() { self.filter = f; } }
-                            }).response.on_hover_text("Auswahlfilter");
+                                for f in Filter::ALL {
+                                    if menu_row(ui, Some(f.icon()), f.name(), "", true, self.filter == f).clicked() {
+                                        self.filter = f;
+                                    }
+                                }
+                            })
+                            .response
+                            .on_hover_text("Auswahlfilter");
                         }
                     });
                     let (sep, _) = ui.allocate_exact_size(vec2(5.0, 32.0), egui::Sense::hover());
                     ui.painter().line_segment([sep.center_top(), sep.center_bottom()], Stroke::new(1.0_f32, SEP));
-                    if icon_button(ui, Icon::Search, "Suchen", !self.creo.home, self.creo.search.is_some(), 18.0).clicked() { self.creo.search = Some(String::new()); }
-                    if self.creo.home { return; }
+                    if icon_button(ui, Icon::Search, "Suchen", !self.creo.home, self.creo.search.is_some(), 18.0).clicked() {
+                        self.creo.search = Some(String::new());
+                    }
+                    if self.creo.home {
+                        return;
+                    }
                     let failed = !self.result.errors.is_empty() || !self.result.param_errors.is_empty();
-                    let r = icon_button(ui, if failed { Icon::RegenFail } else { Icon::RegenOk }, if failed { "Regenerierungsfehler — siehe Modellbaum" } else { "Modell erfolgreich regeneriert" }, true, false, 16.0);
-                    if r.clicked() { self.regenerate(true); }
+                    let r = icon_button(
+                        ui,
+                        if failed { Icon::RegenFail } else { Icon::RegenOk },
+                        if failed { "Regenerierungsfehler — siehe Modellbaum" } else { "Modell erfolgreich regeneriert" },
+                        true,
+                        false,
+                        16.0,
+                    );
+                    if r.clicked() {
+                        self.regenerate(true);
+                    }
                     if let Some(ed) = self.place_editor() {
                         let st = ed.status.clone();
                         ui.label(RichText::new(format!("Status: {}", st.text())).size(12.0).color(match st {
@@ -146,8 +269,14 @@ impl App {
                         let weak = s.sketch.constraints.iter().filter(|c| c.weak).count();
                         ui.label(RichText::new(if s.dof == 0 { "Vollständig definiert".to_string() } else { format!("{} schwache Bem.", weak) }).size(12.0).color(LABEL));
                     }
-                    let n = if self.sketch.is_some() { self.sketch.as_ref().map(|s| s.selection.len()).unwrap_or(0) } else { self.selection.len() + self.tree_selection.len().min(if self.selection.is_empty() { usize::MAX } else { 0 }) };
-                    if n > 0 { ui.label(RichText::new(format!("{} ausgewählt", n)).size(12.0).color(LABEL)); }
+                    let n = if self.sketch.is_some() {
+                        self.sketch.as_ref().map(|s| s.selection.len()).unwrap_or(0)
+                    } else {
+                        self.selection.len() + self.tree_selection.len().min(if self.selection.is_empty() { usize::MAX } else { 0 })
+                    };
+                    if n > 0 {
+                        ui.label(RichText::new(format!("{} ausgewählt", n)).size(12.0).color(LABEL));
+                    }
                 });
             });
         });
@@ -156,7 +285,11 @@ impl App {
     /// Anzeigestil drop-down, shared by the graphics toolbar and the Ansicht ribbon.
     pub(super) fn style_menu(&mut self, ui: &mut egui::Ui) {
         ui.spacing_mut().item_spacing.y = 0.0;
-        for s in Style::ALL { if menu_row(ui, Some(style_icon(s)), s.name(), s.shortcut(), true, self.style == s).clicked() { self.style = s; } }
+        for s in Style::ALL {
+            if menu_row(ui, Some(style_icon(s)), s.name(), s.shortcut(), true, self.style == s).clicked() {
+                self.style = s;
+            }
+        }
     }
 
     /// Gespeicherte Orientierungen drop-down, shared by the graphics toolbar and the Ansicht ribbon.
@@ -169,7 +302,13 @@ impl App {
             named.extend(self.data.views.iter().map(|v| (v.name.clone(), v.rot, Icon::SavedViews)));
             named.sort_by(|a, b| a.0.cmp(&b.0));
             let list: Vec<(String, glam::DQuat, Icon)> = StdView::ALL[..2].iter().map(|v| (v.name().to_string(), v.rotation(), v.icon())).chain(named).collect();
-            for (n, q, ic) in list { if menu_row(ui, Some(ic), &n, "", true, false).clicked() { self.push_view(); self.camera.rot = q; self.fit_pending = true; } }
+            for (n, q, ic) in list {
+                if menu_row(ui, Some(ic), &n, "", true, false).clicked() {
+                    self.push_view();
+                    self.camera.rot = q;
+                    self.fit_pending = true;
+                }
+            }
         });
         ui.separator();
         if menu_row(ui, Some(Icon::Reorient), "Neu orientieren...", "", true, false).clicked() {
@@ -180,7 +319,10 @@ impl App {
 
     /// Senkrechte Ansicht: look straight at the sketch plane, or at the selected plane / planar face.
     pub(super) fn normal_view(&mut self) {
-        if self.sketch.is_some() { self.sketch_view(); return; }
+        if self.sketch.is_some() {
+            self.sketch_view();
+            return;
+        }
         let sel = self.selection.clone();
         let Some(fr) = self.plane_ref(&sel).and_then(|p| self.displayed().frame_for(&p)) else {
             self.say("Eine Ebene oder ebene Fläche wählen, dann Senkrechte Ansicht.", MsgKind::Prompt);
@@ -196,10 +338,17 @@ impl App {
         let Some(mut ro) = self.reorient.clone() else { return };
         let (mut ok, mut cancel, mut save, mut open) = (false, false, false, true);
         egui::Window::new("Ansicht").id(egui::Id::new("reorient")).title_bar(false).collapsible(false).resizable(false).default_pos(pos2(420.0, 200.0)).show(ctx, |ui| {
-            if super::creo::dialog_header(ui, "Ansicht") { open = false; }
+            if super::creo::dialog_header(ui, "Ansicht") {
+                open = false;
+            }
             ui.set_width(330.0);
             ui.add_space(4.0);
-            ui.horizontal(|ui| { ui.label("Typ"); ui.add_enabled_ui(false, |ui| { egui::ComboBox::from_id_salt("ro_type").width(200.0).selected_text("Dynamische Orientierung").show_ui(ui, |_| {}); }); });
+            ui.horizontal(|ui| {
+                ui.label("Typ");
+                ui.add_enabled_ui(false, |ui| {
+                    egui::ComboBox::from_id_salt("ro_type").width(200.0).selected_text("Dynamische Orientierung").show_ui(ui, |_| {});
+                });
+            });
             ui.label(RichText::new("Drehen").strong());
             egui::Grid::new("ro_grid").num_columns(2).show(ui, |ui| {
                 for (l, v) in [("H", &mut ro.h), ("V", &mut ro.v), ("Z", &mut ro.z)] {
@@ -213,13 +362,19 @@ impl App {
             ui.horizontal(|ui| {
                 ui.label("Name");
                 ui.add(egui::TextEdit::singleline(&mut ro.name).desired_width(170.0));
-                if ui.add_enabled(!ro.name.trim().is_empty(), egui::Button::new("Speichern")).clicked() { save = true; }
+                if ui.add_enabled(!ro.name.trim().is_empty(), egui::Button::new("Speichern")).clicked() {
+                    save = true;
+                }
             });
             ui.add_space(6.0);
             ui.horizontal(|ui| {
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    if ui.add(egui::Button::new("Abbrechen").min_size(vec2(90.0, 26.0))).clicked() { cancel = true; }
-                    if ui.add(egui::Button::new("OK").min_size(vec2(70.0, 26.0))).clicked() { ok = true; }
+                    if ui.add(egui::Button::new("Abbrechen").min_size(vec2(90.0, 26.0))).clicked() {
+                        cancel = true;
+                    }
+                    if ui.add(egui::Button::new("OK").min_size(vec2(70.0, 26.0))).clicked() {
+                        ok = true;
+                    }
                 });
             });
         });
@@ -233,17 +388,29 @@ impl App {
             });
             self.say(format!("Orientierung {} gespeichert.", n), MsgKind::Success);
         }
-        if cancel || !open { self.camera.rot = ro.base; self.reorient = None; }
-        else if ok { self.reorient = None; }
-        else { self.reorient = Some(ro); }
+        if cancel || !open {
+            self.camera.rot = ro.base;
+            self.reorient = None;
+        } else if ok {
+            self.reorient = None;
+        } else {
+            self.reorient = Some(ro);
+        }
     }
 
     /// Startseite: Creo's window before any model is opened.
     fn home_frame(&mut self, ctx: &egui::Context) {
-        if let Some(p) = ctx.input(|i| i.raw.dropped_files.first().and_then(|f| f.path.clone())) { self.load(p); return; }
+        if let Some(p) = ctx.input(|i| i.raw.dropped_files.first().and_then(|f| f.path.clone())) {
+            self.load(p);
+            return;
+        }
         let (cmd, _) = ctx.input(|i| (i.modifiers.command, i.modifiers.shift));
-        if cmd && ctx.input(|i| i.key_pressed(egui::Key::N)) { self.confirm_new(); }
-        if cmd && ctx.input(|i| i.key_pressed(egui::Key::O)) { self.open(); }
+        if cmd && ctx.input(|i| i.key_pressed(egui::Key::N)) {
+            self.confirm_new();
+        }
+        if cmd && ctx.input(|i| i.key_pressed(egui::Key::O)) {
+            self.open();
+        }
         ctx.send_viewport_cmd(egui::ViewportCommand::Title("Freo".into()));
         self.title_bar(ctx);
         self.tab_strip(ctx);
@@ -256,7 +423,10 @@ impl App {
         }
         self.status_bar(ctx);
         if self.show_nav {
-            egui::SidePanel::left("home_nav").resizable(true).default_width(220.0).width_range(170.0..=420.0)
+            egui::SidePanel::left("home_nav")
+                .resizable(true)
+                .default_width(220.0)
+                .width_range(170.0..=420.0)
                 .frame(egui::Frame::NONE.fill(PANEL_BG).inner_margin(egui::Margin { left: 4, right: 4, top: 0, bottom: 4 }))
                 .show(ctx, |ui| self.home_navigator(ui));
         }
@@ -271,12 +441,15 @@ impl App {
         self.file_browser_ui(ctx);
         self.name_dialog_ui(ctx);
     }
-
 }
 
 impl eframe::App for App {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-        if std::env::var("FREO_DEMO").as_deref() == Ok("icons") { super::demo::icon_sheet(ctx); self.demo_tick(ctx); return; }
+        if std::env::var("FREO_DEMO").as_deref() == Ok("icons") {
+            super::demo::icon_sheet(ctx);
+            self.demo_tick(ctx);
+            return;
+        }
         // closing the window (File ▸ Exit, the close button, ⌘Q) asks before discarding work
         if ctx.input(|i| i.viewport().close_requested()) && std::env::var("FREO_EXIT").is_err() && !self.confirm_discard() {
             ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
@@ -284,7 +457,9 @@ impl eframe::App for App {
         // files opened from Finder (double-click, "Öffnen mit", Dock)
         for p in crate::macos_open::take() {
             let n = p.file_name().map(|s| s.to_string_lossy().to_string()).unwrap_or_default();
-            if super::creo::is_creo_file(&n) || self.creo.home || self.confirm_discard() { self.load(p); }
+            if super::creo::is_creo_file(&n) || self.creo.home || self.confirm_discard() {
+                self.load(p);
+            }
         }
         ctx.request_repaint_after(std::time::Duration::from_millis(500));
         if self.creo.home {
@@ -294,7 +469,11 @@ impl eframe::App for App {
             return;
         }
         if self.drawing_active() {
-            if let Some(p) = ctx.input(|i| i.raw.dropped_files.first().and_then(|f| f.path.clone())) { if self.confirm_discard() { self.load(p); } }
+            if let Some(p) = ctx.input(|i| i.raw.dropped_files.first().and_then(|f| f.path.clone())) {
+                if self.confirm_discard() {
+                    self.load(p);
+                }
+            }
             self.drawing_frame(ctx);
             self.open_dialog_ui(ctx);
             self.creo_file_ui(ctx);
@@ -308,8 +487,13 @@ impl eframe::App for App {
         ctx.send_viewport_cmd(egui::ViewportCommand::Title(format!("{} (Aktiv) - Freo", self.data.name)));
         if let Some(p) = ctx.input(|i| i.raw.dropped_files.first().and_then(|f| f.path.clone())) {
             // a part dropped on an assembly is assembled, like dragging from Creo's browser
-            if self.in_asm() && p.extension().map(|e| e == "pfprt").unwrap_or(false) { if !self.placing() { self.assemble_path(p); } }
-            else if self.confirm_discard() { self.load(p); }
+            if self.in_asm() && p.extension().map(|e| e == "pfprt").unwrap_or(false) {
+                if !self.placing() {
+                    self.assemble_path(p);
+                }
+            } else if self.confirm_discard() {
+                self.load(p);
+            }
         }
 
         self.sim_tick(ctx);
@@ -318,16 +502,25 @@ impl eframe::App for App {
         let mut outcome = Outcome::None;
         // a minimised ribbon still shows feature dashboards (they are the only way to finish them)
         let show_ribbon = !self.creo.ribbon_min_hidden() || self.tab == Tab::Context;
-        if show_ribbon { egui::TopBottomPanel::top("ribbon").frame(egui::Frame::NONE.fill(RIB_TOP).inner_margin(egui::Margin::symmetric(4, 3))).show(ctx, |ui| {
-            outcome = self.ribbon_body(ui);
-            if self.tab == Tab::Context && self.sketch.is_none() && self.editor.is_some() { self.feature_panel_tabs(ui); }
-            if self.tab == Tab::Context && self.placing() { self.placement_panel_tabs(ui); }
-            let r = ui.max_rect();
-            ui.painter().line_segment([pos2(r.left() - 4.0, r.bottom() + 2.5), pos2(r.right() + 4.0, r.bottom() + 2.5)], Stroke::new(1.0_f32, BORDER));
-        }); }
+        if show_ribbon {
+            egui::TopBottomPanel::top("ribbon").frame(egui::Frame::NONE.fill(RIB_TOP).inner_margin(egui::Margin::symmetric(4, 3))).show(ctx, |ui| {
+                outcome = self.ribbon_body(ui);
+                if self.tab == Tab::Context && self.sketch.is_none() && self.editor.is_some() {
+                    self.feature_panel_tabs(ui);
+                }
+                if self.tab == Tab::Context && self.placing() {
+                    self.placement_panel_tabs(ui);
+                }
+                let r = ui.max_rect();
+                ui.painter().line_segment([pos2(r.left() - 4.0, r.bottom() + 2.5), pos2(r.right() + 4.0, r.bottom() + 2.5)], Stroke::new(1.0_f32, BORDER));
+            });
+        }
         self.status_bar(ctx);
         if self.show_nav {
-            egui::SidePanel::left("model_navigator").resizable(true).default_width(380.0).width_range(220.0..=620.0)
+            egui::SidePanel::left("model_navigator")
+                .resizable(true)
+                .default_width(380.0)
+                .width_range(220.0..=620.0)
                 .frame(egui::Frame::NONE.fill(PANEL_BG).inner_margin(egui::Margin { left: 4, right: 4, top: 0, bottom: 4 }))
                 .show(ctx, |ui| self.navigator(ui));
         }
@@ -337,10 +530,15 @@ impl eframe::App for App {
             self.viewport_ui(ui);
         });
         if let Some(s) = &mut self.sketch {
-            for (t, k) in std::mem::take(&mut s.messages) { self.messages.push(Message { text: t, kind: k }); }
+            for (t, k) in std::mem::take(&mut s.messages) {
+                self.messages.push(Message { text: t, kind: k });
+            }
         }
         match outcome {
-            Outcome::Done(sk) => { let slot = self.sketch.as_ref().map(|s| s.slot).unwrap_or(Slot::Main); self.finish_sketch(sk, slot); }
+            Outcome::Done(sk) => {
+                let slot = self.sketch.as_ref().map(|s| s.slot).unwrap_or(Slot::Main);
+                self.finish_sketch(sk, slot);
+            }
             Outcome::Cancel => self.cancel_sketch(),
             Outcome::None => {}
         }
@@ -370,7 +568,9 @@ impl eframe::App for App {
 
     fn save(&mut self, storage: &mut dyn eframe::Storage) {
         let list: Vec<String> = self.recent.iter().map(|p| p.display().to_string()).collect();
-        if let Ok(s) = serde_json::to_string(&list) { storage.set_string("recent_files", s); }
+        if let Ok(s) = serde_json::to_string(&list) {
+            storage.set_string("recent_files", s);
+        }
         storage.set_string("browser_dir", self.browser_dir.display().to_string());
         storage.set_string("work_dir", if self.creo.keep_work_dir { self.work_dir.display().to_string() } else { String::new() });
     }
@@ -386,14 +586,20 @@ pub fn no_hand(ctx: &egui::Context, id: egui::Id) {
 /// unless a widget already chose a cursor (text field, resize, drag).
 pub fn hand_cursor(ctx: &egui::Context) {
     let skip: Vec<egui::Id> = ctx.data_mut(|d| std::mem::take(d.get_temp_mut_or_default::<Vec<egui::Id>>(egui::Id::new("freo_no_hand"))));
-    if ctx.output(|o| o.cursor_icon) != egui::CursorIcon::Default || ctx.dragged_id().is_some() { return; }
+    if ctx.output(|o| o.cursor_icon) != egui::CursorIcon::Default || ctx.dragged_id().is_some() {
+        return;
+    }
     let hovered = ctx.interaction_snapshot(|i| i.hovered.clone());
     let clickable = hovered.iter().any(|id| !skip.contains(id) && ctx.read_response(*id).map(|r| r.enabled() && r.sense.senses_click()).unwrap_or(false));
-    if clickable { ctx.set_cursor_icon(egui::CursorIcon::PointingHand); }
+    if clickable {
+        ctx.set_cursor_icon(egui::CursorIcon::PointingHand);
+    }
 }
 
 /// Paint the Creo graphics-area background gradient into `rect`.
-pub fn graphics_background(painter: &egui::Painter, rect: Rect) { graphics_background_bg(painter, rect, super::creo::Background::Standard); }
+pub fn graphics_background(painter: &egui::Painter, rect: Rect) {
+    graphics_background_bg(painter, rect, super::creo::Background::Standard);
+}
 
 pub fn graphics_background_bg(painter: &egui::Painter, rect: Rect, bg: super::creo::Background) {
     let (top, bot) = bg.colors();

@@ -18,12 +18,22 @@ use std::collections::HashMap;
 // ---------------------------------------------------------------- primitives
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Dash { Solid, Hidden, Center, Phantom }
+pub enum Dash {
+    Solid,
+    Hidden,
+    Center,
+    Phantom,
+}
 
 impl Dash {
     /// Dash and gap lengths in mm.
     pub fn pattern(&self) -> &'static [f64] {
-        match self { Dash::Solid => &[], Dash::Hidden => &[3.0, 1.5], Dash::Center => &[10.0, 1.5, 1.5, 1.5], Dash::Phantom => &[12.0, 1.5, 2.0, 1.5, 2.0, 1.5] }
+        match self {
+            Dash::Solid => &[],
+            Dash::Hidden => &[3.0, 1.5],
+            Dash::Center => &[10.0, 1.5, 1.5, 1.5],
+            Dash::Phantom => &[12.0, 1.5, 2.0, 1.5, 2.0, 1.5],
+        }
     }
 }
 
@@ -36,23 +46,64 @@ pub const MISSING: Rgb = [210, 40, 30];
 
 #[derive(Clone, Debug)]
 pub enum Prim {
-    Line { pts: Vec<V2>, w: f64, c: Rgb, dash: Dash },
-    Fill { pts: Vec<V2>, c: Rgb },
-    Circle { c: V2, r: f64, w: f64, col: Rgb, dash: Dash, fill: bool },
+    Line {
+        pts: Vec<V2>,
+        w: f64,
+        c: Rgb,
+        dash: Dash,
+    },
+    Fill {
+        pts: Vec<V2>,
+        c: Rgb,
+    },
+    Circle {
+        c: V2,
+        r: f64,
+        w: f64,
+        col: Rgb,
+        dash: Dash,
+        fill: bool,
+    },
     /// `pos` is the alignment point; `halign`/`valign` are -1, 0, 1 (left/bottom … right/top)
-    Text { pos: V2, text: String, h: f64, angle: f64, halign: i8, valign: i8, c: Rgb },
+    Text {
+        pos: V2,
+        text: String,
+        h: f64,
+        angle: f64,
+        halign: i8,
+        valign: i8,
+        c: Rgb,
+    },
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum DSel { View(u32), Shown(usize), Dim(u32), Note(u32), Balloon(usize), Bom, Gtol(u32), Datum(u32), Finish(u32) }
+pub enum DSel {
+    View(u32),
+    Shown(usize),
+    Dim(u32),
+    Note(u32),
+    Balloon(usize),
+    Bom,
+    Gtol(u32),
+    Datum(u32),
+    Finish(u32),
+}
 
 /// A clickable region of the sheet.
 #[derive(Clone, Copy, Debug)]
-pub struct Hit { pub min: V2, pub max: V2, pub sel: DSel }
+pub struct Hit {
+    pub min: V2,
+    pub max: V2,
+    pub sel: DSel,
+}
 
 /// Font size (em) for a text of cap height `h`.
-pub fn text_em(h: f64) -> f64 { h / 0.718 }
-pub fn text_width(s: &str, h: f64) -> f64 { s.chars().map(super::publish::char_width).sum::<f64>() / 1000.0 * text_em(h) }
+pub fn text_em(h: f64) -> f64 {
+    h / 0.718
+}
+pub fn text_width(s: &str, h: f64) -> f64 {
+    s.chars().map(super::publish::char_width).sum::<f64>() / 1000.0 * text_em(h)
+}
 
 /// Start of the baseline for an aligned text (rotation applied about `pos`).
 pub fn text_origin(pos: V2, text: &str, h: f64, angle: f64, halign: i8, valign: i8) -> V2 {
@@ -62,40 +113,80 @@ pub fn text_origin(pos: V2, text: &str, h: f64, angle: f64, halign: i8, valign: 
     pos + V2::new(local.x * c - local.y * s, local.x * s + local.y * c)
 }
 
-fn rot2(v: V2, a: f64) -> V2 { let (s, c) = a.sin_cos(); V2::new(v.x * c - v.y * s, v.x * s + v.y * c) }
+fn rot2(v: V2, a: f64) -> V2 {
+    let (s, c) = a.sin_cos();
+    V2::new(v.x * c - v.y * s, v.x * s + v.y * c)
+}
 
 // ---------------------------------------------------------------- session
 
 #[derive(Clone, Copy, Debug, PartialEq)]
-pub struct SheetCam { pub center: V2, pub zoom: f32 }
+pub struct SheetCam {
+    pub center: V2,
+    pub zoom: f32,
+}
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum DTool {
     None,
     General,
-    Projection { parent: Option<u32> },
-    Detail { parent: Option<u32>, center: Option<V2>, radius: Option<f64> },
-    Dimension { first: Option<Snap> },
+    Projection {
+        parent: Option<u32>,
+    },
+    Detail {
+        parent: Option<u32>,
+        center: Option<V2>,
+        radius: Option<f64>,
+    },
+    Dimension {
+        first: Option<Snap>,
+    },
     Note,
     /// datum feature symbol: pick the feature edge, then place the box
-    Datum { at: Option<(u32, DimRef)> },
+    Datum {
+        at: Option<(u32, DimRef)>,
+    },
     /// feature control frame: pick a dimension, or an edge and then the frame position
-    Gtol { at: Option<(u32, DimRef)> },
+    Gtol {
+        at: Option<(u32, DimRef)>,
+    },
     /// surface texture symbol: pick an edge
     Finish,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
-pub enum SnapKind { Point, Circle { c: V2, r: f64 }, Edge { a: V2, b: V2 } }
+pub enum SnapKind {
+    Point,
+    Circle { c: V2, r: f64 },
+    Edge { a: V2, b: V2 },
+}
 
 /// Pickable view geometry under the pointer while dimensioning.
 #[derive(Clone, Copy, Debug, PartialEq)]
-pub struct Snap { pub view: u32, pub kind: SnapKind, pub sheet: V2, pub a: DimRef, pub b: Option<DimRef> }
+pub struct Snap {
+    pub view: u32,
+    pub kind: SnapKind,
+    pub sheet: V2,
+    pub a: DimRef,
+    pub b: Option<DimRef>,
+}
 
 #[derive(Clone, Debug)]
-pub struct ViewDialog { pub view: u32, pub draft: DrawView, pub cat: u8, pub is_new: bool, pub custom_scale: String }
+pub struct ViewDialog {
+    pub view: u32,
+    pub draft: DrawView,
+    pub cat: u8,
+    pub is_new: bool,
+    pub custom_scale: String,
+}
 
-pub struct TextEdit { pub sel: DSel, pub text: String, pub pos: eframe::egui::Pos2, pub focus: bool, pub multiline: bool }
+pub struct TextEdit {
+    pub sel: DSel,
+    pub text: String,
+    pub pos: eframe::egui::Pos2,
+    pub focus: bool,
+    pub multiline: bool,
+}
 
 /// Geometry of one view in its own model coordinates (projected, millimetres).
 pub struct ViewGeom {
@@ -113,13 +204,23 @@ pub struct ViewGeom {
 }
 
 impl ViewGeom {
-    pub fn to_sheet(&self, pos: V2, q: V2) -> V2 { pos + (q - self.c) * self.scale }
-    pub fn world(&self, pos: V2, p: V3) -> V2 { self.to_sheet(pos, (self.w2v * p).truncate()) }
-    pub fn from_sheet(&self, pos: V2, s: V2) -> V2 { self.c + (s - pos) / self.scale }
+    pub fn to_sheet(&self, pos: V2, q: V2) -> V2 {
+        pos + (q - self.c) * self.scale
+    }
+    pub fn world(&self, pos: V2, p: V3) -> V2 {
+        self.to_sheet(pos, (self.w2v * p).truncate())
+    }
+    pub fn from_sheet(&self, pos: V2, s: V2) -> V2 {
+        self.c + (s - pos) / self.scale
+    }
     /// Sheet rectangle of the view outline.
     pub fn rect(&self, pos: V2) -> (V2, V2) {
-        if let Some((c, r)) = self.clip { return (self.to_sheet(pos, c - V2::splat(r)), self.to_sheet(pos, c + V2::splat(r))); }
-        if self.lines.min.x > self.lines.max.x { return (pos - V2::splat(10.0), pos + V2::splat(10.0)); }
+        if let Some((c, r)) = self.clip {
+            return (self.to_sheet(pos, c - V2::splat(r)), self.to_sheet(pos, c + V2::splat(r)));
+        }
+        if self.lines.min.x > self.lines.max.x {
+            return (pos - V2::splat(10.0), pos + V2::splat(10.0));
+        }
         (self.to_sheet(pos, self.lines.min), self.to_sheet(pos, self.lines.max))
     }
 }
@@ -146,7 +247,14 @@ impl ModelDim {
             Some(t) => {
                 let mut out = String::new();
                 let mut k = 0;
-                for c in t.chars() { if c == '#' { out.push_str(&d.fmt(self.args.get(k).copied().unwrap_or(0.0))); k += 1; } else { out.push(c); } }
+                for c in t.chars() {
+                    if c == '#' {
+                        out.push_str(&d.fmt(self.args.get(k).copied().unwrap_or(0.0)));
+                        k += 1;
+                    } else {
+                        out.push(c);
+                    }
+                }
                 out
             }
         }
@@ -156,8 +264,20 @@ impl ModelDim {
 #[derive(Clone, Copy, Debug)]
 pub enum MGeom {
     /// distance between `a` and `b` measured along `dir`; `plane` is the sketch plane normal
-    Linear { a: V3, b: V3, dir: V3, plane: Option<V3>, label: V3 },
-    Radial { c: V3, r: f64, normal: V3, label: V3, diameter: bool },
+    Linear {
+        a: V3,
+        b: V3,
+        dir: V3,
+        plane: Option<V3>,
+        label: V3,
+    },
+    Radial {
+        c: V3,
+        r: f64,
+        normal: V3,
+        label: V3,
+        diameter: bool,
+    },
 }
 
 pub struct DrawSession {
@@ -196,13 +316,39 @@ pub struct DrawSession {
 impl DrawSession {
     pub fn new(data: DrawingData, assembly: bool, model_name: &str) -> DrawSession {
         DrawSession {
-            data, path: None, dirty: false, undo: vec![], redo: vec![], active: true, sheet: 0,
-            cam: SheetCam { center: V2::new(210.0, 148.5), zoom: 2.0 }, fit: true, assembly, model_name: model_name.into(),
-            cache: HashMap::new(), models: HashMap::new(), dims: vec![], dims_gen: 0, sel: vec![], hover: None, tool: DTool::None,
-            snap: None, view_dialog: None, props: false, edit: None, drag: None, lock_views: false, coalesce: false, last_sel: vec![], hits: vec![], pointer: None,
+            data,
+            path: None,
+            dirty: false,
+            undo: vec![],
+            redo: vec![],
+            active: true,
+            sheet: 0,
+            cam: SheetCam { center: V2::new(210.0, 148.5), zoom: 2.0 },
+            fit: true,
+            assembly,
+            model_name: model_name.into(),
+            cache: HashMap::new(),
+            models: HashMap::new(),
+            dims: vec![],
+            dims_gen: 0,
+            sel: vec![],
+            hover: None,
+            tool: DTool::None,
+            snap: None,
+            view_dialog: None,
+            props: false,
+            edit: None,
+            drag: None,
+            lock_views: false,
+            coalesce: false,
+            last_sel: vec![],
+            hits: vec![],
+            pointer: None,
         }
     }
-    pub fn cur(&self) -> &Sheet { &self.data.sheets[self.sheet.min(self.data.sheets.len() - 1)] }
+    pub fn cur(&self) -> &Sheet {
+        &self.data.sheets[self.sheet.min(self.data.sheets.len() - 1)]
+    }
 }
 
 fn hash_of(s: &str) -> u64 {
@@ -213,7 +359,9 @@ fn hash_of(s: &str) -> u64 {
 }
 
 fn projected_centre(b: &BBox, w2v: DQuat) -> V2 {
-    if b.is_empty() { return V2::ZERO; }
+    if b.is_empty() {
+        return V2::ZERO;
+    }
     let (mut lo, mut hi) = (V2::splat(f64::INFINITY), V2::splat(f64::NEG_INFINITY));
     for k in 0..8 {
         let p = V3::new(if k & 1 == 0 { b.min.x } else { b.max.x }, if k & 2 == 0 { b.min.y } else { b.max.y }, if k & 4 == 0 { b.min.z } else { b.max.z });
@@ -226,7 +374,9 @@ fn projected_centre(b: &BBox, w2v: DQuat) -> V2 {
 
 /// Hatch lines of a convex polygon (global spacing so neighbouring pieces line up).
 fn hatch_polygon(poly: &[V2], angle: f64, spacing: f64, out: &mut Vec<[V2; 2]>) {
-    if poly.len() < 3 || spacing <= 0.0 { return; }
+    if poly.len() < 3 || spacing <= 0.0 {
+        return;
+    }
     let n = V2::new(-angle.sin(), angle.cos());
     let (lo, hi) = poly.iter().fold((f64::INFINITY, f64::NEG_INFINITY), |(l, h), p| (l.min(p.dot(n)), h.max(p.dot(n))));
     let mut k = (lo / spacing).ceil() as i64;
@@ -236,9 +386,13 @@ fn hatch_polygon(poly: &[V2], angle: f64, spacing: f64, out: &mut Vec<[V2; 2]>) 
         for i in 0..poly.len() {
             let (a, b) = (poly[i], poly[(i + 1) % poly.len()]);
             let (da, db) = (a.dot(n) - t, b.dot(n) - t);
-            if (da > 0.0) != (db > 0.0) { hits.push(a + (b - a) * (da / (da - db))); }
+            if (da > 0.0) != (db > 0.0) {
+                hits.push(a + (b - a) * (da / (da - db)));
+            }
         }
-        if hits.len() >= 2 { out.push([hits[0], hits[1]]); }
+        if hits.len() >= 2 {
+            out.push([hits[0], hits[1]]);
+        }
         k += 1;
     }
 }
@@ -248,11 +402,15 @@ fn clip_interval(p: V2, q: V2, c: V2, r: f64) -> Option<(f64, f64)> {
     let d = q - p;
     let f = p - c;
     let a = d.dot(d);
-    if a < 1e-18 { return ((p - c).length() <= r).then_some((0.0, 1.0)); }
+    if a < 1e-18 {
+        return ((p - c).length() <= r).then_some((0.0, 1.0));
+    }
     let b = 2.0 * f.dot(d);
     let cc = f.dot(f) - r * r;
     let disc = b * b - 4.0 * a * cc;
-    if disc <= 0.0 { return None; }
+    if disc <= 0.0 {
+        return None;
+    }
     let s = disc.sqrt();
     let (t1, t2) = ((-b - s) / (2.0 * a), (-b + s) / (2.0 * a));
     let (l, h) = (t1.max(0.0), t2.min(1.0));
@@ -268,16 +426,34 @@ fn clip_polylines(lines: &[Vec<V2>], c: V2, r: f64) -> Vec<Vec<V2>> {
                 Some((t0, t1)) => {
                     let (a, b) = (w[0] + (w[1] - w[0]) * t0, w[0] + (w[1] - w[0]) * t1);
                     if cur.last().map(|p| (*p - a).length() > 1e-9).unwrap_or(true) {
-                        if cur.len() >= 2 { out.push(std::mem::take(&mut cur)); } else { cur.clear(); }
+                        if cur.len() >= 2 {
+                            out.push(std::mem::take(&mut cur));
+                        } else {
+                            cur.clear();
+                        }
                         cur.push(a);
                     }
                     cur.push(b);
-                    if t1 < 1.0 - 1e-9 { if cur.len() >= 2 { out.push(std::mem::take(&mut cur)); } else { cur.clear(); } }
+                    if t1 < 1.0 - 1e-9 {
+                        if cur.len() >= 2 {
+                            out.push(std::mem::take(&mut cur));
+                        } else {
+                            cur.clear();
+                        }
+                    }
                 }
-                None => { if cur.len() >= 2 { out.push(std::mem::take(&mut cur)); } else { cur.clear(); } }
+                None => {
+                    if cur.len() >= 2 {
+                        out.push(std::mem::take(&mut cur));
+                    } else {
+                        cur.clear();
+                    }
+                }
             }
         }
-        if cur.len() >= 2 { out.push(cur); }
+        if cur.len() >= 2 {
+            out.push(cur);
+        }
     }
     out
 }
@@ -293,7 +469,9 @@ fn section_geometry(model: &RegenResult, plane: &Frame, w2v: DQuat, axes: &[(V3,
     let mut tags = builders::TagAllocator::default();
     let half = builders::extrude(&[ProfileRegion { outer: sq, holes: vec![] }], &fr, -l, 0.0, 0.0, &mut tags, 0);
     let mut bodies: std::collections::BTreeMap<u32, Vec<CPolygon>> = Default::default();
-    for p in &model.polys { bodies.entry(p.tag >> BODY_SHIFT).or_default().push(p.clone()); }
+    for p in &model.polys {
+        bodies.entry(p.tag >> BODY_SHIFT).or_default().push(p.clone());
+    }
     let mut all = vec![];
     let mut hatch = vec![];
     let tol = model.topo.bbox.diagonal().max(1.0) * 1e-6;
@@ -301,7 +479,9 @@ fn section_geometry(model: &RegenResult, plane: &Frame, w2v: DQuat, axes: &[(V3,
         let mut cut = csg::intersect(polys, &half);
         let angle = [45f64, 135.0, 60.0, 120.0, 30.0, 150.0][k % 6].to_radians();
         for p in &mut cut {
-            if p.tag >> BODY_SHIFT == 0 { p.tag |= body << BODY_SHIFT; }
+            if p.tag >> BODY_SHIFT == 0 {
+                p.tag |= body << BODY_SHIFT;
+            }
             if p.plane.n.dot(toward) > 0.999 && p.v.iter().all(|v| (v.p - o).dot(toward).abs() < tol * 10.0) {
                 let poly: Vec<V2> = p.v.iter().map(|v| (w2v * v.p).truncate()).collect();
                 hatch_polygon(&poly, angle, spacing, &mut hatch);
@@ -340,8 +520,14 @@ pub fn resolve_ref(r: &DimRef, topo: &Topology) -> (V3, f64, bool) {
             let want = if (s - r.point).length() <= (e - r.point).length() { s } else { e };
             (want, 0.0, true)
         }
-        RefAt::Center => match hlr::chain_circle(&ch.points) { Some((c, _, rad)) => (c, rad, true), None => (r.point, r.radius, false) },
-        RefAt::Edge => { let (p, _) = edge_at(&ch.points, r.t, r.point); (p, 0.0, true) }
+        RefAt::Center => match hlr::chain_circle(&ch.points) {
+            Some((c, _, rad)) => (c, rad, true),
+            None => (r.point, r.radius, false),
+        },
+        RefAt::Edge => {
+            let (p, _) = edge_at(&ch.points, r.t, r.point);
+            (p, 0.0, true)
+        }
     }
 }
 
@@ -350,17 +536,26 @@ pub fn resolve_ref(r: &DimRef, topo: &Topology) -> (V3, f64, bool) {
 pub fn edge_at(pts: &[V3], t: f64, near: V3) -> (V3, V3) {
     let at = |t: f64| -> (V3, V3) {
         let total: f64 = pts.windows(2).map(|w| (w[1] - w[0]).length()).sum();
-        if pts.len() < 2 || total <= 0.0 { return (pts.first().copied().unwrap_or(near), V3::X); }
+        if pts.len() < 2 || total <= 0.0 {
+            return (pts.first().copied().unwrap_or(near), V3::X);
+        }
         let mut want = t.clamp(0.0, 1.0) * total;
         for w in pts.windows(2) {
             let l = (w[1] - w[0]).length();
-            if want <= l || std::ptr::eq(w.as_ptr(), pts[pts.len() - 2..].as_ptr()) { let f = if l > 0.0 { (want / l).min(1.0) } else { 0.0 }; return (w[0] + (w[1] - w[0]) * f, safe_norm(w[1] - w[0], V3::X)); }
+            if want <= l || std::ptr::eq(w.as_ptr(), pts[pts.len() - 2..].as_ptr()) {
+                let f = if l > 0.0 { (want / l).min(1.0) } else { 0.0 };
+                return (w[0] + (w[1] - w[0]) * f, safe_norm(w[1] - w[0], V3::X));
+            }
             want -= l;
         }
         (*pts.last().unwrap(), V3::X)
     };
     let (a, b) = (at(t), at(1.0 - t));
-    if (a.0 - near).length() <= (b.0 - near).length() { a } else { b }
+    if (a.0 - near).length() <= (b.0 - near).length() {
+        a
+    } else {
+        b
+    }
 }
 
 /// Resolves an annotation reference: point and tangent of its edge.
@@ -376,7 +571,13 @@ pub fn resolve_edge_n(r: &DimRef, topo: &Topology) -> (V3, V3, [V3; 2], bool) {
     let (p, tan) = edge_at(&ch.points, r.t, r.point);
     let k = (0..ch.points.len()).min_by(|a, b| (ch.points[*a] - p).length().partial_cmp(&(ch.points[*b] - p).length()).unwrap()).unwrap_or(0);
     let normals = [ch.n_a.get(k).copied().unwrap_or(V3::ZERO), ch.n_b.get(k).copied().unwrap_or(V3::ZERO)];
-    match r.at { RefAt::Edge => (p, tan, normals, true), _ => { let (q, _, ok) = resolve_ref(r, topo); (q, tan, normals, ok) } }
+    match r.at {
+        RefAt::Edge => (p, tan, normals, true),
+        _ => {
+            let (q, _, ok) = resolve_ref(r, topo);
+            (q, tan, normals, ok)
+        }
+    }
 }
 
 /// Outward direction (sheet) at an edge seen in a view: the projection of the adjacent face
@@ -384,15 +585,26 @@ pub fn resolve_edge_n(r: &DimRef, topo: &Topology) -> (V3, V3, [V3; 2], bool) {
 fn outward(w2v: DQuat, normals: [V3; 2], fallback: V2) -> V2 {
     let (a, b) = ((w2v * normals[0]).truncate(), (w2v * normals[1]).truncate());
     let m = if a.length() >= b.length() { a } else { b };
-    if m.length() > 0.3 { m.normalize() } else { fallback }
+    if m.length() > 0.3 {
+        m.normalize()
+    } else {
+        fallback
+    }
 }
 
 /// Dimension text: the value, optional stacked tolerance pair, optionally boxed (basic).
 #[derive(Clone, Debug, Default)]
-pub struct DimLabel { pub main: String, pub stack: Option<(String, String)>, pub stack_h: f64, pub boxed: bool }
+pub struct DimLabel {
+    pub main: String,
+    pub stack: Option<(String, String)>,
+    pub stack_h: f64,
+    pub boxed: bool,
+}
 
 impl DimLabel {
-    pub fn plain(s: &str) -> DimLabel { DimLabel { main: s.into(), stack: None, stack_h: 0.7, boxed: false } }
+    pub fn plain(s: &str) -> DimLabel {
+        DimLabel { main: s.into(), stack: None, stack_h: 0.7, boxed: false }
+    }
     /// Width and height for text height `h`.
     pub fn size(&self, h: f64) -> (f64, f64) {
         let mw = text_width(&self.main, h);
@@ -407,7 +619,9 @@ impl DimLabel {
         let at = |x: f64, y: f64| o + rot2(V2::new(x, y), angle);
         let main_y = (th - h) / 2.0;
         let mw = text_width(&self.main, h);
-        if !self.main.is_empty() { prims.push(Prim::Text { pos: at(0.0, main_y), text: self.main.clone(), h, angle, halign: -1, valign: -1, c }); }
+        if !self.main.is_empty() {
+            prims.push(Prim::Text { pos: at(0.0, main_y), text: self.main.clone(), h, angle, halign: -1, valign: -1, c });
+        }
         if self.boxed {
             let b = [at(-0.8, main_y - 0.8), at(mw + 0.8, main_y - 0.8), at(mw + 0.8, main_y + h + 0.8), at(-0.8, main_y + h + 0.8)];
             prims.push(Prim::Line { pts: vec![b[0], b[1], b[2], b[3], b[0]], w: 0.25, c, dash: Dash::Solid });
@@ -432,7 +646,9 @@ pub fn tol_label(d: &DrawingData, base: String, value: f64, prefix: &str, tol: &
         TolMode::PlusMinus => l.stack = Some((d.fmt_dev(tol.upper), d.fmt_dev(tol.lower))),
         TolMode::Fit => {
             l.main = format!("{} {}", base, tol.fit.trim());
-            if let Some((u, lo)) = tol.deviations(value) { l.stack = Some((d.fmt_dev(u), d.fmt_dev(lo))); }
+            if let Some((u, lo)) = tol.deviations(value) {
+                l.stack = Some((d.fmt_dev(u), d.fmt_dev(lo)));
+            }
         }
         TolMode::Limits => {
             let f = |v: f64| format!("{}{:.*}", prefix, d.tol_decimals.max(d.decimals), v);
@@ -460,15 +676,28 @@ pub fn gsymbol(prims: &mut Vec<Prim>, c: V2, s: f64, ch: GChar, col: Rgb) {
             prims.push(Prim::Line { pts: vec![p(0.25, -0.95), p(1.15, 0.9)], w, c: col, dash: Dash::Solid });
         }
         GChar::LineProfile | GChar::SurfaceProfile => {
-            let arc: Vec<V2> = (0..=24).map(|k| { let t = std::f64::consts::PI * k as f64 / 24.0; p(t.cos(), t.sin() - 0.45) }).collect();
+            let arc: Vec<V2> = (0..=24)
+                .map(|k| {
+                    let t = std::f64::consts::PI * k as f64 / 24.0;
+                    p(t.cos(), t.sin() - 0.45)
+                })
+                .collect();
             let closed = ch == GChar::SurfaceProfile;
             let mut pts = arc;
-            if closed { pts.push(pts[0]); }
+            if closed {
+                pts.push(pts[0]);
+            }
             prims.push(Prim::Line { pts, w, c: col, dash: Dash::Solid });
         }
         GChar::Angularity => line(vec![p(0.85, 0.8), p(-1.0, -0.65), p(1.0, -0.65)]),
-        GChar::Perpendicularity => { line(vec![p(-1.0, -0.8), p(1.0, -0.8)]); prims.push(Prim::Line { pts: vec![p(0.0, -0.8), p(0.0, 0.95)], w, c: col, dash: Dash::Solid }); }
-        GChar::Parallelism => { line(vec![p(-0.95, -0.8), p(-0.15, 0.85)]); prims.push(Prim::Line { pts: vec![p(0.15, -0.85), p(0.95, 0.8)], w, c: col, dash: Dash::Solid }); }
+        GChar::Perpendicularity => {
+            line(vec![p(-1.0, -0.8), p(1.0, -0.8)]);
+            prims.push(Prim::Line { pts: vec![p(0.0, -0.8), p(0.0, 0.95)], w, c: col, dash: Dash::Solid });
+        }
+        GChar::Parallelism => {
+            line(vec![p(-0.95, -0.8), p(-0.15, 0.85)]);
+            prims.push(Prim::Line { pts: vec![p(0.15, -0.85), p(0.95, 0.8)], w, c: col, dash: Dash::Solid });
+        }
         GChar::Position => {
             prims.push(Prim::Circle { c, r: 0.6 * u, w, col, dash: Dash::Solid, fill: false });
             prims.push(Prim::Line { pts: vec![p(-1.05, 0.0), p(1.05, 0.0)], w, c: col, dash: Dash::Solid });
@@ -492,7 +721,9 @@ pub fn gsymbol(prims: &mut Vec<Prim>, c: V2, s: f64, ch: GChar, col: Rgb) {
                 let nn = perp_left(d);
                 prims.push(Prim::Fill { pts: vec![b + d * (u * 0.15), b - d * (u * 0.55) + nn * (u * 0.28), b - d * (u * 0.55) - nn * (u * 0.28)], c: col });
             }
-            if ch == GChar::TotalRunout { prims.push(Prim::Line { pts: vec![p(-1.0, -0.9), p(0.9, -0.9)], w, c: col, dash: Dash::Solid }); }
+            if ch == GChar::TotalRunout {
+                prims.push(Prim::Line { pts: vec![p(-1.0, -0.9), p(0.9, -0.9)], w, c: col, dash: Dash::Solid });
+            }
         }
     }
 }
@@ -518,7 +749,11 @@ pub fn gtol_frame(prims: &mut Vec<Prim>, o: V2, g: &Gtol, d: &DrawingData, h: f6
     let tw = text_width(&tol, h);
     prims.push(Prim::Text { pos: V2::new(x + pad, cy), text: tol, h, angle: 0.0, halign: -1, valign: 0, c });
     x += pad + tw;
-    if g.mat != MatCond::Rfs { x += h * 0.2; mat_circle(prims, V2::new(x + h * 0.48, cy), h, g.mat, c); x += h * 1.0; }
+    if g.mat != MatCond::Rfs {
+        x += h * 0.2;
+        mat_circle(prims, V2::new(x + h * 0.48, cy), h, g.mat, c);
+        x += h * 1.0;
+    }
     x += pad;
     if !g.ch.form() {
         for (letter, m) in g.datums.iter().filter(|x| !x.0.trim().is_empty()) {
@@ -528,13 +763,17 @@ pub fn gtol_frame(prims: &mut Vec<Prim>, o: V2, g: &Gtol, d: &DrawingData, h: f6
             let w = (lw + extra + 2.0 * pad).max(hh);
             let start = x + (w - lw - extra) / 2.0;
             prims.push(Prim::Text { pos: V2::new(start, cy), text: letter.trim().into(), h, angle: 0.0, halign: -1, valign: 0, c });
-            if *m != MatCond::Rfs { mat_circle(prims, V2::new(start + lw + h * 0.68, cy), h, *m, c); }
+            if *m != MatCond::Rfs {
+                mat_circle(prims, V2::new(start + lw + h * 0.68, cy), h, *m, c);
+            }
             x += w;
         }
     }
     let hi = V2::new(x, o.y + hh);
     prims.push(Prim::Line { pts: vec![o, V2::new(hi.x, o.y), hi, V2::new(o.x, hi.y), o], w: 0.35, c, dash: Dash::Solid });
-    for sx in seps { prims.push(Prim::Line { pts: vec![V2::new(sx, o.y), V2::new(sx, hi.y)], w: 0.35, c, dash: Dash::Solid }); }
+    for sx in seps {
+        prims.push(Prim::Line { pts: vec![V2::new(sx, o.y), V2::new(sx, hi.y)], w: 0.35, c, dash: Dash::Solid });
+    }
     (o, hi)
 }
 
@@ -546,21 +785,38 @@ fn box_anchor(lo: V2, hi: V2, p: V2) -> V2 {
 }
 
 impl App {
-    pub fn drawing_active(&self) -> bool { self.drw.as_ref().map(|d| d.active).unwrap_or(false) }
+    pub fn drawing_active(&self) -> bool {
+        self.drw.as_ref().map(|d| d.active).unwrap_or(false)
+    }
 
     /// The model documented by the drawing, regenerated (exploded for exploded views).
     pub fn drawing_model(&mut self, exploded: bool) -> Arc<RegenResult> {
         let gen = self.result.generation;
-        if let Some((g, m)) = self.drw.as_ref().and_then(|d| d.models.get(&exploded)) { if *g == gen { return m.clone(); } }
+        if let Some((g, m)) = self.drw.as_ref().and_then(|d| d.models.get(&exploded)) {
+            if *g == gen {
+                return m.clone();
+            }
+        }
         let m = match self.asm.as_mut().filter(|a| a.editing.is_none()) {
             Some(a) if exploded || a.exploded => {
-                let f = if exploded { if a.explode > 0.0 { a.explode } else { 0.6 } } else { 0.0 };
+                let f = if exploded {
+                    if a.explode > 0.0 {
+                        a.explode
+                    } else {
+                        0.6
+                    }
+                } else {
+                    0.0
+                };
                 Arc::new(am::regen(&a.data, &mut a.cache, &am::RegenOpts { explode: f, editing: None }).display)
             }
             _ => Arc::new(self.result.clone()),
         };
         if let Some(d) = &mut self.drw {
-            if d.models.values().any(|(g, _)| *g != gen) { d.cache.clear(); d.models.clear(); }
+            if d.models.values().any(|(g, _)| *g != gen) {
+                d.cache.clear();
+                d.models.clear();
+            }
             d.models.insert(exploded, (gen, m.clone()));
         }
         m
@@ -574,10 +830,17 @@ impl App {
         let v = sheet.view(id)?.clone();
         let scale = sheet.view_scale(id);
         let parent = if v.kind == ViewKind::Detail { v.parent } else { None };
-        let pg = match parent { Some(p) => Some(self.view_geom(p)?), None => None };
+        let pg = match parent {
+            Some(p) => Some(self.view_geom(p)?),
+            None => None,
+        };
         let model = self.drawing_model(v.exploded);
         let key = hash_of(&format!("{}|{:?}|{:?}|{:?}|{}|{}|{}", model.generation, v.rot, v.section, v.detail, v.exploded, scale, pg.as_ref().map(|g| g.key).unwrap_or(0)));
-        if let Some(g) = self.drw.as_ref()?.cache.get(&id) { if g.key == key { return Some(g.clone()); } }
+        if let Some(g) = self.drw.as_ref()?.cache.get(&id) {
+            if g.key == key {
+                return Some(g.clone());
+            }
+        }
         let g = if let (ViewKind::Detail, Some(det), Some(pg)) = (v.kind, &v.detail, &pg) {
             detail_geometry(pg, det, scale, key)
         } else {
@@ -602,9 +865,16 @@ impl App {
     /// Dimensions of the part that a drawing can show (sketch dimensions, depths, holes, patterns).
     pub fn model_dims(&mut self) -> Vec<ModelDim> {
         let gen = self.result.generation;
-        if let Some(d) = &self.drw { if d.dims_gen == gen { return d.dims.clone(); } }
+        if let Some(d) = &self.drw {
+            if d.dims_gen == gen {
+                return d.dims.clone();
+            }
+        }
         let out = if self.asm.as_ref().map(|a| a.editing.is_none()).unwrap_or(false) { vec![] } else { self.collect_model_dims() };
-        if let Some(d) = &mut self.drw { d.dims = out.clone(); d.dims_gen = gen; }
+        if let Some(d) = &mut self.drw {
+            d.dims = out.clone();
+            d.dims_gen = gen;
+        }
         out
     }
 
@@ -615,7 +885,9 @@ impl App {
         let size = if b.is_empty() { 50.0 } else { b.diagonal() };
         let mut out = vec![];
         for f in &self.data.features {
-            if f.suppressed || r.rolled_back.contains(&f.id) || r.errors.contains_key(&f.id) { continue; }
+            if f.suppressed || r.rolled_back.contains(&f.id) || r.errors.contains_key(&f.id) {
+                continue;
+            }
             if let FeatureKind::Pattern(d) = &f.kind {
                 let v = |d: &Dim| d.value(vars, 0.0);
                 if d.kind == PatternKind::Direction {
@@ -623,13 +895,32 @@ impl App {
                     let Some(&leader) = d.features.first() else { continue };
                     let axis = r.axes.iter().find(|a| a.feature == leader).map(|a| (a.point, a.dir));
                     let Some(src) = axis.map(|a| a.0).or_else(|| r.tools.get(&leader).map(|t| csg::bbox(&t.polys).center())) else { continue };
-                    let dirv = |a: &AxisRef| match a { AxisRef::WorldX => V3::X, AxisRef::WorldY => V3::Y, AxisRef::WorldZ => V3::Z, AxisRef::Axis(id) => r.axis(*id).map(|x| x.dir).unwrap_or(V3::X) };
+                    let dirv = |a: &AxisRef| match a {
+                        AxisRef::WorldX => V3::X,
+                        AxisRef::WorldY => V3::Y,
+                        AxisRef::WorldZ => V3::Z,
+                        AxisRef::Axis(id) => r.axis(*id).map(|x| x.dir).unwrap_or(V3::X),
+                    };
                     let mut dirs = vec![("spacing1", dirv(&d.dir1), &d.spacing1, &d.count1)];
-                    if d.use_dir2 { dirs.push(("spacing2", dirv(&d.dir2), &d.spacing2, &d.count2)); }
+                    if d.use_dir2 {
+                        dirs.push(("spacing2", dirv(&d.dir2), &d.spacing2, &d.count2));
+                    }
                     for (k, dir, sp, n) in dirs {
-                        if v(n) < 2.0 { continue; }
+                        if v(n) < 2.0 {
+                            continue;
+                        }
                         let e = src + dir * v(sp);
-                        out.push(ModelDim { key: format!("{}:f:{}", f.id, k), feature: f.id, dk: Some(DimKey::Field(k)), geom: MGeom::Linear { a: src, b: e, dir, plane: axis.map(|a| a.1), label: (src + e) * 0.5 }, value: v(sp), prefix: "", text: None, args: vec![], edit: sp.0.clone() });
+                        out.push(ModelDim {
+                            key: format!("{}:f:{}", f.id, k),
+                            feature: f.id,
+                            dk: Some(DimKey::Field(k)),
+                            geom: MGeom::Linear { a: src, b: e, dir, plane: axis.map(|a| a.1), label: (src + e) * 0.5 },
+                            value: v(sp),
+                            prefix: "",
+                            text: None,
+                            args: vec![],
+                            edit: sp.0.clone(),
+                        });
                     }
                 }
                 continue;
@@ -660,17 +951,33 @@ impl App {
                                 let Some((a, bb)) = sk.line_ends(c.ents[0]) else { continue };
                                 let dd = safe_norm2(bb - a, V2::X);
                                 (p, a + dd * (p - a).dot(dd))
-                            } else { (sk.point(c.pts[0]), sk.point(c.pts[1])) };
-                            let u = match c.ty { SkCType::HDistance => V2::X, SkCType::VDistance => V2::Y, _ => safe_norm2(p2 - p1, V2::X) };
+                            } else {
+                                (sk.point(c.pts[0]), sk.point(c.pts[1]))
+                            };
+                            let u = match c.ty {
+                                SkCType::HDistance => V2::X,
+                                SkCType::VDistance => V2::Y,
+                                _ => safe_norm2(p2 - p1, V2::X),
+                            };
                             MGeom::Linear { a: frame.to_world(p1), b: frame.to_world(p2), dir: frame.dir_to_world(u), plane: Some(frame.z()), label: frame.to_world(lp) }
                         }
                         SkCType::Radius | SkCType::Diameter => {
                             let Some(e) = c.ents.first().and_then(|id| sk.entity(*id)) else { continue };
-                            MGeom::Radial { c: frame.to_world(sk.point(e.pts[0])), r: sk.radius(e), normal: frame.z(), label: frame.to_world(lp), diameter: c.ty == SkCType::Diameter }
+                            MGeom::Radial {
+                                c: frame.to_world(sk.point(e.pts[0])),
+                                r: sk.radius(e),
+                                normal: frame.z(),
+                                label: frame.to_world(lp),
+                                diameter: c.ty == SkCType::Diameter,
+                            }
                         }
                         _ => continue,
                     };
-                    let prefix = match c.ty { SkCType::Radius => "R", SkCType::Diameter => "⌀", _ => "" };
+                    let prefix = match c.ty {
+                        SkCType::Radius => "R",
+                        SkCType::Diameter => "⌀",
+                        _ => "",
+                    };
                     out.push(ModelDim { key, feature: f.id, dk: Some(DimKey::Sketch(slot, c.id, c.key())), geom, value: c.value.abs(), prefix, text: None, args: vec![], edit });
                 }
             }
@@ -683,10 +990,30 @@ impl App {
                     let base = fr.to_world(V2::new(mx.x, mn.y));
                     let depth = v(&d.depth);
                     let (a, bb) = if d.depth_type == DepthType::Symmetric { (base - n * (depth / 2.0), base + n * (depth / 2.0)) } else { (base, base + n * depth) };
-                    out.push(ModelDim { key: format!("{}:f:depth", f.id), feature: f.id, dk: Some(DimKey::Field("depth")), geom: MGeom::Linear { a, b: bb, dir: n, plane: None, label: (a + bb) * 0.5 + fr.x * (size * 0.08) }, value: depth, prefix: "", text: None, args: vec![], edit: d.depth.0.clone() });
+                    out.push(ModelDim {
+                        key: format!("{}:f:depth", f.id),
+                        feature: f.id,
+                        dk: Some(DimKey::Field("depth")),
+                        geom: MGeom::Linear { a, b: bb, dir: n, plane: None, label: (a + bb) * 0.5 + fr.x * (size * 0.08) },
+                        value: depth,
+                        prefix: "",
+                        text: None,
+                        args: vec![],
+                        edit: d.depth.0.clone(),
+                    });
                     if d.side2 == Side2::Blind && d.depth_type != DepthType::Symmetric {
                         let e = base - n * v(&d.depth2);
-                        out.push(ModelDim { key: format!("{}:f:depth2", f.id), feature: f.id, dk: Some(DimKey::Field("depth2")), geom: MGeom::Linear { a: base, b: e, dir: -n, plane: None, label: (base + e) * 0.5 + fr.x * (size * 0.08) }, value: v(&d.depth2), prefix: "", text: None, args: vec![], edit: d.depth2.0.clone() });
+                        out.push(ModelDim {
+                            key: format!("{}:f:depth2", f.id),
+                            feature: f.id,
+                            dk: Some(DimKey::Field("depth2")),
+                            geom: MGeom::Linear { a: base, b: e, dir: -n, plane: None, label: (base + e) * 0.5 + fr.x * (size * 0.08) },
+                            value: v(&d.depth2),
+                            prefix: "",
+                            text: None,
+                            args: vec![],
+                            edit: d.depth2.0.clone(),
+                        });
                     }
                 }
                 FeatureKind::Hole(d) => {
@@ -700,14 +1027,26 @@ impl App {
                             Some(s) if d.tapped => (Some(format!("{}{}", crate::model::threads::callout(d.standard, s), if d.through_all { " DURCHG." } else { "" })), vec![]),
                             _ => (Some(format!("⌀#{} ({} DL)", depth, d.size)), vec![drill, v(&d.depth)]),
                         },
-                        HoleType::Counterbore => (Some(format!("⌀#{}, ZYL.SENK. ⌀# x #", depth)), if d.through_all { vec![drill, v(&d.cb_diameter), v(&d.cb_depth)] } else { vec![drill, v(&d.depth), v(&d.cb_diameter), v(&d.cb_depth)] }),
-                        HoleType::Countersink => (Some(format!("⌀#{}, KEG.SENK. ⌀# x #°", depth)), if d.through_all { vec![drill, v(&d.cs_diameter), v(&d.cs_angle)] } else { vec![drill, v(&d.depth), v(&d.cs_diameter), v(&d.cs_angle)] }),
+                        HoleType::Counterbore => (
+                            Some(format!("⌀#{}, ZYL.SENK. ⌀# x #", depth)),
+                            if d.through_all { vec![drill, v(&d.cb_diameter), v(&d.cb_depth)] } else { vec![drill, v(&d.depth), v(&d.cb_diameter), v(&d.cb_depth)] },
+                        ),
+                        HoleType::Countersink => (
+                            Some(format!("⌀#{}, KEG.SENK. ⌀# x #°", depth)),
+                            if d.through_all { vec![drill, v(&d.cs_diameter), v(&d.cs_angle)] } else { vec![drill, v(&d.depth), v(&d.cs_diameter), v(&d.cs_angle)] },
+                        ),
                         HoleType::Simple => (Some(format!("⌀#{}", depth)), vec![drill, v(&d.depth)]),
                     };
                     out.push(ModelDim {
-                        key: format!("{}:f:diameter", f.id), feature: f.id, dk: if std { None } else { Some(DimKey::Field("diameter")) },
+                        key: format!("{}:f:diameter", f.id),
+                        feature: f.id,
+                        dk: if std { None } else { Some(DimKey::Field("diameter")) },
                         geom: MGeom::Radial { c, r, normal: fr.z(), label: c + fr.x * (r + size * 0.1) + fr.y * (size * 0.06), diameter: true },
-                        value: drill, prefix: "⌀", text, args, edit: d.diameter.0.clone(),
+                        value: drill,
+                        prefix: "⌀",
+                        text,
+                        args,
+                        edit: d.diameter.0.clone(),
                     });
                 }
                 _ => {}
@@ -721,7 +1060,11 @@ impl App {
         let dims = self.model_dims();
         let Some(si) = self.drw.as_ref().map(|d| d.sheet) else { return 0 };
         let mut geoms = vec![];
-        for id in views { if let Some(g) = self.view_geom(*id) { geoms.push((*id, g)); } }
+        for id in views {
+            if let Some(g) = self.view_geom(*id) {
+                geoms.push((*id, g));
+            }
+        }
         let Some(d) = &self.drw else { return 0 };
         let shown: Vec<String> = d.data.sheets.iter().flat_map(|s| s.shown.iter().map(|x| x.key.clone())).collect();
         let sheet = &d.data.sheets[si];
@@ -732,16 +1075,32 @@ impl App {
             let mut best: Option<(u32, i32)> = None;
             for (id, g) in &geoms {
                 let Some(v) = sheet.view(*id) else { continue };
-                if v.kind == ViewKind::Detail { continue; }
+                if v.kind == ViewKind::Detail {
+                    continue;
+                }
                 let z = g.w2v.inverse() * V3::Z;
                 let rank = match md.geom {
                     MGeom::Linear { dir, plane, .. } => {
-                        if dir.dot(z).abs() > 1e-6 { continue; }
-                        if plane.map(|n| n.dot(z).abs() > 0.9999).unwrap_or(false) { 0 } else { 1 }
+                        if dir.dot(z).abs() > 1e-6 {
+                            continue;
+                        }
+                        if plane.map(|n| n.dot(z).abs() > 0.9999).unwrap_or(false) {
+                            0
+                        } else {
+                            1
+                        }
                     }
-                    MGeom::Radial { normal, .. } => if normal.dot(z).abs() > 0.9999 { 0 } else { continue },
+                    MGeom::Radial { normal, .. } => {
+                        if normal.dot(z).abs() > 0.9999 {
+                            0
+                        } else {
+                            continue;
+                        }
+                    }
                 };
-                if best.map(|b| rank < b.1).unwrap_or(true) { best = Some((*id, rank)); }
+                if best.map(|b| rank < b.1).unwrap_or(true) {
+                    best = Some((*id, rank));
+                }
             }
             let Some((vid, _)) = best else { continue };
             let (g, v) = (&geoms.iter().find(|x| x.0 == vid).unwrap().1, sheet.view(vid).unwrap());
@@ -749,7 +1108,9 @@ impl App {
             add.push(ShownDim { key: md.key.clone(), view: vid, label: Some(label - v.pos), tol: Default::default() });
         }
         let n = add.len();
-        if n > 0 { self.drw_commit(|d| d.sheets[si].shown.extend(add)); }
+        if n > 0 {
+            self.drw_commit(|d| d.sheets[si].shown.extend(add));
+        }
         n
     }
 
@@ -758,7 +1119,11 @@ impl App {
         let dims = self.model_dims();
         let Some(si) = self.drw.as_ref().map(|d| d.sheet) else { return };
         let mut geoms = HashMap::new();
-        for id in views { if let Some(g) = self.view_geom(*id) { geoms.insert(*id, g); } }
+        for id in views {
+            if let Some(g) = self.view_geom(*id) {
+                geoms.insert(*id, g);
+            }
+        }
         let Some(d) = &self.drw else { return };
         let sheet = d.data.sheets[si].clone();
         let mut stack = HashMap::new();
@@ -767,13 +1132,19 @@ impl App {
             let (Some(g), Some(v), Some(md)) = (geoms.get(&s.view), sheet.view(s.view), dims.iter().find(|m| m.key == s.key)) else { continue };
             labels.push((i, auto_label(md, g, v.pos, &mut stack, s.view) - v.pos));
         }
-        self.drw_commit(|d| for (i, l) in labels { d.sheets[si].shown[i].label = Some(l); });
+        self.drw_commit(|d| {
+            for (i, l) in labels {
+                d.sheets[si].shown[i].label = Some(l);
+            }
+        });
     }
 
     pub fn drw_commit(&mut self, f: impl FnOnce(&mut DrawingData)) {
         let Some(d) = &mut self.drw else { return };
         d.undo.push(d.data.clone());
-        if d.undo.len() > 80 { d.undo.remove(0); }
+        if d.undo.len() > 80 {
+            d.undo.remove(0);
+        }
         d.redo.clear();
         f(&mut d.data);
         d.dirty = true;
@@ -800,7 +1171,9 @@ impl App {
     /// Places index balloons around `view`, one per BOM part, attached to a visible surface.
     pub fn create_balloons(&mut self, view: u32) -> usize {
         let rows = self.bom_rows();
-        if rows.is_empty() { return 0; }
+        if rows.is_empty() {
+            return 0;
+        }
         let Some(g) = self.view_geom(view) else { return 0 };
         let Some(d) = &self.drw else { return 0 };
         let Some(si) = d.data.sheet_of(view) else { return 0 };
@@ -819,13 +1192,21 @@ impl App {
             let mut best: Option<(f64, V3)> = None;
             for f in 0..t.faces.len() {
                 let Some(owner) = model.tag_owner.get(&t.face_tag(f)) else { continue };
-                if !comps.contains(owner) { continue; }
+                if !comps.contains(owner) {
+                    continue;
+                }
                 let fr = t.surface_ref(f);
                 let q = g.w2v * fr.point;
-                if (g.w2v * fr.normal).z < 0.05 { continue; }
-                if pr.hidden(q + V3::Z * (t.bbox.diagonal() * 1e-5), &t.faces[f].polys) { continue; }
+                if (g.w2v * fr.normal).z < 0.05 {
+                    continue;
+                }
+                if pr.hidden(q + V3::Z * (t.bbox.diagonal() * 1e-5), &t.faces[f].polys) {
+                    continue;
+                }
                 let area = t.faces[f].area * (g.w2v * fr.normal).z;
-                if best.map(|b| area > b.0).unwrap_or(true) { best = Some((area, fr.point)); }
+                if best.map(|b| area > b.0).unwrap_or(true) {
+                    best = Some((area, fr.point));
+                }
             }
             let Some((_, anchor)) = best else { continue };
             let s = g.world(v.pos, anchor);
@@ -833,7 +1214,9 @@ impl App {
             let mut pos = centre + dir * reach;
             // keep balloons apart
             for _ in 0..24 {
-                if out.iter().all(|b| (b.pos + v.pos - pos).length() > 16.0) { break; }
+                if out.iter().all(|b| (b.pos + v.pos - pos).length() > 16.0) {
+                    break;
+                }
                 pos = centre + rot2(pos - centre, 0.22);
             }
             out.push(Balloon { view, part: part.clone(), anchor, pos: pos - v.pos });
@@ -849,7 +1232,9 @@ impl App {
     /// Inserts the BOM table above the title block.
     pub fn insert_bom(&mut self) -> bool {
         let rows = self.bom_rows();
-        if rows.is_empty() { return false; }
+        if rows.is_empty() {
+            return false;
+        }
         let Some(d) = &self.drw else { return false };
         let si = d.sheet;
         let sheet = &d.data.sheets[si];
@@ -876,7 +1261,11 @@ impl App {
         format_prims(&data, &sheet, si, &mut prims);
         let ids: Vec<u32> = sheet.views.iter().map(|v| v.id).collect();
         let mut geoms: HashMap<u32, Arc<ViewGeom>> = HashMap::new();
-        for id in &ids { if let Some(g) = self.view_geom(*id) { geoms.insert(*id, g); } }
+        for id in &ids {
+            if let Some(g) = self.view_geom(*id) {
+                geoms.insert(*id, g);
+            }
+        }
         let model_dims = self.model_dims();
         let bom = self.bom_rows();
         for v in &sheet.views {
@@ -884,16 +1273,28 @@ impl App {
             let sel = DSel::View(v.id);
             let ink = colour(sel, INK);
             let to = |q: V2| g.to_sheet(v.pos, q);
-            for l in &g.lines.visible { prims.push(Prim::Line { pts: l.iter().map(|p| to(*p)).collect(), w: 0.5, c: ink, dash: Dash::Solid }); }
+            for l in &g.lines.visible {
+                prims.push(Prim::Line { pts: l.iter().map(|p| to(*p)).collect(), w: 0.5, c: ink, dash: Dash::Solid });
+            }
             // section views omit the hidden lines behind the cut, as in ISO 128 practice
             let sectioned = v.section.is_some() || (v.kind == ViewKind::Detail && !g.hatch.is_empty());
             match v.style {
                 LineStyle::Hidden if sectioned => {}
-                LineStyle::Hidden => for l in &g.lines.hidden { prims.push(Prim::Line { pts: l.iter().map(|p| to(*p)).collect(), w: 0.3, c: if ink == INK { GREY } else { ink }, dash: Dash::Hidden }); },
-                LineStyle::Wireframe => for l in &g.lines.hidden { prims.push(Prim::Line { pts: l.iter().map(|p| to(*p)).collect(), w: 0.5, c: ink, dash: Dash::Solid }); },
+                LineStyle::Hidden => {
+                    for l in &g.lines.hidden {
+                        prims.push(Prim::Line { pts: l.iter().map(|p| to(*p)).collect(), w: 0.3, c: if ink == INK { GREY } else { ink }, dash: Dash::Hidden });
+                    }
+                }
+                LineStyle::Wireframe => {
+                    for l in &g.lines.hidden {
+                        prims.push(Prim::Line { pts: l.iter().map(|p| to(*p)).collect(), w: 0.5, c: ink, dash: Dash::Solid });
+                    }
+                }
                 LineStyle::NoHidden => {}
             }
-            for s in &g.hatch { prims.push(Prim::Line { pts: vec![to(s[0]), to(s[1])], w: 0.18, c: ink, dash: Dash::Solid }); }
+            for s in &g.hatch {
+                prims.push(Prim::Line { pts: vec![to(s[0]), to(s[1])], w: 0.18, c: ink, dash: Dash::Solid });
+            }
             if v.axes {
                 for s in &g.lines.axes {
                     let (a, b) = (to(s[0]), to(s[1]));
@@ -910,10 +1311,16 @@ impl App {
             hits.push(Hit { min: rmin - V2::splat(2.0), max: rmax + V2::splat(2.0), sel });
             // view label
             let mut label = vec![];
-            if v.section.is_some() { label.push(format!("SCHNITT {}-{}", v.letter, v.letter)); }
-            if v.kind == ViewKind::Detail { label.push(format!("EINZELHEIT {}", v.letter)); }
+            if v.section.is_some() {
+                label.push(format!("SCHNITT {}-{}", v.letter, v.letter));
+            }
+            if v.kind == ViewKind::Detail {
+                label.push(format!("EINZELHEIT {}", v.letter));
+            }
             let vs = sheet.view_scale(v.id);
-            if (vs - sheet.scale).abs() > 1e-9 || v.kind == ViewKind::Detail { label.push(format!("MASSSTAB {}", scale_text(vs))); }
+            if (vs - sheet.scale).abs() > 1e-9 || v.kind == ViewKind::Detail {
+                label.push(format!("MASSSTAB {}", scale_text(vs)));
+            }
             for (k, t) in label.iter().enumerate() {
                 prims.push(Prim::Text { pos: V2::new((rmin.x + rmax.x) * 0.5, rmin.y - 6.0 - k as f64 * h * 1.6), text: t.clone(), h, angle: 0.0, halign: 0, valign: 1, c: ink });
             }
@@ -924,7 +1331,9 @@ impl App {
             let (Some(pv), Some(pg)) = (sheet.view(pid), geoms.get(&pid)) else { continue };
             if let (Some(plane), ViewKind::Projection | ViewKind::General) = (v.section.and_then(|id| g.model.plane(id)), v.kind) {
                 let n2 = (pg.w2v * plane.frame.z()).truncate();
-                if n2.length() < 0.999 { continue; }
+                if n2.length() < 0.999 {
+                    continue;
+                }
                 let o2 = (pg.w2v * plane.frame.origin).truncate();
                 let t = perp_left(n2);
                 let (lo, hi) = (pg.lines.min, pg.lines.max);
@@ -986,7 +1395,11 @@ impl App {
                 DimType::Radius => (ra, V2::X),
                 DimType::Diameter => (ra * 2.0, V2::X),
             };
-            let prefix = match dd.ty { DimType::Radius => "R", DimType::Diameter => "⌀", _ => "" };
+            let prefix = match dd.ty {
+                DimType::Radius => "R",
+                DimType::Diameter => "⌀",
+                _ => "",
+            };
             let measured = format!("{}{}", prefix, data.fmt(value));
             let text = dd.text.clone().map(|t| t.replace("@D", &measured)).unwrap_or(measured);
             let lab = tol_label(&data, text, value, prefix, &dd.tol);
@@ -1009,7 +1422,9 @@ impl App {
                 }
                 Attach::Geom(at) => {
                     let (p, _, ok) = resolve_edge(at, &g.model.topo);
-                    if !ok && c == INK { c = MISSING; }
+                    if !ok && c == INK {
+                        c = MISSING;
+                    }
                     let r = gtol_frame(&mut prims, v.pos + gt.pos, gt, &data, h, c);
                     let a = g.world(v.pos, p);
                     let s = box_anchor(r.0, r.1, a);
@@ -1037,7 +1452,9 @@ impl App {
             // filled triangle standing on the edge, pointing to the box
             let t2 = safe_norm2((g.w2v * tan).truncate(), V2::X);
             let mut n = perp_left(t2);
-            if (bc - a).dot(n) < 0.0 { n = -n; }
+            if (bc - a).dot(n) < 0.0 {
+                n = -n;
+            }
             let (tw, th) = (h * 0.75, h * 0.9);
             let apex = a + n * th;
             prims.push(Prim::Fill { pts: vec![a - t2 * tw, a + t2 * tw, apex], c });
@@ -1055,10 +1472,14 @@ impl App {
             let t2 = safe_norm2((g.w2v * tan).truncate(), V2::X);
             let (vlo, vhi) = g.rect(v.pos);
             let mut n = perp_left(t2);
-            if (a - (vlo + vhi) * 0.5).dot(n) < 0.0 { n = -n; }
+            if (a - (vlo + vhi) * 0.5).dot(n) < 0.0 {
+                n = -n;
+            }
             let o = outward(g.w2v, normals, n);
             n = if o.dot(n) >= 0.0 { n } else { -n };
-            if f.flip { n = -n; }
+            if f.flip {
+                n = -n;
+            }
             let x = V2::new(n.y, -n.x);
             let at = |lx: f64, ly: f64| a + x * lx + n * ly;
             let (h1, h2) = (h * 1.4, h * 2.8);
@@ -1075,11 +1496,17 @@ impl App {
             }
             let mut ang = x.y.atan2(x.x);
             let flipped = ang > std::f64::consts::FRAC_PI_2 + 1e-6 || ang < -std::f64::consts::FRAC_PI_2 - 1e-6;
-            if flipped { ang += std::f64::consts::PI; }
+            if flipped {
+                ang += std::f64::consts::PI;
+            }
             let (ha, sgn) = if flipped { (1i8, -1.0) } else { (-1i8, 1.0) };
             let _ = sgn;
-            if !f.value.is_empty() { prims.push(Prim::Text { pos: at(k * h2 * 0.92 + 0.8, h2 - 1.0), text: f.value.clone(), h, angle: ang, halign: ha, valign: if flipped { -1 } else { 1 }, c }); }
-            if !f.method.is_empty() { prims.push(Prim::Text { pos: at(k * h2 + 0.8, h2 + 0.8), text: f.method.clone(), h, angle: ang, halign: ha, valign: if flipped { 1 } else { -1 }, c }); }
+            if !f.value.is_empty() {
+                prims.push(Prim::Text { pos: at(k * h2 * 0.92 + 0.8, h2 - 1.0), text: f.value.clone(), h, angle: ang, halign: ha, valign: if flipped { -1 } else { 1 }, c });
+            }
+            if !f.method.is_empty() {
+                prims.push(Prim::Text { pos: at(k * h2 + 0.8, h2 + 0.8), text: f.method.clone(), h, angle: ang, halign: ha, valign: if flipped { 1 } else { -1 }, c });
+            }
             let pts = [at(-k * h1, h1), a, at(k * h2 + tw, h2 + h * 1.3), at(k * h2 + tw, h2 - h * 1.3)];
             let lo = pts.iter().fold(V2::splat(f64::INFINITY), |m, q| m.min(*q));
             let hi = pts.iter().fold(V2::splat(f64::NEG_INFINITY), |m, q| m.max(*q));
@@ -1178,16 +1605,24 @@ pub fn linear_dim(prims: &mut Vec<Prim>, pa: V2, pb: V2, u: V2, label: V2, lab: 
     let (lo, hi) = (span.min(0.0), span.max(0.0));
     let (tw, th) = lab.size(h);
     let mut ends = (da + u * lo, da + u * hi);
-    if t - tw / 2.0 < lo { ends.0 = da + u * (t - tw / 2.0 - 1.0); }
-    if t + tw / 2.0 > hi { ends.1 = da + u * (t + tw / 2.0 + 1.0); }
+    if t - tw / 2.0 < lo {
+        ends.0 = da + u * (t - tw / 2.0 - 1.0);
+    }
+    if t + tw / 2.0 > hi {
+        ends.1 = da + u * (t + tw / 2.0 + 1.0);
+    }
     prims.push(Prim::Line { pts: vec![ends.0, ends.1], w: 0.25, c, dash: Dash::Solid });
     if (db - da).length() > 1e-6 {
         arrow(prims, da, da - db, h, c);
         arrow(prims, db, db - da, h, c);
     }
     let mut ang = u.y.atan2(u.x);
-    if ang > std::f64::consts::FRAC_PI_2 + 1e-6 { ang -= std::f64::consts::PI; }
-    if ang < -std::f64::consts::FRAC_PI_2 + 1e-6 { ang += std::f64::consts::PI; }
+    if ang > std::f64::consts::FRAC_PI_2 + 1e-6 {
+        ang -= std::f64::consts::PI;
+    }
+    if ang < -std::f64::consts::FRAC_PI_2 + 1e-6 {
+        ang += std::f64::consts::PI;
+    }
     let up = rot2(V2::Y, ang);
     let tc = da + u * t + up * (h * 0.4 + if lab.boxed { 0.8 } else { 0.0 });
     lab.draw(prims, tc - rot2(V2::X, ang) * (tw / 2.0), ang, h, c);
@@ -1218,7 +1653,9 @@ fn auto_label(md: &ModelDim, g: &ViewGeom, pos: V2, stack: &mut HashMap<(u32, i3
         MGeom::Linear { a, b, dir, label, .. } => {
             let (pa, pb) = (g.world(pos, a), g.world(pos, b));
             let mut u = safe_norm2((g.w2v * dir).truncate(), V2::X);
-            if u.x < -1e-9 || (u.x.abs() <= 1e-9 && u.y < 0.0) { u = -u; }
+            if u.x < -1e-9 || (u.x.abs() <= 1e-9 && u.y < 0.0) {
+                u = -u;
+            }
             let n = perp_left(u);
             let hint = g.world(pos, label);
             let mid = (pa + pb) * 0.5;
@@ -1255,22 +1692,36 @@ fn format_prims(d: &DrawingData, sheet: &Sheet, si: usize, prims: &mut Vec<Prim>
     for i in 0..nx {
         let x0 = fmin.x + (fmax.x - fmin.x) * i as f64 / nx as f64;
         let xm = x0 + (fmax.x - fmin.x) / nx as f64 * 0.5;
-        if i > 0 { for (ya, yb) in [(0.0, fmin.y), (fmax.y, h)] { prims.push(Prim::Line { pts: vec![V2::new(x0, ya), V2::new(x0, yb)], w: 0.25, c: INK, dash: Dash::Solid }); } }
+        if i > 0 {
+            for (ya, yb) in [(0.0, fmin.y), (fmax.y, h)] {
+                prims.push(Prim::Line { pts: vec![V2::new(x0, ya), V2::new(x0, yb)], w: 0.25, c: INK, dash: Dash::Solid });
+            }
+        }
         let label = (nx - i).to_string();
-        for y in [fmin.y * 0.5, (fmax.y + h) * 0.5] { prims.push(Prim::Text { pos: V2::new(xm, y), text: label.clone(), h: 2.5, angle: 0.0, halign: 0, valign: 0, c: INK }); }
+        for y in [fmin.y * 0.5, (fmax.y + h) * 0.5] {
+            prims.push(Prim::Text { pos: V2::new(xm, y), text: label.clone(), h: 2.5, angle: 0.0, halign: 0, valign: 0, c: INK });
+        }
     }
     for j in 0..ny {
         let y0 = fmin.y + (fmax.y - fmin.y) * j as f64 / ny as f64;
         let ym = y0 + (fmax.y - fmin.y) / ny as f64 * 0.5;
-        if j > 0 { for (xa, xb) in [(0.0, fmin.x), (fmax.x, w)] { prims.push(Prim::Line { pts: vec![V2::new(xa, y0), V2::new(xb, y0)], w: 0.25, c: INK, dash: Dash::Solid }); } }
+        if j > 0 {
+            for (xa, xb) in [(0.0, fmin.x), (fmax.x, w)] {
+                prims.push(Prim::Line { pts: vec![V2::new(xa, y0), V2::new(xb, y0)], w: 0.25, c: INK, dash: Dash::Solid });
+            }
+        }
         let label = ((b'A' + j as u8) as char).to_string();
-        for x in [fmin.x * 0.5, (fmax.x + w) * 0.5] { prims.push(Prim::Text { pos: V2::new(x, ym), text: label.clone(), h: 2.5, angle: 0.0, halign: 0, valign: 0, c: INK }); }
+        for x in [fmin.x * 0.5, (fmax.x + w) * 0.5] {
+            prims.push(Prim::Text { pos: V2::new(x, ym), text: label.clone(), h: 2.5, angle: 0.0, halign: 0, valign: 0, c: INK });
+        }
     }
     // title block: 180 x 40 in the lower right corner
     let (tmin, tmax) = sheet.title_block();
     prims.push(Prim::Line { pts: rect(tmin, tmax), w: 0.7, c: INK, dash: Dash::Solid });
     let rows = [tmin.y + 26.0, tmin.y + 13.0];
-    for y in rows { prims.push(Prim::Line { pts: vec![V2::new(tmin.x, y), V2::new(tmax.x, y)], w: 0.35, c: INK, dash: Dash::Solid }); }
+    for y in rows {
+        prims.push(Prim::Line { pts: vec![V2::new(tmin.x, y), V2::new(tmax.x, y)], w: 0.35, c: INK, dash: Dash::Solid });
+    }
     let cell = |prims: &mut Vec<Prim>, x0: f64, x1: f64, y0: f64, y1: f64, label: &str, value: &str, vh: f64| {
         prims.push(Prim::Line { pts: vec![V2::new(x0, y0), V2::new(x0, y1)], w: 0.35, c: INK, dash: Dash::Solid });
         prims.push(Prim::Text { pos: V2::new(x0 + 1.5, y1 - 1.2), text: label.into(), h: 1.8, angle: 0.0, halign: -1, valign: 1, c: INK });
@@ -1288,8 +1739,14 @@ fn format_prims(d: &DrawingData, sheet: &Sheet, si: usize, prims: &mut Vec<Prim>
     cell(prims, x + 145.0, tmax.x, rows[1], rows[0], "PROJEKTION", "", 3.5);
     // projection symbol (truncated cone)
     let pc = V2::new(x + 162.5, rows[1] + 5.0);
-    let (cone, ring) = (V2::new(pc.x + if d.projection == Projection::Third { -7.0 } else { 3.0 }, pc.y), V2::new(pc.x + if d.projection == Projection::Third { 5.0 } else { -5.0 }, pc.y));
-    prims.push(Prim::Line { pts: vec![cone + V2::new(0.0, -1.5), cone + V2::new(6.0, -3.0), cone + V2::new(6.0, 3.0), cone + V2::new(0.0, 1.5), cone + V2::new(0.0, -1.5)], w: 0.25, c: INK, dash: Dash::Solid });
+    let (cone, ring) =
+        (V2::new(pc.x + if d.projection == Projection::Third { -7.0 } else { 3.0 }, pc.y), V2::new(pc.x + if d.projection == Projection::Third { 5.0 } else { -5.0 }, pc.y));
+    prims.push(Prim::Line {
+        pts: vec![cone + V2::new(0.0, -1.5), cone + V2::new(6.0, -3.0), cone + V2::new(6.0, 3.0), cone + V2::new(0.0, 1.5), cone + V2::new(0.0, -1.5)],
+        w: 0.25,
+        c: INK,
+        dash: Dash::Solid,
+    });
     prims.push(Prim::Circle { c: ring, r: 3.0, w: 0.25, col: INK, dash: Dash::Solid, fill: false });
     prims.push(Prim::Circle { c: ring, r: 1.5, w: 0.25, col: INK, dash: Dash::Solid, fill: false });
     // bottom row

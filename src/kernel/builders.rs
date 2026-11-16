@@ -24,7 +24,9 @@ impl TagAllocator {
 }
 
 pub fn offset_loop(pts: &[V2], d: f64) -> Vec<V2> {
-    if d == 0.0 { return pts.to_vec(); }
+    if d == 0.0 {
+        return pts.to_vec();
+    }
     let n = pts.len();
     (0..n)
         .map(|i| {
@@ -58,10 +60,14 @@ pub fn extrude(regions: &[ProfileRegion], frame: &Frame, z0: f64, z1: f64, taper
         let (t_lo, f_lo) = tri(lo_l);
         let (t_hi, f_hi) = if grow == 0.0 { (t_lo.clone(), f_lo.clone()) } else { tri(hi_l) };
         for [a, b, c] in t_lo {
-            if let Some(p) = CPolygon::flat(&[frame.to_world_h(f_lo[a], lo), frame.to_world_h(f_lo[c], lo), frame.to_world_h(f_lo[b], lo)], cap_lo) { polys.push(p); }
+            if let Some(p) = CPolygon::flat(&[frame.to_world_h(f_lo[a], lo), frame.to_world_h(f_lo[c], lo), frame.to_world_h(f_lo[b], lo)], cap_lo) {
+                polys.push(p);
+            }
         }
         for [a, b, c] in t_hi {
-            if let Some(p) = CPolygon::flat(&[frame.to_world_h(f_hi[a], hi), frame.to_world_h(f_hi[b], hi), frame.to_world_h(f_hi[c], hi)], cap_hi) { polys.push(p); }
+            if let Some(p) = CPolygon::flat(&[frame.to_world_h(f_hi[a], hi), frame.to_world_h(f_hi[b], hi), frame.to_world_h(f_hi[c], hi)], cap_hi) {
+                polys.push(p);
+            }
         }
         for (li, lp) in loops.iter().enumerate() {
             let n = lp.pts.len();
@@ -115,8 +121,13 @@ pub fn revolve(regions: &[ProfileRegion], frame: &Frame, axis_p: V2, axis_d: V2,
                         CVertex { p: rot(pa, t1), n: rotv(na, t1) },
                     ];
                     let d = dedupe(v.to_vec());
-                    if d.len() == 4 { polys.extend(csg::quad(v[0], v[1], v[2], v[3], tag)); }
-                    else if d.len() == 3 { if let Some(p) = CPolygon::new(d, tag) { polys.push(p); } }
+                    if d.len() == 4 {
+                        polys.extend(csg::quad(v[0], v[1], v[2], v[3], tag));
+                    } else if d.len() == 3 {
+                        if let Some(p) = CPolygon::new(d, tag) {
+                            polys.push(p);
+                        }
+                    }
                 }
             }
         }
@@ -127,15 +138,21 @@ pub fn revolve(regions: &[ProfileRegion], frame: &Frame, axis_p: V2, axis_d: V2,
             let (c0, c1) = (tags.next(owner), tags.next(owner));
             for [x, y, z] in tri {
                 let p = [frame.to_world(flat[x]), frame.to_world(flat[y]), frame.to_world(flat[z])];
-                if let Some(q) = CPolygon::flat(&[rot(p[0], a0), rot(p[2], a0), rot(p[1], a0)], c0) { polys.push(q); }
-                if let Some(q) = CPolygon::flat(&[rot(p[0], a1), rot(p[1], a1), rot(p[2], a1)], c1) { polys.push(q); }
+                if let Some(q) = CPolygon::flat(&[rot(p[0], a0), rot(p[2], a0), rot(p[1], a0)], c0) {
+                    polys.push(q);
+                }
+                if let Some(q) = CPolygon::flat(&[rot(p[0], a1), rot(p[1], a1), rot(p[2], a1)], c1) {
+                    polys.push(q);
+                }
             }
         }
     }
     if let Some(first) = regions.first().and_then(|r| r.outer.pts.first()) {
         let p = frame.to_world(*first);
         let s = u.cross(p - a).dot(frame.z()) * if sweep >= 0.0 { 1.0 } else { -1.0 };
-        if s < 0.0 { polys = polys.into_iter().map(|p| p.flipped()).collect(); }
+        if s < 0.0 {
+            polys = polys.into_iter().map(|p| p.flipped()).collect();
+        }
     }
     orient_outward(polys)
 }
@@ -152,14 +169,28 @@ pub fn sweep_rings(path: &[V3], closed: bool, initial: &Frame) -> Vec<Box<dyn Fn
         let (a, b) = (dseg[j - 1], dseg[j]);
         let ax = a.cross(b);
         let sl = ax.length();
-        if sl > 1e-12 { x = rotate_vec(x, ax / sl, sl.atan2(a.dot(b))); }
+        if sl > 1e-12 {
+            x = rotate_vec(x, ax / sl, sl.atan2(a.dot(b)));
+        }
         x = safe_norm(x - b * x.dot(b), x);
         xseg.push(x);
     }
     let mut rings: Vec<Box<dyn Fn(V2) -> V3>> = Vec::new();
     for k in 0..n {
-        let seg_in = if closed { Some((k + s - 1) % s) } else if k > 0 { Some(k - 1) } else { None };
-        let seg_out = if closed { Some(k % s) } else if k < s { Some(k) } else { None };
+        let seg_in = if closed {
+            Some((k + s - 1) % s)
+        } else if k > 0 {
+            Some(k - 1)
+        } else {
+            None
+        };
+        let seg_out = if closed {
+            Some(k % s)
+        } else if k < s {
+            Some(k)
+        } else {
+            None
+        };
         let base = seg_in.or(seg_out).unwrap();
         let (d, xx) = (dseg[base], xseg[base]);
         let yy = d.cross(xx);
@@ -173,7 +204,11 @@ pub fn sweep_rings(path: &[V3], closed: bool, initial: &Frame) -> Vec<Box<dyn Fn
             match miter {
                 Some(m) => {
                     let den = d.dot(m);
-                    if den.abs() < 1e-6 { p } else { p + d * (-(p - origin).dot(m) / den) }
+                    if den.abs() < 1e-6 {
+                        p
+                    } else {
+                        p + d * (-(p - origin).dot(m) / den)
+                    }
                 }
                 None => p,
             }
@@ -183,7 +218,9 @@ pub fn sweep_rings(path: &[V3], closed: bool, initial: &Frame) -> Vec<Box<dyn Fn
 }
 
 pub fn sweep(regions: &[ProfileRegion], path: &[V3], closed: bool, section_frame: &Frame, tags: &mut TagAllocator, owner: u64) -> Vec<CPolygon> {
-    if path.len() < 2 { return vec![]; }
+    if path.len() < 2 {
+        return vec![];
+    }
     let rings = sweep_rings(path, closed, section_frame);
     loft(regions, &rings, closed, tags, owner)
 }
@@ -192,7 +229,9 @@ pub fn sweep(regions: &[ProfileRegion], path: &[V3], closed: bool, section_frame
 /// position at station k. Open lofts are capped at both ends.
 pub fn loft(regions: &[ProfileRegion], rings: &[Box<dyn Fn(V2) -> V3>], closed: bool, tags: &mut TagAllocator, owner: u64) -> Vec<CPolygon> {
     let n = rings.len();
-    if n < 2 { return vec![]; }
+    if n < 2 {
+        return vec![];
+    }
     let mut polys = Vec::new();
     for region in regions {
         let loops: Vec<&ProfileLoop> = std::iter::once(&region.outer).chain(region.holes.iter()).collect();
@@ -220,8 +259,12 @@ pub fn loft(regions: &[ProfileRegion], rings: &[Box<dyn Fn(V2) -> V3>], closed: 
             let (c0, c1) = (tags.next(owner), tags.next(owner));
             let (r0, r1) = (&rings[0], &rings[n - 1]);
             for [a, b, c] in tri {
-                if let Some(q) = CPolygon::flat(&[r0(flat[a]), r0(flat[c]), r0(flat[b])], c0) { polys.push(q); }
-                if let Some(q) = CPolygon::flat(&[r1(flat[a]), r1(flat[b]), r1(flat[c])], c1) { polys.push(q); }
+                if let Some(q) = CPolygon::flat(&[r0(flat[a]), r0(flat[c]), r0(flat[b])], c0) {
+                    polys.push(q);
+                }
+                if let Some(q) = CPolygon::flat(&[r1(flat[a]), r1(flat[b]), r1(flat[c])], c1) {
+                    polys.push(q);
+                }
             }
         }
     }
@@ -232,25 +275,37 @@ pub fn loft(regions: &[ProfileRegion], rings: &[Box<dyn Fn(V2) -> V3>], closed: 
 /// smallest polar angle about its centroid so corresponding points line up.
 fn blend_sections(sections: &[Vec<V2>]) -> Vec<Vec<V2>> {
     let count = sections.iter().map(|s| s.len()).max().unwrap_or(48).max(48);
-    sections.iter().map(|s| {
-        let mut pts = s.clone();
-        if polygon_area2(&pts) < 0.0 { pts.reverse(); }
-        let mut res = simple_loop(pts).resampled(count);
-        let c = res.iter().fold(V2::ZERO, |a, b| a + *b) / res.len() as f64;
-        let mut best = 0;
-        let mut best_a = f64::INFINITY;
-        for (i, p) in res.iter().enumerate() {
-            let mut a = (p.y - c.y).atan2(p.x - c.x);
-            if a < 0.0 { a += std::f64::consts::TAU; }
-            if a < best_a { best_a = a; best = i; }
-        }
-        res.rotate_left(best);
-        res
-    }).collect()
+    sections
+        .iter()
+        .map(|s| {
+            let mut pts = s.clone();
+            if polygon_area2(&pts) < 0.0 {
+                pts.reverse();
+            }
+            let mut res = simple_loop(pts).resampled(count);
+            let c = res.iter().fold(V2::ZERO, |a, b| a + *b) / res.len() as f64;
+            let mut best = 0;
+            let mut best_a = f64::INFINITY;
+            for (i, p) in res.iter().enumerate() {
+                let mut a = (p.y - c.y).atan2(p.x - c.x);
+                if a < 0.0 {
+                    a += std::f64::consts::TAU;
+                }
+                if a < best_a {
+                    best_a = a;
+                    best = i;
+                }
+            }
+            res.rotate_left(best);
+            res
+        })
+        .collect()
 }
 
 pub fn blend(sections: &[Vec<V2>], frames: &[Frame], tags: &mut TagAllocator, owner: u64) -> Vec<CPolygon> {
-    if sections.len() < 2 { return vec![]; }
+    if sections.len() < 2 {
+        return vec![];
+    }
     let flat = blend_sections(sections);
     let rings: Vec<Vec<V3>> = flat.iter().zip(frames).map(|(s, f)| s.iter().map(|p| f.to_world(*p)).collect()).collect();
     ruled(&rings, &flat, tags, owner)
@@ -260,7 +315,9 @@ pub fn blend(sections: &[Vec<V2>], frames: &[Frame], tags: &mut TagAllocator, ow
 /// (radians) about the axis `axis_p` + t `axis_d`. Sections are interpolated every few
 /// degrees so the walls follow the rotation instead of cutting across it.
 pub fn rotational_blend(sections: &[Vec<V2>], base: &Frame, axis_p: V3, axis_d: V3, angles: &[f64], tags: &mut TagAllocator, owner: u64) -> Vec<CPolygon> {
-    if sections.len() < 2 || angles.len() != sections.len() { return vec![]; }
+    if sections.len() < 2 || angles.len() != sections.len() {
+        return vec![];
+    }
     let flat = blend_sections(sections);
     let mut rings: Vec<Vec<V3>> = Vec::new();
     let mut flat_all: Vec<Vec<V2>> = Vec::new();
@@ -298,11 +355,15 @@ fn ruled(rings: &[Vec<V3>], flat: &[Vec<V2>], tags: &mut TagAllocator, owner: u6
     }
     let (c0, c1) = (tags.next(owner), tags.next(owner));
     for [a, b, c] in triangulate(&flat[0], &[]) {
-        if let Some(q) = CPolygon::flat(&[rings[0][a], rings[0][c], rings[0][b]], c0) { polys.push(q); }
+        if let Some(q) = CPolygon::flat(&[rings[0][a], rings[0][c], rings[0][b]], c0) {
+            polys.push(q);
+        }
     }
     let l = rings.len() - 1;
     for [a, b, c] in triangulate(&flat[l], &[]) {
-        if let Some(q) = CPolygon::flat(&[rings[l][a], rings[l][b], rings[l][c]], c1) { polys.push(q); }
+        if let Some(q) = CPolygon::flat(&[rings[l][a], rings[l][b], rings[l][c]], c1) {
+            polys.push(q);
+        }
     }
     orient_outward(polys)
 }
@@ -313,7 +374,9 @@ pub fn hole_tool(prof: &[V2], center: V3, dir: V3, frame_x: V3, tags: &mut TagAl
     let radial = safe_norm(frame_x - d * frame_x.dot(d), Frame::from_normal(V3::ZERO, d).x);
     let pf = Frame { origin: center, x: radial, y: -d };
     let mut pts: Vec<V2> = prof.iter().map(|p| V2::new(p.x, -p.y)).collect();
-    if polygon_area2(&pts) < 0.0 { pts.reverse(); }
+    if polygon_area2(&pts) < 0.0 {
+        pts.reverse();
+    }
     let region = ProfileRegion { outer: simple_loop(pts), holes: vec![] };
     revolve(&[region], &pf, V2::ZERO, V2::Y, 0.0, std::f64::consts::TAU, tags, owner)
 }
@@ -333,10 +396,17 @@ pub fn edge_tool(chain: &EdgeChain, section: &Section, extend: f64, tags: &mut T
         pts[l - 1] += d1 * extend;
     }
     if chain.closed {
-        pts.push(pts[0]); na.push(na[0]); nb.push(nb[0]); fa.push(fa[0]); fb.push(fb[0]);
+        pts.push(pts[0]);
+        na.push(na[0]);
+        nb.push(nb[0]);
+        fa.push(fa[0]);
+        fb.push(fb[0]);
     }
     let mut acc = vec![0.0];
-    for i in 1..pts.len() { let l = acc[i - 1] + (pts[i] - pts[i - 1]).length(); acc.push(l); }
+    for i in 1..pts.len() {
+        let l = acc[i - 1] + (pts[i] - pts[i - 1]).length();
+        acc.push(l);
+    }
     let total = acc.last().copied().unwrap_or(1.0).max(1e-12);
     let rings: Vec<Vec<V3>> = (0..pts.len()).map(|i| section(pts[i], na[i], nb[i], fa[i], fb[i], acc[i] / total)).collect();
     let tag = tags.next(owner);
@@ -356,7 +426,9 @@ pub fn edge_tool(chain: &EdgeChain, section: &Section, extend: f64, tags: &mut T
         for (ring, rev) in [(&rings[0], true), (&rings[last], false)] {
             for i in 1..m - 1 {
                 let tri = if rev { [ring[0], ring[i + 1], ring[i]] } else { [ring[0], ring[i], ring[i + 1]] };
-                if let Some(q) = CPolygon::flat(&tri, tag) { polys.push(q); }
+                if let Some(q) = CPolygon::flat(&tri, tag) {
+                    polys.push(q);
+                }
             }
         }
     }
@@ -428,17 +500,30 @@ pub fn move_planes(topo: &Topology, target: &dyn Fn(usize, V3, f64) -> (V3, f64)
         }
     }
     let mut parent: Vec<usize> = (0..polys.len()).collect();
-    fn find(p: &mut Vec<usize>, mut x: usize) -> usize { while p[x] != x { p[x] = p[p[x]]; x = p[x]; } x }
+    fn find(p: &mut Vec<usize>, mut x: usize) -> usize {
+        while p[x] != x {
+            p[x] = p[p[x]];
+            x = p[x];
+        }
+        x
+    }
     for ps in edge_polys.values() {
-        if ps.len() != 2 { continue; }
+        if ps.len() != 2 {
+            continue;
+        }
         let (a, b) = (topo.planes[ps[0]], topo.planes[ps[1]]);
         if a.n.dot(b.n) > 1.0 - 1e-9 && (a.w - b.w).abs() < 1e-6 {
             let (ra, rb) = (find(&mut parent, ps[0]), find(&mut parent, ps[1]));
-            if ra != rb { parent[ra] = rb; }
+            if ra != rb {
+                parent[ra] = rb;
+            }
         }
     }
     let mut patches: HashMap<usize, Vec<usize>> = HashMap::new();
-    for pi in 0..polys.len() { let r = find(&mut parent, pi); patches.entry(r).or_default().push(pi); }
+    for pi in 0..polys.len() {
+        let r = find(&mut parent, pi);
+        patches.entry(r).or_default().push(pi);
+    }
 
     let mut rows_at: Vec<Vec<(V3, f64)>> = vec![Vec::new(); pos.len()];
     let mut patch_target: HashMap<usize, (V3, f64)> = HashMap::new();
@@ -448,24 +533,32 @@ pub fn move_planes(topo: &Topology, target: &dyn Fn(usize, V3, f64) -> (V3, f64)
         patch_target.insert(root, tgt);
         let verts: HashSet<usize> = members.iter().flat_map(|&pi| polys[pi].iter().copied()).collect();
         for v in verts {
-            if !rows_at[v].iter().any(|r| r.0.dot(pl.n) > 0.99999) { rows_at[v].push(tgt); }
+            if !rows_at[v].iter().any(|r| r.0.dot(pl.n) > 0.99999) {
+                rows_at[v].push(tgt);
+            }
         }
     }
     let mut new_pos = pos.clone();
     for vi in 0..pos.len() {
         let rows = &rows_at[vi];
         let k = rows.len();
-        if k == 0 { continue; }
+        if k == 0 {
+            continue;
+        }
         let p = pos[vi];
         let mut m = vec![0.0; k * k];
         let mut rhs = vec![0.0; k];
         for i in 0..k {
             rhs[i] = rows[i].1 - rows[i].0.dot(p);
-            for j in 0..k { m[i * k + j] = rows[i].0.dot(rows[j].0) + if i == j { 1e-9 } else { 0.0 }; }
+            for j in 0..k {
+                m[i * k + j] = rows[i].0.dot(rows[j].0) + if i == j { 1e-9 } else { 0.0 };
+            }
         }
         if let Some(lam) = solve_dense(&m, &rhs, k) {
             let d = (0..k).fold(V3::ZERO, |s, i| s + rows[i].0 * lam[i]);
-            if d.is_finite() { new_pos[vi] = p + d; }
+            if d.is_finite() {
+                new_pos[vi] = p + d;
+            }
         }
     }
     let mut out = Vec::new();
@@ -494,12 +587,18 @@ pub fn move_planes(topo: &Topology, target: &dyn Fn(usize, V3, f64) -> (V3, f64)
                 guard += 1;
                 let Some(list) = next.get_mut(&cur) else { break };
                 let Some(nx) = list.pop() else { break };
-                if nx == start { break; }
+                if nx == start {
+                    break;
+                }
                 lp.push(nx);
                 cur = nx;
             }
-            if lp.len() >= 3 { loops.push(lp); }
-            if guard >= 200000 { break; }
+            if lp.len() >= 3 {
+                loops.push(lp);
+            }
+            if guard >= 200000 {
+                break;
+            }
         }
         let tgt = patch_target[root];
         let fr = Frame::from_normal(new_pos[loops.first().map(|l| l[0]).unwrap_or(0)], tgt.0);
@@ -513,9 +612,15 @@ pub fn move_planes(topo: &Topology, target: &dyn Fn(usize, V3, f64) -> (V3, f64)
                 })
                 .map(|i| l[i])
                 .collect();
-            if simp.len() < 3 { continue; }
+            if simp.len() < 3 {
+                continue;
+            }
             let pts2: Vec<V2> = simp.iter().map(|&v| fr.to_local(new_pos[v])).collect();
-            if polygon_area2(&pts2) > 0.0 { outers.push(simp) } else { holes.push(simp) }
+            if polygon_area2(&pts2) > 0.0 {
+                outers.push(simp)
+            } else {
+                holes.push(simp)
+            }
         }
         let tag = topo.tags[members[0]];
         let single = outers.len() == 1;

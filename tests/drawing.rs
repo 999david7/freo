@@ -7,7 +7,9 @@ use freo::model::features::*;
 use freo::model::regen;
 use freo::sketch::sketch::Sketch;
 
-fn feat(id: u64, name: &str, kind: FeatureKind) -> Feature { Feature { id, name: name.into(), suppressed: false, hidden: false, kind } }
+fn feat(id: u64, name: &str, kind: FeatureKind) -> Feature {
+    Feature { id, name: name.into(), suppressed: false, hidden: false, kind }
+}
 
 /// 100 x 60 x 20 block with a Ø16 vertical through hole at the centre.
 fn block_with_hole() -> ModelData {
@@ -25,9 +27,13 @@ fn block_with_hole() -> ModelData {
     m
 }
 
-fn total_len(lines: &[Vec<V2>]) -> f64 { lines.iter().map(|l| l.windows(2).map(|w| (w[1] - w[0]).length()).sum::<f64>()).sum() }
+fn total_len(lines: &[Vec<V2>]) -> f64 {
+    lines.iter().map(|l| l.windows(2).map(|w| (w[1] - w[0]).length()).sum::<f64>()).sum()
+}
 
-fn axes(r: &regen::RegenResult) -> Vec<(V3, V3)> { r.axes.iter().map(|a| (a.point, a.dir)).collect() }
+fn axes(r: &regen::RegenResult) -> Vec<(V3, V3)> {
+    r.axes.iter().map(|a| (a.point, a.dir)).collect()
+}
 
 #[test]
 fn front_view_hides_the_hole() {
@@ -41,7 +47,11 @@ fn front_view_hides_the_hole() {
     // the hole shows as two hidden silhouette lines, 20 long each, at x = ±8
     let hidden = total_len(&v.hidden);
     assert!((hidden - 40.0).abs() < 0.5, "hidden length {}", hidden);
-    for l in &v.hidden { for p in l { assert!((p.x.abs() - 8.0).abs() < 0.3, "{:?}", p); } }
+    for l in &v.hidden {
+        for p in l {
+            assert!((p.x.abs() - 8.0).abs() < 0.3, "{:?}", p);
+        }
+    }
     // and its axis is a centre line spanning the block height
     assert_eq!(v.axes.len(), 1);
     assert!(((v.axes[0][0] - v.axes[0][1]).length() - 20.0).abs() < 1e-6);
@@ -76,11 +86,17 @@ fn part_drawing(m: ModelData, proj: Projection) -> App {
     app
 }
 
-fn views(app: &App) -> Vec<DrawView> { app.drw.as_ref().unwrap().data.sheets[0].views.clone() }
+fn views(app: &App) -> Vec<DrawView> {
+    app.drw.as_ref().unwrap().data.sheets[0].views.clone()
+}
 
-fn texts(prims: &[Prim]) -> Vec<String> { prims.iter().filter_map(|p| if let Prim::Text { text, .. } = p { Some(text.clone()) } else { None }).collect() }
+fn texts(prims: &[Prim]) -> Vec<String> {
+    prims.iter().filter_map(|p| if let Prim::Text { text, .. } = p { Some(text.clone()) } else { None }).collect()
+}
 
-fn quat_eq(a: glam::DQuat, b: glam::DQuat) -> bool { a.dot(b).abs() > 1.0 - 1e-9 }
+fn quat_eq(a: glam::DQuat, b: glam::DQuat) -> bool {
+    a.dot(b).abs() > 1.0 - 1e-9
+}
 
 #[test]
 fn template_views_are_aligned_projections() {
@@ -181,7 +197,11 @@ fn created_dimensions_measure_and_follow_edits() {
     app.place_dimension(sc, None, on_circle + V2::new(15.0, 15.0));
     assert!(texts(&app.sheet_scene(0, &[]).0).iter().any(|s| s == "⌀16.00"));
     // widen the block: the created dimension re-attaches to the moved corners
-    app.commit("wider", |d| if let FeatureKind::Extrude(e) = &mut d.features[4].kind { e.sketch = Sketch::rect(140.0, 60.0, 0.0, 0.0); });
+    app.commit("wider", |d| {
+        if let FeatureKind::Extrude(e) = &mut d.features[4].kind {
+            e.sketch = Sketch::rect(140.0, 60.0, 0.0, 0.0);
+        }
+    });
     let t = texts(&app.sheet_scene(0, &[]).0);
     assert!(t.iter().any(|s| s == "140.00"), "{:?}", t);
     // text override keeps the measured value
@@ -207,7 +227,12 @@ fn section_and_detail_views() {
     assert!(!cut.hatch.is_empty(), "cut faces are hatched");
     assert!(cut.lines.hidden.iter().map(|l| l.len()).sum::<usize>() < plain.lines.hidden.iter().map(|l| l.len()).sum::<usize>(), "the section exposes the hole");
     // the hatching stays inside the cut material (100 x 20 minus the Ø16 hole, centred on RIGHT)
-    for s in &cut.hatch { for p in s { assert!(p.x.abs() <= 30.0 + 1e-6 && p.y >= -1e-6 && p.y <= 20.0 + 1e-6, "{:?}", p); assert!(p.x.abs() >= 8.0 - 0.3, "no hatch in the hole: {:?}", p); } }
+    for s in &cut.hatch {
+        for p in s {
+            assert!(p.x.abs() <= 30.0 + 1e-6 && p.y >= -1e-6 && p.y <= 20.0 + 1e-6, "{:?}", p);
+            assert!(p.x.abs() >= 8.0 - 0.3, "no hatch in the hole: {:?}", p);
+        }
+    }
     let t = texts(&app.sheet_scene(0, &[]).0);
     assert!(t.iter().any(|s| s == "SCHNITT A-A"));
     // two zone markers carry the letter A too
@@ -225,7 +250,11 @@ fn section_and_detail_views() {
     }
     let did = views(&app).last().unwrap().id;
     let gd = app.view_geom(did).unwrap();
-    for l in gd.lines.visible.iter().chain(gd.lines.hidden.iter()) { for p in l { assert!((*p - V2::new(-50.0, 0.0)).length() <= 10.0 + 1e-6); } }
+    for l in gd.lines.visible.iter().chain(gd.lines.hidden.iter()) {
+        for p in l {
+            assert!((*p - V2::new(-50.0, 0.0)).length() <= 10.0 + 1e-6);
+        }
+    }
     let (lo, hi) = gd.rect(V2::new(330.0, 200.0));
     assert!(((hi.x - lo.x) - 40.0).abs() < 1e-9, "20 mm across at 2:1");
     let t = texts(&app.sheet_scene(0, &[]).0);
@@ -258,8 +287,12 @@ fn assembly_drawing_bom_and_balloons() {
         assert!(!(p.x > lo.x && p.y > lo.y && p.x < hi.x && p.y < hi.y), "balloon outside the view");
     }
     let t = texts(&app.sheet_scene(0, &[]).0);
-    for want in ["POS.", "TEILENUMMER", "MENGE", "BOLT_M10.PRT", "PILLOW_BLOCK.PRT"] { assert!(t.iter().any(|s| s == want), "{} in {:?}", want, t); }
-    for i in 1..=4 { assert!(t.iter().any(|s| *s == i.to_string()), "balloon {}", i); }
+    for want in ["POS.", "TEILENUMMER", "MENGE", "BOLT_M10.PRT", "PILLOW_BLOCK.PRT"] {
+        assert!(t.iter().any(|s| s == want), "{} in {:?}", want, t);
+    }
+    for i in 1..=4 {
+        assert!(t.iter().any(|s| *s == i.to_string()), "balloon {}", i);
+    }
     // shown model dimensions are a part-drawing feature
     let ids: Vec<u32> = views(&app).iter().map(|v| v.id).collect();
     assert_eq!(app.show_model_dims(&ids), 0);
@@ -290,7 +323,9 @@ fn pdf_svg_and_dxf_output() {
     let xref = String::from_utf8(pdf[sx..sxr].to_vec()).unwrap();
     let table: Vec<usize> = xref.lines().skip(3).take_while(|l| l.ends_with(" n ")).map(|l| l[..10].parse().unwrap()).collect();
     assert!(table.len() >= 8);
-    for (i, off) in table.iter().enumerate() { assert!(at(*off, &format!("{} 0 obj", i + 1)), "object {} at {}", i + 1, off); }
+    for (i, off) in table.iter().enumerate() {
+        assert!(at(*off, &format!("{} 0 obj", i + 1)), "object {} at {}", i + 1, off);
+    }
     // content streams declare their exact length
     let mut from = 0;
     while let Some(i) = find(from, "/Length ") {
@@ -318,7 +353,10 @@ fn drawing_files_round_trip_and_undo() {
     let mut app = part_drawing(block_with_hole(), Projection::Third);
     let ids: Vec<u32> = views(&app).iter().map(|v| v.id).collect();
     let shown = app.show_model_dims(&ids);
-    app.drw_commit(|d| { let id = d.take_id(); d.sheets[0].notes.push(Note { id, pos: V2::new(30.0, 60.0), text: "NOTE 1".into(), leader: None }); });
+    app.drw_commit(|d| {
+        let id = d.take_id();
+        d.sheets[0].notes.push(Note { id, pos: V2::new(30.0, 60.0), text: "NOTE 1".into(), leader: None });
+    });
     let path = dir.join("block.pfdrw");
     app.drw.as_mut().unwrap().path = Some(path.clone());
     app.save_drawing(false);

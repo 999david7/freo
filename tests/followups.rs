@@ -63,7 +63,11 @@ fn saving_an_opened_component_records_its_file() {
     assert_eq!(app.tree_selection, vec![id]);
     // later edits through the assembly are written back to that file on save
     app.asm_open_part(id);
-    app.commit("", |d| if let FeatureKind::Extrude(e) = &mut d.features[4].kind { e.depth = Dim::v(9.0); });
+    app.commit("", |d| {
+        if let FeatureKind::Extrude(e) = &mut d.features[4].kind {
+            e.depth = Dim::v(9.0);
+        }
+    });
     app.asm_return();
     let asm_file = dir.join("asm.pfasm");
     app.path = Some(asm_file);

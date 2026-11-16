@@ -17,12 +17,21 @@ pub fn render(r: &RegenResult, w: usize, h: usize, color: [f32; 3]) -> Image {
     for y in 0..h {
         let t = y as f32 / h as f32;
         let c = [(0.98 - 0.18 * t) * 255.0, (0.99 - 0.14 * t) * 255.0, 1.0 * 255.0 - 30.0 * t];
-        for x in 0..w { img.rgb[y * w + x] = [c[0] as u8, c[1] as u8, c[2] as u8]; }
+        for x in 0..w {
+            img.rgb[y * w + x] = [c[0] as u8, c[1] as u8, c[2] as u8];
+        }
     }
     let view = safe_norm(V3::new(1.0, 0.8, 1.2), V3::Z);
     let right = safe_norm(V3::Y.cross(view), V3::X);
     let up = view.cross(right);
-    let b = if topo.bbox.is_empty() { let mut b = crate::kernel::math::BBox::default(); b.add(V3::splat(-50.0)); b.add(V3::splat(50.0)); b } else { topo.bbox };
+    let b = if topo.bbox.is_empty() {
+        let mut b = crate::kernel::math::BBox::default();
+        b.add(V3::splat(-50.0));
+        b.add(V3::splat(50.0));
+        b
+    } else {
+        topo.bbox
+    };
     let c = b.center();
     let scale = 0.8 * (w.min(h) as f64) / b.diagonal().max(1e-6);
     let proj = |p: V3| -> (f64, f64, f64) {
@@ -36,7 +45,9 @@ pub fn render(r: &RegenResult, w: usize, h: usize, color: [f32; 3]) -> Image {
         let n = topo.planes[pi].n;
         let shade = (0.35 + 0.65 * n.dot(light).max(0.0) + 0.25 * n.dot(view).max(0.0).powi(16)) as f32;
         let col = [(color[0] * shade).min(1.0), (color[1] * shade).min(1.0), (color[2] * shade).min(1.0)];
-        for k in 1..pts.len() - 1 { tri(&mut img, &mut z, pts[0], pts[k], pts[k + 1], col); }
+        for k in 1..pts.len() - 1 {
+            tri(&mut img, &mut z, pts[0], pts[k], pts[k + 1], col);
+        }
     }
     let span = b.diagonal() * 1e-3;
     for &(a, bb) in &topo.draw_edges {
@@ -52,7 +63,9 @@ fn tri(img: &mut Image, z: &mut [f64], a: (f64, f64, f64), b: (f64, f64, f64), c
     let miny = a.1.min(b.1).min(c.1).floor().max(0.0) as usize;
     let maxy = (a.1.max(b.1).max(c.1).ceil() as usize).min(img.h - 1);
     let area = (b.0 - a.0) * (c.1 - a.1) - (b.1 - a.1) * (c.0 - a.0);
-    if area.abs() < 1e-12 { return; }
+    if area.abs() < 1e-12 {
+        return;
+    }
     let rgb = [(col[0] * 255.0) as u8, (col[1] * 255.0) as u8, (col[2] * 255.0) as u8];
     for y in miny..=maxy {
         for x in minx..=maxx {
@@ -60,10 +73,15 @@ fn tri(img: &mut Image, z: &mut [f64], a: (f64, f64, f64), b: (f64, f64, f64), c
             let w0 = ((b.0 - px) * (c.1 - py) - (b.1 - py) * (c.0 - px)) / area;
             let w1 = ((c.0 - px) * (a.1 - py) - (c.1 - py) * (a.0 - px)) / area;
             let w2 = 1.0 - w0 - w1;
-            if w0 < 0.0 || w1 < 0.0 || w2 < 0.0 { continue; }
+            if w0 < 0.0 || w1 < 0.0 || w2 < 0.0 {
+                continue;
+            }
             let d = w0 * a.2 + w1 * b.2 + w2 * c.2;
             let i = y * img.w + x;
-            if d > z[i] { z[i] = d; img.rgb[i] = rgb; }
+            if d > z[i] {
+                z[i] = d;
+                img.rgb[i] = rgb;
+            }
         }
     }
 }
@@ -73,11 +91,17 @@ fn line(img: &mut Image, z: &[f64], a: (f64, f64, f64), b: (f64, f64, f64), bias
     for s in 0..=steps {
         let t = s as f64 / steps as f64;
         let (x, y, d) = (a.0 + (b.0 - a.0) * t, a.1 + (b.1 - a.1) * t, a.2 + (b.2 - a.2) * t);
-        if x < 0.0 || y < 0.0 { continue; }
+        if x < 0.0 || y < 0.0 {
+            continue;
+        }
         let (xi, yi) = (x as usize, y as usize);
-        if xi >= img.w || yi >= img.h { continue; }
+        if xi >= img.w || yi >= img.h {
+            continue;
+        }
         let i = yi * img.w + xi;
-        if d + bias * 3.0 >= z[i] { img.rgb[i] = col; }
+        if d + bias * 3.0 >= z[i] {
+            img.rgb[i] = col;
+        }
     }
 }
 
@@ -85,7 +109,9 @@ fn crc32(data: &[u8]) -> u32 {
     let mut c = 0xFFFF_FFFFu32;
     for &b in data {
         c ^= b as u32;
-        for _ in 0..8 { c = if c & 1 != 0 { 0xEDB8_8320 ^ (c >> 1) } else { c >> 1 }; }
+        for _ in 0..8 {
+            c = if c & 1 != 0 { 0xEDB8_8320 ^ (c >> 1) } else { c >> 1 };
+        }
     }
     !c
 }
@@ -97,7 +123,9 @@ pub fn encode_png(img: &Image) -> Vec<u8> {
 }
 
 /// PNG of 8-bit RGBA pixels.
-pub fn encode_png_rgba(w: usize, h: usize, rgba: &[u8]) -> Vec<u8> { encode_png_raw(w, h, rgba, 4) }
+pub fn encode_png_rgba(w: usize, h: usize, rgba: &[u8]) -> Vec<u8> {
+    encode_png_raw(w, h, rgba, 4)
+}
 
 fn encode_png_raw(w: usize, h: usize, px: &[u8], channels: usize) -> Vec<u8> {
     let mut raw = Vec::with_capacity(h * (w * channels + 1));

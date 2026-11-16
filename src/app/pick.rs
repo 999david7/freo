@@ -7,7 +7,13 @@ use crate::model::regen::{AxisInfo, PlaneInfo, RegenResult};
 pub fn plane_quad(p: &PlaneInfo, r: &RegenResult) -> [V3; 4] {
     let frame = &p.frame;
     let b = &r.topo.bbox;
-    let (c, s) = if p.size > 0.0 { (frame.origin, p.size) } else if b.is_empty() { (V3::ZERO, 60.0) } else { (b.center(), (b.diagonal() * 0.42).max(30.0)) };
+    let (c, s) = if p.size > 0.0 {
+        (frame.origin, p.size)
+    } else if b.is_empty() {
+        (V3::ZERO, 60.0)
+    } else {
+        (b.center(), (b.diagonal() * 0.42).max(30.0))
+    };
     let local = frame.to_local(c);
     let o = frame.to_world(local);
     [o - frame.x * s - frame.y * s, o + frame.x * s - frame.y * s, o + frame.x * s + frame.y * s, o - frame.x * s + frame.y * s]
@@ -25,16 +31,26 @@ fn ray_tri(o: V3, d: V3, a: V3, b: V3, c: V3) -> Option<f64> {
     let e2 = c - a;
     let p = d.cross(e2);
     let det = e1.dot(p);
-    if det.abs() < 1e-14 { return None; }
+    if det.abs() < 1e-14 {
+        return None;
+    }
     let inv = 1.0 / det;
     let s = o - a;
     let u = s.dot(p) * inv;
-    if !(0.0..=1.0).contains(&u) { return None; }
+    if !(0.0..=1.0).contains(&u) {
+        return None;
+    }
     let q = s.cross(e1);
     let v = d.dot(q) * inv;
-    if v < 0.0 || u + v > 1.0 { return None; }
+    if v < 0.0 || u + v > 1.0 {
+        return None;
+    }
     let t = e2.dot(q) * inv;
-    if t > 0.0 { Some(t) } else { None }
+    if t > 0.0 {
+        Some(t)
+    } else {
+        None
+    }
 }
 
 fn seg_dist(p: (f32, f32), a: (f32, f32), b: (f32, f32)) -> (f32, f32) {
@@ -85,7 +101,11 @@ impl App {
                 if let Some(tt) = ray_tri(o, d, t.positions[p[0]], t.positions[p[k]], t.positions[p[k + 1]]) {
                     if tt < best_t {
                         let hit = o + d * tt;
-                        if let Some((n, w)) = clip { if hit.dot(n) - w > 0.0 { continue; } }
+                        if let Some((n, w)) = clip {
+                            if hit.dot(n) - w > 0.0 {
+                                continue;
+                            }
+                        }
                         best_t = tt;
                         best_face = Some(t.poly_face[pi]);
                     }
@@ -103,11 +123,15 @@ impl App {
                     for w in line.windows(2) {
                         let (Some(pa), Some(pb)) = (self.camera.project(w[0], size), self.camera.project(w[1], size)) else { continue };
                         let (dist, tt) = seg_dist(px, (pa.0, pa.1), (pb.0, pb.1));
-                        if dist < best.0 && pa.2 + (pb.2 - pa.2) * tt as f64 <= hit_depth + tol_depth { best = (dist, Some(c.feature)); }
+                        if dist < best.0 && pa.2 + (pb.2 - pa.2) * tt as f64 <= hit_depth + tol_depth {
+                            best = (dist, Some(c.feature));
+                        }
                     }
                 }
             }
-            if let Some(id) = best.1 { return Some(Pick::Feature(id)); }
+            if let Some(id) = best.1 {
+                return Some(Pick::Feature(id));
+            }
         }
         // edges
         if want_edge {
@@ -120,15 +144,21 @@ impl App {
                     let (Some(pa), Some(pb)) = (self.camera.project(a, size), self.camera.project(b, size)) else { continue };
                     let (dist, tt) = seg_dist(px, (pa.0, pa.1), (pb.0, pb.1));
                     let depth = pa.2 + (pb.2 - pa.2) * tt as f64;
-                    if dist < best.0 && depth <= hit_depth + tol_depth { best = (dist, Some(ci)); }
+                    if dist < best.0 && depth <= hit_depth + tol_depth {
+                        best = (dist, Some(ci));
+                    }
                 }
             }
-            if let Some(ci) = best.1 { return Some(Pick::Edge(ci)); }
+            if let Some(ci) = best.1 {
+                return Some(Pick::Edge(ci));
+            }
         }
         if want_point && self.show_points {
             for p in &r.points {
                 if let Some(s) = self.camera.project(p.p, size) {
-                    if ((s.0 - px.0).powi(2) + (s.1 - px.1).powi(2)).sqrt() < 7.0 { return Some(Pick::Point(p.id)); }
+                    if ((s.0 - px.0).powi(2) + (s.1 - px.1).powi(2)).sqrt() < 7.0 {
+                        return Some(Pick::Point(p.id));
+                    }
                 }
             }
         }
@@ -138,28 +168,46 @@ impl App {
                 let (p0, p1) = axis_segment(a, r);
                 let (Some(s0), Some(s1)) = (self.camera.project(p0, size), self.camera.project(p1, size)) else { continue };
                 let (dist, _) = seg_dist(px, (s0.0, s0.1), (s1.0, s1.1));
-                if dist < best.0 { best = (dist, Some(a.id)); }
+                if dist < best.0 {
+                    best = (dist, Some(a.id));
+                }
             }
-            if let Some(id) = best.1 { return Some(Pick::Axis(id)); }
+            if let Some(id) = best.1 {
+                return Some(Pick::Axis(id));
+            }
         }
-        if want_face { if let Some(f) = best_face { return Some(Pick::Face(f)); } }
+        if want_face {
+            if let Some(f) = best_face {
+                return Some(Pick::Face(f));
+            }
+        }
         if want_plane && (self.show_planes || target.is_some()) {
             // nearest datum plane hit inside its display rectangle (border preferred)
             let mut best: (f64, Option<u64>) = (f64::INFINITY, None);
             for p in &r.planes {
-                if self.data.feature(p.id).map(|f| f.hidden).unwrap_or(false) && target.is_none() { continue; }
+                if self.data.feature(p.id).map(|f| f.hidden).unwrap_or(false) && target.is_none() {
+                    continue;
+                }
                 let n = p.frame.z();
                 let den = n.dot(d);
-                if den.abs() < 1e-9 { continue; }
+                if den.abs() < 1e-9 {
+                    continue;
+                }
                 let tt = (n.dot(p.frame.origin) - n.dot(o)) / den;
-                if tt <= 0.0 { continue; }
+                if tt <= 0.0 {
+                    continue;
+                }
                 let q = plane_quad(p, r);
                 let hit = o + d * tt;
                 let l = p.frame.to_local(hit);
                 let (l0, l2) = (p.frame.to_local(q[0]), p.frame.to_local(q[2]));
-                if l.x >= l0.x && l.x <= l2.x && l.y >= l0.y && l.y <= l2.y && tt < best.0 { best = (tt, Some(p.id)); }
+                if l.x >= l0.x && l.x <= l2.x && l.y >= l0.y && l.y <= l2.y && tt < best.0 {
+                    best = (tt, Some(p.id));
+                }
             }
-            if let Some(id) = best.1 { return Some(Pick::Plane(id)); }
+            if let Some(id) = best.1 {
+                return Some(Pick::Plane(id));
+            }
         }
         None
     }

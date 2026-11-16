@@ -7,13 +7,19 @@ use freo::model::features::*;
 use freo::model::regen;
 use freo::sketch::sketch::{SkKind, Sketch};
 
-fn feat(id: u64, name: &str, kind: FeatureKind) -> Feature { Feature { id, name: name.into(), suppressed: false, hidden: false, kind } }
+fn feat(id: u64, name: &str, kind: FeatureKind) -> Feature {
+    Feature { id, name: name.into(), suppressed: false, hidden: false, kind }
+}
 
 /// Open or closed polyline through `pts` (shared end points, so the chain is connected).
 fn polyline(s: &mut Sketch, pts: &[(f64, f64)], closed: bool) {
     let ids: Vec<i64> = pts.iter().map(|p| s.add_point(V2::new(p.0, p.1))).collect();
-    for w in ids.windows(2) { s.add_line(w[0], w[1]); }
-    if closed { s.add_line(*ids.last().unwrap(), ids[0]); }
+    for w in ids.windows(2) {
+        s.add_line(w[0], w[1]);
+    }
+    if closed {
+        s.add_line(*ids.last().unwrap(), ids[0]);
+    }
 }
 
 fn centerline(s: &mut Sketch, a: (f64, f64), b: (f64, f64)) {
@@ -27,7 +33,9 @@ fn extrude(sk: Sketch, plane: u64, depth: f64, symmetric: bool) -> FeatureKind {
         d.plane = Some(PlaneRef::Datum(plane));
         d.sketch = sk;
         d.depth = Dim::v(depth);
-        if symmetric { d.depth_type = DepthType::Symmetric; }
+        if symmetric {
+            d.depth_type = DepthType::Symmetric;
+        }
     }
     k
 }
@@ -41,9 +49,13 @@ fn bracket() -> ModelData {
     m
 }
 
-fn ok(r: &regen::RegenResult) { assert!(r.errors.is_empty(), "{:?}", r.errors); }
+fn ok(r: &regen::RegenResult) {
+    assert!(r.errors.is_empty(), "{:?}", r.errors);
+}
 
-fn close(a: f64, b: f64, rel: f64) -> bool { (a - b).abs() <= b.abs() * rel }
+fn close(a: f64, b: f64, rel: f64) -> bool {
+    (a - b).abs() <= b.abs() * rel
+}
 
 #[test]
 fn rib_fills_the_corner() {
@@ -52,7 +64,11 @@ fn rib_fills_the_corner() {
     assert!(close(base, 44000.0, 1e-6), "{base}");
     let mut s = Sketch::default();
     polyline(&mut s, &[(10.0, 50.0), (50.0, 10.0)], false);
-    m.features.push(feat(11, "Rippe 1", FeatureKind::Rib(RibDef { plane: Some(PlaneRef::Datum(FRONT_ID)), sketch: s.clone(), thickness: Dim::v(4.0), flip: false, side: 0 })));
+    m.features.push(feat(
+        11,
+        "Rippe 1",
+        FeatureKind::Rib(RibDef { plane: Some(PlaneRef::Datum(FRONT_ID)), sketch: s.clone(), thickness: Dim::v(4.0), flip: false, side: 0, trajectory: false }),
+    ));
     let r = regen::run(&m);
     ok(&r);
     let v = signed_volume(&r.polys);
@@ -60,11 +76,15 @@ fn rib_fills_the_corner() {
     assert!(close(v - base, 3200.0, 0.01), "rib adds {}", v - base);
 
     // one-sided thickness gives the same volume, flipped material side has nothing to close against
-    if let FeatureKind::Rib(d) = &mut m.features[5].kind { d.side = 1; }
+    if let FeatureKind::Rib(d) = &mut m.features[5].kind {
+        d.side = 1;
+    }
     let r = regen::run(&m);
     ok(&r);
     assert!(close(signed_volume(&r.polys) - base, 3200.0, 0.01));
-    if let FeatureKind::Rib(d) = &mut m.features[5].kind { d.flip = true; }
+    if let FeatureKind::Rib(d) = &mut m.features[5].kind {
+        d.flip = true;
+    }
     let r = regen::run(&m);
     assert!(r.errors.contains_key(&11), "flipped rib must fail: open side");
 }
@@ -76,7 +96,11 @@ fn helical_sweep_spring_volume() {
     centerline(&mut prof, (0.0, 0.0), (0.0, 10.0));
     polyline(&mut prof, &[(20.0, 0.0), (20.0, 50.0)], false);
     let sec = Sketch::circle(2.0, 20.0, 0.0);
-    m.features.push(feat(10, "Spiralzug 1", FeatureKind::Helix(HelixDef { plane: Some(PlaneRef::Datum(FRONT_ID)), profile: prof, section: sec, pitch: Dim::v(8.0), left_handed: false, remove: false })));
+    m.features.push(feat(
+        10,
+        "Spiralzug 1",
+        FeatureKind::Helix(HelixDef { plane: Some(PlaneRef::Datum(FRONT_ID)), profile: prof, section: sec, pitch: Dim::v(8.0), left_handed: false, remove: false }),
+    ));
     let r = regen::run(&m);
     ok(&r);
     let v = signed_volume(&r.polys);
@@ -88,7 +112,9 @@ fn helical_sweep_spring_volume() {
     assert!(r.axes.iter().any(|a| a.feature == 10), "helix axis");
 
     // too coarse: the section is taller than the pitch
-    if let FeatureKind::Helix(d) = &mut m.features[4].kind { d.pitch = Dim::v(3.0); }
+    if let FeatureKind::Helix(d) = &mut m.features[4].kind {
+        d.pitch = Dim::v(3.0);
+    }
     assert!(regen::run(&m).errors.contains_key(&10));
 }
 
@@ -103,7 +129,11 @@ fn helical_cut_threads_a_shaft() {
     polyline(&mut prof, &[(10.0, 5.0), (10.0, 35.0)], false);
     let mut sec = Sketch::default();
     polyline(&mut sec, &[(10.6, 5.0), (8.8, 4.1), (8.8, 5.9)], true);
-    m.features.push(feat(11, "Spiralzug 1", FeatureKind::Helix(HelixDef { plane: Some(PlaneRef::Datum(FRONT_ID)), profile: prof, section: sec, pitch: Dim::v(2.5), left_handed: false, remove: true })));
+    m.features.push(feat(
+        11,
+        "Spiralzug 1",
+        FeatureKind::Helix(HelixDef { plane: Some(PlaneRef::Datum(FRONT_ID)), profile: prof, section: sec, pitch: Dim::v(2.5), left_handed: false, remove: true }),
+    ));
     let r = regen::run(&m);
     ok(&r);
     let v = signed_volume(&r.polys);
@@ -120,7 +150,11 @@ fn rotational_blend_quarter_turn() {
     let mut s2 = Sketch::default();
     polyline(&mut s2, &[(10.0, 0.0), (20.0, 0.0), (20.0, 10.0), (10.0, 10.0)], true);
     let mut k = FeatureKind::new_rotational_blend();
-    if let FeatureKind::Blend(d) = &mut k { d.plane = Some(PlaneRef::Datum(FRONT_ID)); d.sections = vec![s1, s2]; d.offsets = vec![Dim::v(90.0)]; }
+    if let FeatureKind::Blend(d) = &mut k {
+        d.plane = Some(PlaneRef::Datum(FRONT_ID));
+        d.sections = vec![s1, s2];
+        d.offsets = vec![Dim::v(90.0)];
+    }
     m.features.push(feat(10, "Rotationsverbund 1", k));
     let r = regen::run(&m);
     ok(&r);
@@ -134,7 +168,10 @@ fn rotational_blend_quarter_turn() {
 fn coordinate_system_and_curve_through_points() {
     let mut m = ModelData::new_part("DATUMS");
     let mut k = FeatureKind::new_csys();
-    if let FeatureKind::DatumCsys(d) = &mut k { d.x = Dim::v(10.0); d.rz = Dim::v(90.0); }
+    if let FeatureKind::DatumCsys(d) = &mut k {
+        d.x = Dim::v(10.0);
+        d.rz = Dim::v(90.0);
+    }
     m.features.push(feat(10, "CS0", k));
     for (i, p) in [(0.0, 0.0), (20.0, 10.0), (40.0, 0.0)].iter().enumerate() {
         m.features.push(feat(11 + i as u64, &format!("PNT{i}"), FeatureKind::DatumPoint(DatumPointDef { x: Dim::v(p.0), y: Dim::v(p.1), z: Dim::v(0.0) })));
@@ -177,9 +214,16 @@ fn cosmetic_thread_on_a_shaft() {
 fn family_table_instances() {
     let mut m = bracket();
     m.parameters.push(Parameter { name: "T".into(), expr: "40".into(), note: String::new() });
-    if let FeatureKind::Extrude(d) = &mut m.features[4].kind { d.depth = Dim("T".into()); }
+    if let FeatureKind::Extrude(d) = &mut m.features[4].kind {
+        d.depth = Dim("T".into());
+    }
     let mut hole = FeatureKind::new_hole();
-    if let FeatureKind::Hole(d) = &mut hole { d.plane = Some(PlaneRef::Datum(TOP_ID)); d.x = Dim::v(35.0); d.through_all = true; d.diameter = Dim::v(6.0); }
+    if let FeatureKind::Hole(d) = &mut hole {
+        d.plane = Some(PlaneRef::Datum(TOP_ID));
+        d.x = Dim::v(35.0);
+        d.through_all = true;
+        d.diameter = Dim::v(6.0);
+    }
     m.features.push(feat(11, "Bohrung 1", hole));
     m.family.columns = vec![FamilyColumn::Parameter("T".into()), FamilyColumn::Feature(11)];
     m.family.instances = vec![

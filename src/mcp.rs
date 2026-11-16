@@ -38,7 +38,9 @@ pub struct Session {
 }
 
 impl Default for Session {
-    fn default() -> Self { Session::new() }
+    fn default() -> Self {
+        Session::new()
+    }
 }
 
 impl Session {
@@ -63,12 +65,22 @@ impl Session {
         let old_param_errors = self.result.param_errors.len();
         let out = match f(&mut self.data) {
             Ok(v) => v,
-            Err(e) => { self.data = before; return Err(e); }
+            Err(e) => {
+                self.data = before;
+                return Err(e);
+            }
         };
         self.result = regen::run(&self.data);
-        let mut new: Vec<String> = self.result.errors.iter().filter(|(id, _)| !old_errors.contains(id))
-            .map(|(id, e)| format!("{}: {}", self.data.feature(*id).map(|f| f.name.clone()).unwrap_or_else(|| id.to_string()), e)).collect();
-        if self.result.param_errors.len() > old_param_errors { new.extend(self.result.param_errors.iter().cloned()); }
+        let mut new: Vec<String> = self
+            .result
+            .errors
+            .iter()
+            .filter(|(id, _)| !old_errors.contains(id))
+            .map(|(id, e)| format!("{}: {}", self.data.feature(*id).map(|f| f.name.clone()).unwrap_or_else(|| id.to_string()), e))
+            .collect();
+        if self.result.param_errors.len() > old_param_errors {
+            new.extend(self.result.param_errors.iter().cloned());
+        }
         if !new.is_empty() {
             new.sort();
             self.data = before;
@@ -76,7 +88,9 @@ impl Session {
             return Err(format!("Regeneration failed, change rolled back: {}", new.join("; ")));
         }
         self.undo.push(before);
-        if self.undo.len() > 100 { self.undo.remove(0); }
+        if self.undo.len() > 100 {
+            self.undo.remove(0);
+        }
         self.dirty = true;
         Ok(out)
     }
@@ -86,9 +100,17 @@ impl Session {
         let id = self.commit(|d| {
             let id = d.next_id;
             let name = name.map(|s| s.to_string()).filter(|s| !s.trim().is_empty()).unwrap_or_else(|| d.next_name(&kind));
-            if d.features.iter().any(|f| f.name.eq_ignore_ascii_case(&name)) { return Err(format!("A feature named {} already exists.", name)); }
+            if d.features.iter().any(|f| f.name.eq_ignore_ascii_case(&name)) {
+                return Err(format!("A feature named {} already exists.", name));
+            }
             let f = Feature { id, name, suppressed: false, hidden: false, kind };
-            match d.insert_index { Some(i) => { d.features.insert(i, f); d.insert_index = Some(i + 1); } None => d.features.push(f) }
+            match d.insert_index {
+                Some(i) => {
+                    d.features.insert(i, f);
+                    d.insert_index = Some(i + 1);
+                }
+                None => d.features.push(f),
+            }
             d.next_id += 1;
             Ok(id)
         })?;
@@ -117,9 +139,15 @@ impl Session {
             Value::Number(n) => n.as_u64().ok_or("feature id must be a positive integer")?,
             Value::String(s) => {
                 let s = s.trim();
-                if let Ok(n) = s.parse::<u64>() { n } else {
+                if let Ok(n) = s.parse::<u64>() {
+                    n
+                } else {
                     let alias = match s.to_uppercase().as_str() {
-                        "FRONT" | "VORNE" => Some(FRONT_ID), "TOP" | "OBEN" => Some(TOP_ID), "RIGHT" | "RECHTS" => Some(RIGHT_ID), "CSYS" | "BASIS" | "PRT_CSYS_DEF" => Some(CSYS_ID), _ => None,
+                        "FRONT" | "VORNE" => Some(FRONT_ID),
+                        "TOP" | "OBEN" => Some(TOP_ID),
+                        "RIGHT" | "RECHTS" => Some(RIGHT_ID),
+                        "CSYS" | "BASIS" | "PRT_CSYS_DEF" => Some(CSYS_ID),
+                        _ => None,
                     };
                     match alias.or_else(|| self.data.features.iter().find(|f| f.name.eq_ignore_ascii_case(s)).map(|f| f.id)) {
                         Some(id) => id,
@@ -129,7 +157,9 @@ impl Session {
             }
             _ => return Err("feature must be an id or a name".into()),
         };
-        if self.data.feature(id).is_none() { return Err(format!("No feature with id {}.", id)); }
+        if self.data.feature(id).is_none() {
+            return Err(format!("No feature with id {}.", id));
+        }
         Ok(id)
     }
 
@@ -144,7 +174,8 @@ impl Session {
     /// The outermost planar face whose normal points along `dir`.
     fn extreme_face(&self, dir: V3) -> Result<usize, String> {
         let t = &self.result.topo;
-        (0..t.faces.len()).filter(|&f| t.faces[f].planar && t.faces[f].normal.dot(dir) > 0.999)
+        (0..t.faces.len())
+            .filter(|&f| t.faces[f].planar && t.faces[f].normal.dot(dir) > 0.999)
             .max_by(|&a, &b| t.faces[a].center.dot(dir).partial_cmp(&t.faces[b].center.dot(dir)).unwrap())
             .ok_or_else(|| format!("The model has no planar face facing {:?}.", [dir.x, dir.y, dir.z]))
     }
@@ -154,13 +185,19 @@ impl Session {
         match v {
             Value::Number(n) => {
                 let i = n.as_u64().ok_or("face index must be a non-negative integer")? as usize;
-                if i >= t.faces.len() { return Err(format!("Face {} does not exist (the model has {} faces).", i, t.faces.len())); }
+                if i >= t.faces.len() {
+                    return Err(format!("Face {} does not exist (the model has {} faces).", i, t.faces.len()));
+                }
                 Ok(i)
             }
             Value::String(s) => self.extreme_face(parse_dir(s)?),
             Value::Object(o) => {
-                if let Some(f) = o.get("face") { return self.face_index(f); }
-                if let Some(d) = o.get("face_dir") { return self.extreme_face(dir_value(d)?); }
+                if let Some(f) = o.get("face") {
+                    return self.face_index(f);
+                }
+                if let Some(d) = o.get("face_dir") {
+                    return self.extreme_face(dir_value(d)?);
+                }
                 Err("face must be an index, a direction such as \"+Y\", or {\"face\": index}".into())
             }
             _ => Err("face must be an index or a direction such as \"+Y\"".into()),
@@ -186,7 +223,9 @@ impl Session {
         if is_face {
             let fr = self.face_ref(v)?;
             if let Some(i) = self.result.topo.match_face(fr.point, fr.normal) {
-                if !self.result.topo.faces[i].planar { return Err("The face is not planar.".into()); }
+                if !self.result.topo.faces[i].planar {
+                    return Err("The face is not planar.".into());
+                }
             }
             return Ok(PlaneRef::Face(fr));
         }
@@ -200,7 +239,10 @@ impl Session {
     fn axis_ref(&self, v: &Value) -> Result<AxisRef, String> {
         if let Value::String(s) = v {
             match s.trim().trim_start_matches('+').to_uppercase().as_str() {
-                "X" => return Ok(AxisRef::WorldX), "Y" => return Ok(AxisRef::WorldY), "Z" => return Ok(AxisRef::WorldZ), _ => {}
+                "X" => return Ok(AxisRef::WorldX),
+                "Y" => return Ok(AxisRef::WorldY),
+                "Z" => return Ok(AxisRef::WorldZ),
+                _ => {}
             }
         }
         let id = self.feature_id(v)?;
@@ -220,7 +262,9 @@ impl Session {
                 let mut out = vec![];
                 for x in a {
                     let i = x.as_u64().ok_or("edge indices must be integers from list_geometry")? as usize;
-                    if i >= t.chains.len() { return Err(format!("Edge {} does not exist (the model has {} edges).", i, t.chains.len())); }
+                    if i >= t.chains.len() {
+                        return Err(format!("Edge {} does not exist (the model has {} edges).", i, t.chains.len()));
+                    }
                     out.push(i);
                 }
                 out
@@ -228,23 +272,26 @@ impl Session {
             Value::String(s) if s.eq_ignore_ascii_case("all") => (0..t.chains.len()).collect(),
             Value::Object(o) => {
                 let dir = o.get("direction").map(dir_value).transpose()?;
-                let face = o.get("face_dir").map(|d| dir_value(d).and_then(|d| self.extreme_face(d))).transpose()?
-                    .or(o.get("face").map(|f| self.face_index(f)).transpose()?);
+                let face = o.get("face_dir").map(|d| dir_value(d).and_then(|d| self.extreme_face(d))).transpose()?.or(o.get("face").map(|f| self.face_index(f)).transpose()?);
                 let convex = o.get("convex").and_then(Value::as_bool);
                 let closed = o.get("closed").and_then(Value::as_bool);
                 let min_len = o.get("min_length").and_then(Value::as_f64);
-                (0..t.chains.len()).filter(|&i| {
-                    let c = &t.chains[i];
-                    dir.is_none_or(|d| c.is_straight() && (safe_norm(*c.points.last().unwrap() - c.points[0], V3::X)).dot(d).abs() > 0.999)
-                        && face.is_none_or(|f| c.face_a == f || c.face_b == f)
-                        && convex.is_none_or(|x| c.convex == x)
-                        && closed.is_none_or(|x| c.closed == x)
-                        && min_len.is_none_or(|l| c.length() >= l)
-                }).collect()
+                (0..t.chains.len())
+                    .filter(|&i| {
+                        let c = &t.chains[i];
+                        dir.is_none_or(|d| c.is_straight() && (safe_norm(*c.points.last().unwrap() - c.points[0], V3::X)).dot(d).abs() > 0.999)
+                            && face.is_none_or(|f| c.face_a == f || c.face_b == f)
+                            && convex.is_none_or(|x| c.convex == x)
+                            && closed.is_none_or(|x| c.closed == x)
+                            && min_len.is_none_or(|l| c.length() >= l)
+                    })
+                    .collect()
             }
             _ => return Err("edges must be a list of edge indices, \"all\", or a filter like {\"direction\": \"Y\"}".into()),
         };
-        if idx.is_empty() { return Err("No edges match.".into()); }
+        if idx.is_empty() {
+            return Err("No edges match.".into());
+        }
         Ok(idx.into_iter().map(|i| t.edge_ref(i)).collect())
     }
 
@@ -265,9 +312,13 @@ impl Session {
                 k => json!({ "builtin": format!("{:?}", k) }),
             },
             FeatureKind::Sketch(s) => json!({ "plane": self.plane_desc(&s.plane), "entities": s.sketch.entities.len() }),
-            FeatureKind::Extrude(e) => json!({ "plane": self.plane_desc(&e.plane), "depth_type": format!("{:?}", e.depth_type), "depth": d(&e.depth), "remove": e.remove, "flip": e.flip }),
+            FeatureKind::Extrude(e) => {
+                json!({ "plane": self.plane_desc(&e.plane), "depth_type": format!("{:?}", e.depth_type), "depth": d(&e.depth), "remove": e.remove, "flip": e.flip })
+            }
             FeatureKind::Revolve(e) => json!({ "plane": self.plane_desc(&e.plane), "angle": d(&e.angle), "remove": e.remove }),
-            FeatureKind::Hole(h) => json!({ "plane": self.plane_desc(&h.plane), "type": format!("{:?}", h.ty), "x": d(&h.x), "y": d(&h.y), "diameter": d(&h.diameter), "through_all": h.through_all, "depth": d(&h.depth) }),
+            FeatureKind::Hole(h) => {
+                json!({ "plane": self.plane_desc(&h.plane), "type": format!("{:?}", h.ty), "x": d(&h.x), "y": d(&h.y), "diameter": d(&h.diameter), "through_all": h.through_all, "depth": d(&h.depth) })
+            }
             FeatureKind::Round(rd) => json!({ "sets": rd.sets.iter().map(|s| json!({ "radius": d(&s.radius), "edges": s.edges.len() })).collect::<Vec<_>>() }),
             FeatureKind::Chamfer(c) => json!({ "kind": format!("{:?}", c.kind), "d1": d(&c.d1), "edges": c.edges.len() }),
             FeatureKind::Shell(s) => json!({ "thickness": d(&s.thickness), "faces": s.faces.len() }),
@@ -280,27 +331,59 @@ impl Session {
 
 // ---------------------------------------------------------------- JSON helpers
 
-fn r(x: f64) -> f64 { let v = (x * 1e4).round() / 1e4; if v == 0.0 { 0.0 } else { v } }
-fn v3(p: V3) -> Value { json!([r(p.x), r(p.y), r(p.z)]) }
-fn bbox(b: &BBox) -> Value { if b.is_empty() { Value::Null } else { json!({ "min": v3(b.min), "max": v3(b.max), "size": v3(b.size()) }) } }
+fn r(x: f64) -> f64 {
+    let v = (x * 1e4).round() / 1e4;
+    if v == 0.0 {
+        0.0
+    } else {
+        v
+    }
+}
+fn v3(p: V3) -> Value {
+    json!([r(p.x), r(p.y), r(p.z)])
+}
+fn bbox(b: &BBox) -> Value {
+    if b.is_empty() {
+        Value::Null
+    } else {
+        json!({ "min": v3(b.min), "max": v3(b.max), "size": v3(b.size()) })
+    }
+}
 
 fn parse_dir(s: &str) -> Result<V3, String> {
     let t = s.trim().to_uppercase();
-    let (neg, axis) = match t.strip_prefix('-') { Some(a) => (true, a), None => (false, t.trim_start_matches('+')) };
-    let d = match axis { "X" => V3::X, "Y" => V3::Y, "Z" => V3::Z, _ => return Err(format!("Direction {} not understood; use +X, -X, +Y, -Y, +Z or -Z.", s)) };
+    let (neg, axis) = match t.strip_prefix('-') {
+        Some(a) => (true, a),
+        None => (false, t.trim_start_matches('+')),
+    };
+    let d = match axis {
+        "X" => V3::X,
+        "Y" => V3::Y,
+        "Z" => V3::Z,
+        _ => return Err(format!("Direction {} not understood; use +X, -X, +Y, -Y, +Z or -Z.", s)),
+    };
     Ok(if neg { -d } else { d })
 }
 
 fn dir_value(v: &Value) -> Result<V3, String> {
-    match v { Value::String(s) => parse_dir(s), _ => Ok(safe_norm(v3_value(v)?, V3::Y)) }
+    match v {
+        Value::String(s) => parse_dir(s),
+        _ => Ok(safe_norm(v3_value(v)?, V3::Y)),
+    }
 }
 
 fn nums(v: &Value, n: usize, what: &str) -> Result<Vec<f64>, String> {
     let a = v.as_array().filter(|a| a.len() == n).ok_or(format!("{} must be an array of {} numbers", what, n))?;
     a.iter().map(|x| x.as_f64().ok_or(format!("{} must contain numbers", what))).collect()
 }
-fn v3_value(v: &Value) -> Result<V3, String> { let a = nums(v, 3, "point")?; Ok(V3::new(a[0], a[1], a[2])) }
-fn v2_value(v: &Value) -> Result<V2, String> { let a = nums(v, 2, "2D point")?; Ok(V2::new(a[0], a[1])) }
+fn v3_value(v: &Value) -> Result<V3, String> {
+    let a = nums(v, 3, "point")?;
+    Ok(V3::new(a[0], a[1], a[2]))
+}
+fn v2_value(v: &Value) -> Result<V2, String> {
+    let a = nums(v, 2, "2D point")?;
+    Ok(V2::new(a[0], a[1]))
+}
 
 fn dim_value(v: &Value, what: &str) -> Result<Dim, String> {
     match v {
@@ -313,20 +396,38 @@ fn dim_value(v: &Value, what: &str) -> Result<Dim, String> {
 struct Args<'a>(&'a Map<String, Value>);
 
 impl<'a> Args<'a> {
-    fn get(&self, k: &str) -> Option<&'a Value> { self.0.get(k).filter(|v| !v.is_null()) }
-    fn req(&self, k: &str) -> Result<&'a Value, String> { self.get(k).ok_or(format!("Missing argument: {}", k)) }
-    fn str(&self, k: &str) -> Option<&'a str> { self.get(k).and_then(Value::as_str) }
-    fn req_str(&self, k: &str) -> Result<&'a str, String> { self.str(k).ok_or(format!("Missing string argument: {}", k)) }
-    fn bool(&self, k: &str, default: bool) -> bool { self.get(k).and_then(Value::as_bool).unwrap_or(default) }
-    fn f64(&self, k: &str) -> Result<Option<f64>, String> { self.get(k).map(|v| v.as_f64().ok_or(format!("{} must be a number", k))).transpose() }
-    fn dim(&self, k: &str) -> Result<Option<Dim>, String> { self.get(k).map(|v| dim_value(v, k)).transpose() }
-    fn req_dim(&self, k: &str) -> Result<Dim, String> { dim_value(self.req(k)?, k) }
+    fn get(&self, k: &str) -> Option<&'a Value> {
+        self.0.get(k).filter(|v| !v.is_null())
+    }
+    fn req(&self, k: &str) -> Result<&'a Value, String> {
+        self.get(k).ok_or(format!("Missing argument: {}", k))
+    }
+    fn str(&self, k: &str) -> Option<&'a str> {
+        self.get(k).and_then(Value::as_str)
+    }
+    fn req_str(&self, k: &str) -> Result<&'a str, String> {
+        self.str(k).ok_or(format!("Missing string argument: {}", k))
+    }
+    fn bool(&self, k: &str, default: bool) -> bool {
+        self.get(k).and_then(Value::as_bool).unwrap_or(default)
+    }
+    fn f64(&self, k: &str) -> Result<Option<f64>, String> {
+        self.get(k).map(|v| v.as_f64().ok_or(format!("{} must be a number", k))).transpose()
+    }
+    fn dim(&self, k: &str) -> Result<Option<Dim>, String> {
+        self.get(k).map(|v| dim_value(v, k)).transpose()
+    }
+    fn req_dim(&self, k: &str) -> Result<Dim, String> {
+        dim_value(self.req(k)?, k)
+    }
 }
 
 /// Paths relative to FREO_WORK_DIR (or the server's working directory).
 fn resolve_path(p: &str) -> PathBuf {
     let p = if let Some(rest) = p.strip_prefix("~/") { std::env::var_os("HOME").map(PathBuf::from).unwrap_or_default().join(rest) } else { PathBuf::from(p) };
-    if p.is_absolute() { return p; }
+    if p.is_absolute() {
+        return p;
+    }
     let base = std::env::var_os("FREO_WORK_DIR").map(PathBuf::from).or_else(|| std::env::current_dir().ok()).unwrap_or_default();
     base.join(p)
 }
@@ -337,7 +438,11 @@ fn base64(bytes: &[u8]) -> String {
     for c in bytes.chunks(3) {
         let n = (c[0] as u32) << 16 | (*c.get(1).unwrap_or(&0) as u32) << 8 | *c.get(2).unwrap_or(&0) as u32;
         for i in 0..4 {
-            if i <= c.len() { out.push(T[(n >> (18 - 6 * i) & 63) as usize] as char); } else { out.push('='); }
+            if i <= c.len() {
+                out.push(T[(n >> (18 - 6 * i) & 63) as usize] as char);
+            } else {
+                out.push('=');
+            }
         }
     }
     out
@@ -366,11 +471,15 @@ fn export_format(name: Option<&str>, path: &std::path::Path) -> Result<crate::ap
 /// polylines, rectangles and arcs form closed loops.
 fn build_sketch(shapes: &Value) -> Result<Sketch, String> {
     let list = shapes.as_array().ok_or("shapes must be an array of shape objects")?;
-    if list.is_empty() { return Err("shapes is empty".into()); }
+    if list.is_empty() {
+        return Err("shapes is empty".into());
+    }
     let mut s = Sketch::default();
     let mut ends: Vec<(V2, i64)> = vec![];
     let mut pt = |s: &mut Sketch, p: V2| -> i64 {
-        if let Some((_, id)) = ends.iter().find(|(q, _)| (*q - p).length() < 1e-7) { return *id; }
+        if let Some((_, id)) = ends.iter().find(|(q, _)| (*q - p).length() < 1e-7) {
+            return *id;
+        }
         let id = s.add_point(p);
         ends.push((p, id));
         id
@@ -380,13 +489,17 @@ fn build_sketch(shapes: &Value) -> Result<Sketch, String> {
         let a = Args(o);
         let ty = a.req_str("type").map_err(|_| format!("shape {} needs a \"type\"", i))?;
         let center = |a: &Args| -> Result<V2, String> {
-            if let Some(c) = a.get("center") { return v2_value(c); }
+            if let Some(c) = a.get("center") {
+                return v2_value(c);
+            }
             Ok(V2::new(a.f64("cx")?.unwrap_or(0.0), a.f64("cy")?.unwrap_or(0.0)))
         };
         match ty {
             "rect" | "rectangle" => {
                 let (w, h) = (a.f64("width")?.ok_or("rect needs width")?, a.f64("height")?.ok_or("rect needs height")?);
-                if w <= 0.0 || h <= 0.0 { return Err("rect width and height must be positive".into()); }
+                if w <= 0.0 || h <= 0.0 {
+                    return Err("rect width and height must be positive".into());
+                }
                 let c = center(&a)?;
                 let p: Vec<i64> = [V2::new(-w, -h), V2::new(w, -h), V2::new(w, h), V2::new(-w, h)].iter().map(|q| pt(&mut s, c + *q * 0.5)).collect();
                 for k in 0..4 {
@@ -395,8 +508,14 @@ fn build_sketch(shapes: &Value) -> Result<Sketch, String> {
                 }
             }
             "circle" => {
-                let rad = match (a.f64("radius")?, a.f64("diameter")?) { (Some(r), _) => r, (_, Some(d)) => d / 2.0, _ => return Err("circle needs radius or diameter".into()) };
-                if rad <= 0.0 { return Err("circle radius must be positive".into()); }
+                let rad = match (a.f64("radius")?, a.f64("diameter")?) {
+                    (Some(r), _) => r,
+                    (_, Some(d)) => d / 2.0,
+                    _ => return Err("circle needs radius or diameter".into()),
+                };
+                if rad <= 0.0 {
+                    return Err("circle radius must be positive".into());
+                }
                 let c = s.add_point(center(&a)?);
                 s.add_circle(c, rad);
             }
@@ -404,14 +523,20 @@ fn build_sketch(shapes: &Value) -> Result<Sketch, String> {
                 let pts = a.req("points")?.as_array().ok_or("points must be an array of [x, y]")?;
                 let pts: Vec<V2> = pts.iter().map(v2_value).collect::<Result<_, _>>()?;
                 let closed = a.bool("closed", ty == "polygon");
-                if pts.len() < 2 || (closed && pts.len() < 3) { return Err("polygon needs at least 3 points (polyline 2)".into()); }
+                if pts.len() < 2 || (closed && pts.len() < 3) {
+                    return Err("polygon needs at least 3 points (polyline 2)".into());
+                }
                 let ids: Vec<i64> = pts.iter().map(|p| pt(&mut s, *p)).collect();
                 let n = if closed { ids.len() } else { ids.len() - 1 };
-                for k in 0..n { s.add_line(ids[k], ids[(k + 1) % ids.len()]); }
+                for k in 0..n {
+                    s.add_line(ids[k], ids[(k + 1) % ids.len()]);
+                }
             }
             "line" | "centerline" => {
                 let (p0, p1) = (v2_value(a.req("from")?)?, v2_value(a.req("to")?)?);
-                if (p1 - p0).length() < 1e-9 { return Err("line end points coincide".into()); }
+                if (p1 - p0).length() < 1e-9 {
+                    return Err("line end points coincide".into());
+                }
                 if ty == "centerline" {
                     let (i0, i1) = (s.add_point(p0), s.add_point(p1));
                     s.add_entity(SkKind::Line, vec![i0, i1], 0.0, true, true);
@@ -424,7 +549,9 @@ fn build_sketch(shapes: &Value) -> Result<Sketch, String> {
                 let c = v2_value(a.req("center")?)?;
                 let (p0, p1) = (v2_value(a.req("start")?)?, v2_value(a.req("end")?)?);
                 let rad = (p0 - c).length();
-                if rad < 1e-9 { return Err("arc start coincides with its center".into()); }
+                if rad < 1e-9 {
+                    return Err("arc start coincides with its center".into());
+                }
                 let p1 = c + safe_norm2(p1 - c, V2::X) * rad;
                 let ci = s.add_point(c);
                 let (i0, i1) = (pt(&mut s, p0), pt(&mut s, p1));
@@ -437,10 +564,21 @@ fn build_sketch(shapes: &Value) -> Result<Sketch, String> {
 }
 
 fn sketch_json(s: &Sketch) -> Value {
-    let ents: Vec<Value> = s.entities.iter().map(|e| {
-        let p: Vec<Value> = e.pts.iter().map(|&id| { let q = s.point(id); json!([r(q.x), r(q.y)]) }).collect();
-        json!({ "kind": format!("{:?}", e.kind), "points": p, "r": r(e.r), "construction": e.construction, "centerline": e.centerline })
-    }).collect();
+    let ents: Vec<Value> = s
+        .entities
+        .iter()
+        .map(|e| {
+            let p: Vec<Value> = e
+                .pts
+                .iter()
+                .map(|&id| {
+                    let q = s.point(id);
+                    json!([r(q.x), r(q.y)])
+                })
+                .collect();
+            json!({ "kind": format!("{:?}", e.kind), "points": p, "r": r(e.r), "construction": e.construction, "centerline": e.centerline })
+        })
+        .collect();
     json!(ents)
 }
 
@@ -474,7 +612,9 @@ fn shapes_schema() -> Value {
         }, "required": ["type"] } })
 }
 
-fn dim_schema(desc: &str) -> Value { json!({ "description": desc, "type": ["number", "string"] }) }
+fn dim_schema(desc: &str) -> Value {
+    json!({ "description": desc, "type": ["number", "string"] })
+}
 
 /// MCP tool annotations, so clients (OpenClaw, Claude …) can skip approval prompts for safe calls.
 /// Read-only tools only look at the part. Destructive ones can discard unsaved work or
@@ -568,9 +708,16 @@ pub fn tool_list() -> Vec<Value> {
 }
 
 /// Result of a tool: JSON payload and an optional PNG image.
-pub struct ToolOutput { pub value: Value, pub png: Option<Vec<u8>> }
+pub struct ToolOutput {
+    pub value: Value,
+    pub png: Option<Vec<u8>>,
+}
 
-impl From<Value> for ToolOutput { fn from(value: Value) -> Self { ToolOutput { value, png: None } } }
+impl From<Value> for ToolOutput {
+    fn from(value: Value) -> Self {
+        ToolOutput { value, png: None }
+    }
+}
 
 impl Session {
     pub fn call(&mut self, name: &str, args: &Map<String, Value>) -> Result<ToolOutput, String> {
@@ -602,8 +749,13 @@ impl Session {
                 }
             }
             "save_model" => {
-                let p = match a.str("path") { Some(s) => resolve_path(s), None => self.path.clone().ok_or("No file yet: give a path.")? };
-                if let Some(dir) = p.parent() { std::fs::create_dir_all(dir).map_err(|e| e.to_string())?; }
+                let p = match a.str("path") {
+                    Some(s) => resolve_path(s),
+                    None => self.path.clone().ok_or("No file yet: give a path.")?,
+                };
+                if let Some(dir) = p.parent() {
+                    std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
+                }
                 let text = serde_json::to_string_pretty(&self.data).map_err(|e| e.to_string())?;
                 std::fs::write(&p, text).map_err(|e| format!("{}: {}", p.display(), e))?;
                 self.path = Some(p.clone());
@@ -626,18 +778,32 @@ impl Session {
                 })
             }
             "list_features" => {
-                let list: Vec<Value> = self.data.features.iter().map(|f| {
-                    let ty = serde_json::to_value(&f.kind).ok().and_then(|v| match v { Value::Object(o) => o.keys().next().cloned(), Value::String(s) => Some(s), _ => None }).unwrap_or_default();
-                    json!({ "id": f.id, "name": f.name, "type": ty, "type_de": f.kind.type_name(), "suppressed": f.suppressed,
+                let list: Vec<Value> = self
+                    .data
+                    .features
+                    .iter()
+                    .map(|f| {
+                        let ty = serde_json::to_value(&f.kind)
+                            .ok()
+                            .and_then(|v| match v {
+                                Value::Object(o) => o.keys().next().cloned(),
+                                Value::String(s) => Some(s),
+                                _ => None,
+                            })
+                            .unwrap_or_default();
+                        json!({ "id": f.id, "name": f.name, "type": ty, "type_de": f.kind.type_name(), "suppressed": f.suppressed,
                         "error": self.result.errors.get(&f.id), "rolled_back": self.result.rolled_back.contains(&f.id),
                         "references": f.kind.references(), "summary": self.summary(&f.kind) })
-                }).collect();
+                    })
+                    .collect();
                 json!({ "features": list })
             }
             "get_feature" => {
                 let f = self.data.feature(self.feature_id(a.req("feature")?)?).unwrap();
                 let mut v = serde_json::to_value(f).map_err(|e| e.to_string())?;
-                if let Some(s) = sketch_of(&f.kind) { v["sketch_entities"] = sketch_json(s); }
+                if let Some(s) = sketch_of(&f.kind) {
+                    v["sketch_entities"] = sketch_json(s);
+                }
                 v
             }
             "list_geometry" => self.list_geometry(a.req_str("kind")?, a.get("limit").and_then(Value::as_u64).unwrap_or(200) as usize)?,
@@ -659,51 +825,86 @@ impl Session {
                 let mut k = FeatureKind::Extrude(e);
                 k.set_sketch_plane(plane);
                 let FeatureKind::Extrude(mut e) = k else { unreachable!() };
-                if a.bool("flip", false) { e.flip = !e.flip; }
-                if let Some(d) = a.dim("depth")? { e.depth = d; }
+                if a.bool("flip", false) {
+                    e.flip = !e.flip;
+                }
+                if let Some(d) = a.dim("depth")? {
+                    e.depth = d;
+                }
                 e.depth_type = match a.str("depth_type").unwrap_or("blind") {
-                    "blind" => DepthType::Blind, "symmetric" => DepthType::Symmetric, "through_all" => DepthType::ThroughAll, "to_next" => DepthType::ToNext,
+                    "blind" => DepthType::Blind,
+                    "symmetric" => DepthType::Symmetric,
+                    "through_all" => DepthType::ThroughAll,
+                    "to_next" => DepthType::ToNext,
                     t => return Err(format!("Unknown depth_type {}", t)),
                 };
-                if let Some(t) = a.dim("taper")? { e.taper = t; }
-                if let Some(t) = a.dim("thickness")? { e.thin = true; e.thickness = t; }
+                if let Some(t) = a.dim("taper")? {
+                    e.taper = t;
+                }
+                if let Some(t) = a.dim("thickness")? {
+                    e.thin = true;
+                    e.thickness = t;
+                }
                 self.add_feature(FeatureKind::Extrude(e), a.str("name"))?
             }
             "add_revolve" => {
                 let FeatureKind::Revolve(mut e) = FeatureKind::new_revolve() else { unreachable!() };
                 let (plane, sk) = self.section(&a)?;
-                if sk.centerline_axis().is_none() { return Err("A revolve needs a centerline shape (the axis of revolution) in its sketch.".into()); }
+                if sk.centerline_axis().is_none() {
+                    return Err("A revolve needs a centerline shape (the axis of revolution) in its sketch.".into());
+                }
                 e.plane = Some(plane);
                 e.sketch = sk;
                 e.remove = a.bool("remove", false);
                 e.flip = a.bool("flip", false);
                 e.symmetric = a.bool("symmetric", false);
-                if let Some(d) = a.dim("angle")? { e.angle = d; }
+                if let Some(d) = a.dim("angle")? {
+                    e.angle = d;
+                }
                 self.add_feature(FeatureKind::Revolve(e), a.str("name"))?
             }
             "add_hole" => {
                 let FeatureKind::Hole(mut h) = FeatureKind::new_hole() else { unreachable!() };
                 h.plane = Some(self.plane_ref(a.req("plane")?)?);
-                for (k, slot) in [("x", &mut h.x), ("y", &mut h.y), ("diameter", &mut h.diameter), ("depth", &mut h.depth), ("cb_diameter", &mut h.cb_diameter),
-                    ("cb_depth", &mut h.cb_depth), ("cs_diameter", &mut h.cs_diameter), ("cs_angle", &mut h.cs_angle)] {
-                    if let Some(d) = a.dim(k)? { *slot = d; }
+                for (k, slot) in [
+                    ("x", &mut h.x),
+                    ("y", &mut h.y),
+                    ("diameter", &mut h.diameter),
+                    ("depth", &mut h.depth),
+                    ("cb_diameter", &mut h.cb_diameter),
+                    ("cb_depth", &mut h.cb_depth),
+                    ("cs_diameter", &mut h.cs_diameter),
+                    ("cs_angle", &mut h.cs_angle),
+                ] {
+                    if let Some(d) = a.dim(k)? {
+                        *slot = d;
+                    }
                 }
                 h.through_all = a.bool("through_all", false);
                 h.flip = a.bool("flip", false);
                 h.tapped = a.bool("tapped", true);
                 h.ty = match a.str("type").unwrap_or("simple") {
-                    "simple" => HoleType::Simple, "counterbore" => HoleType::Counterbore, "countersink" => HoleType::Countersink, "standard" => HoleType::Standard,
+                    "simple" => HoleType::Simple,
+                    "counterbore" => HoleType::Counterbore,
+                    "countersink" => HoleType::Countersink,
+                    "standard" => HoleType::Standard,
                     t => return Err(format!("Unknown hole type {}", t)),
                 };
-                if let Some(s) = a.str("size") { h.size = s.trim().to_string(); }
+                if let Some(s) = a.str("size") {
+                    h.size = s.trim().to_string();
+                }
                 self.add_feature(FeatureKind::Hole(h), a.str("name"))?
             }
             "add_round" => {
                 let mut set = RoundSet::new(3.0);
                 set.edges = self.edge_refs(a.req("edges")?)?;
                 set.radius = a.req_dim("radius")?;
-                if a.bool("continuous", false) { set.shape = crate::kernel::corner::CornerShape::G3One; }
-                if let Some(k) = a.str("shape") { set.shape = crate::kernel::corner::CornerShape::from_key(k).ok_or(format!("Unknown round shape {:?}.", k))?; }
+                if a.bool("continuous", false) {
+                    set.shape = crate::kernel::corner::CornerShape::G3One;
+                }
+                if let Some(k) = a.str("shape") {
+                    set.shape = crate::kernel::corner::CornerShape::from_key(k).ok_or(format!("Unknown round shape {:?}.", k))?;
+                }
                 self.add_feature(FeatureKind::Round(RoundDef { sets: vec![set] }), a.str("name"))?
             }
             "add_chamfer" => {
@@ -711,9 +912,13 @@ impl Session {
                 c.edges = self.edge_refs(a.req("edges")?)?;
                 c.d1 = a.req_dim("distance")?;
                 c.d2 = a.dim("distance2")?.unwrap_or_else(|| c.d1.clone());
-                if let Some(d) = a.dim("angle")? { c.angle = d; }
+                if let Some(d) = a.dim("angle")? {
+                    c.angle = d;
+                }
                 c.kind = match a.str("kind").unwrap_or("DxD") {
-                    "DxD" => ChamferKind::DxD, "D1xD2" => ChamferKind::D1xD2, "AnglexD" => ChamferKind::AnglexD,
+                    "DxD" => ChamferKind::DxD,
+                    "D1xD2" => ChamferKind::D1xD2,
+                    "AnglexD" => ChamferKind::AnglexD,
                     k => return Err(format!("Unknown chamfer kind {}", k)),
                 };
                 self.add_feature(FeatureKind::Chamfer(c), a.str("name"))?
@@ -725,23 +930,33 @@ impl Session {
             "add_pattern" => {
                 let FeatureKind::Pattern(mut p) = FeatureKind::new_pattern() else { unreachable!() };
                 p.features = self.feature_ids(a.get("features"))?;
-                if p.features.is_empty() { return Err("Choose the features to pattern.".into()); }
+                if p.features.is_empty() {
+                    return Err("Choose the features to pattern.".into());
+                }
                 let axis_kind = a.str("kind") == Some("axis") || a.get("axis").is_some();
                 if axis_kind {
                     p.kind = PatternKind::Axis;
                     p.axis = self.axis_ref(a.get("axis").unwrap_or(&json!("Y")))?;
                     p.axis_count = a.req_dim("count")?;
-                    if let Some(d) = a.dim("angle")? { p.axis_angle = d; }
+                    if let Some(d) = a.dim("angle")? {
+                        p.axis_angle = d;
+                    }
                 } else {
                     p.kind = PatternKind::Direction;
                     p.dir1 = self.axis_ref(a.get("direction").unwrap_or(&json!("X")))?;
                     p.count1 = a.req_dim("count")?;
-                    if let Some(d) = a.dim("spacing")? { p.spacing1 = d; }
+                    if let Some(d) = a.dim("spacing")? {
+                        p.spacing1 = d;
+                    }
                     if let Some(d2) = a.get("direction2") {
                         p.use_dir2 = true;
                         p.dir2 = self.axis_ref(d2)?;
-                        if let Some(d) = a.dim("count2")? { p.count2 = d; }
-                        if let Some(d) = a.dim("spacing2")? { p.spacing2 = d; }
+                        if let Some(d) = a.dim("count2")? {
+                            p.count2 = d;
+                        }
+                        if let Some(d) = a.dim("spacing2")? {
+                            p.spacing2 = d;
+                        }
                     }
                 }
                 self.add_feature(FeatureKind::Pattern(p), a.str("name"))?
@@ -757,26 +972,43 @@ impl Session {
             "edit_feature" => self.edit_feature(&a)?,
             "suppress_features" | "resume_features" => {
                 let ids = self.feature_ids(a.get("features"))?;
-                if ids.is_empty() { return Err("No features given.".into()); }
+                if ids.is_empty() {
+                    return Err("No features given.".into());
+                }
                 let s = name == "suppress_features";
-                self.commit(|d| { for f in &mut d.features { if ids.contains(&f.id) { f.suppressed = s; } } Ok(()) })?;
+                self.commit(|d| {
+                    for f in &mut d.features {
+                        if ids.contains(&f.id) {
+                            f.suppressed = s;
+                        }
+                    }
+                    Ok(())
+                })?;
                 let mut out = json!({ "model": self.brief() });
                 out[if s { "suppressed" } else { "resumed" }] = json!(ids);
                 out
             }
             "delete_features" => {
                 let mut all = self.feature_ids(a.get("features"))?;
-                if all.is_empty() { return Err("No features given.".into()); }
-                if all.iter().any(|id| [FRONT_ID, TOP_ID, RIGHT_ID, CSYS_ID].contains(id)) { return Err("The default datum planes and BASIS cannot be deleted.".into()); }
+                if all.is_empty() {
+                    return Err("No features given.".into());
+                }
+                if all.iter().any(|id| [FRONT_ID, TOP_ID, RIGHT_ID, CSYS_ID].contains(id)) {
+                    return Err("The default datum planes and BASIS cannot be deleted.".into());
+                }
                 loop {
                     let extra: Vec<u64> = self.data.features.iter().filter(|f| !all.contains(&f.id) && f.kind.references().iter().any(|r| all.contains(r))).map(|f| f.id).collect();
-                    if extra.is_empty() { break; }
+                    if extra.is_empty() {
+                        break;
+                    }
                     all.extend(extra);
                 }
                 let names: Vec<String> = all.iter().filter_map(|id| self.data.feature(*id).map(|f| f.name.clone())).collect();
                 self.commit(|d| {
                     d.features.retain(|f| !all.contains(&f.id));
-                    if let Some(ii) = d.insert_index { d.insert_index = Some(ii.min(d.features.len())); }
+                    if let Some(ii) = d.insert_index {
+                        d.insert_index = Some(ii.min(d.features.len()));
+                    }
                     Ok(())
                 })?;
                 json!({ "deleted": names, "model": self.brief() })
@@ -789,7 +1021,10 @@ impl Session {
                         if k.is_empty() || !k.chars().all(|c| c.is_ascii_alphanumeric() || c == '_') || k.chars().next().unwrap().is_ascii_digit() {
                             return Err(format!("Invalid parameter name {:?}", k));
                         }
-                        if v.is_null() { d.parameters.retain(|p| !p.name.eq_ignore_ascii_case(k)); continue; }
+                        if v.is_null() {
+                            d.parameters.retain(|p| !p.name.eq_ignore_ascii_case(k));
+                            continue;
+                        }
                         let expr = dim_value(v, k)?.0;
                         match d.parameters.iter_mut().find(|p| p.name.eq_ignore_ascii_case(k)) {
                             Some(p) => p.expr = expr,
@@ -803,7 +1038,10 @@ impl Session {
             }
             "set_relations" => {
                 let rel = a.req_str("relations")?.to_string();
-                self.commit(|d| { d.relations = rel; Ok(()) })?;
+                self.commit(|d| {
+                    d.relations = rel;
+                    Ok(())
+                })?;
                 json!({ "relations": self.data.relations, "model": self.brief() })
             }
             "set_model_properties" => {
@@ -811,9 +1049,18 @@ impl Session {
                 let dens = a.f64("density_g_cm3")?;
                 let color = a.get("color").map(|c| nums(c, 3, "color")).transpose()?;
                 self.commit(|d| {
-                    if let Some(n) = name.filter(|n| !n.is_empty()) { d.name = n; }
-                    if let Some(x) = dens { if x <= 0.0 { return Err("density must be positive".into()); } d.density = x * 1e-6; }
-                    if let Some(c) = color { d.appearance.color = [c[0] as f32, c[1] as f32, c[2] as f32]; }
+                    if let Some(n) = name.filter(|n| !n.is_empty()) {
+                        d.name = n;
+                    }
+                    if let Some(x) = dens {
+                        if x <= 0.0 {
+                            return Err("density must be positive".into());
+                        }
+                        d.density = x * 1e-6;
+                    }
+                    if let Some(c) = color {
+                        d.appearance.color = [c[0] as f32, c[1] as f32, c[2] as f32];
+                    }
                     Ok(())
                 })?;
                 json!({ "name": self.data.name, "density_g_cm3": r(self.data.density * 1e6), "color": self.data.appearance.color })
@@ -839,8 +1086,12 @@ impl Session {
             "export_model" => {
                 let p = resolve_path(a.req_str("path")?);
                 let fmt = export_format(a.str("format"), &p)?;
-                if self.result.polys.is_empty() { return Err("The part has no solid geometry to export.".into()); }
-                if let Some(dir) = p.parent() { std::fs::create_dir_all(dir).map_err(|e| e.to_string())?; }
+                if self.result.polys.is_empty() {
+                    return Err("The part has no solid geometry to export.".into());
+                }
+                if let Some(dir) = p.parent() {
+                    std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
+                }
                 crate::app::export::write(&self.result, &self.data, fmt, &p)?;
                 let bytes = std::fs::metadata(&p).map(|m| m.len()).unwrap_or(0);
                 json!({ "exported": p, "format": fmt.name(), "bytes": bytes, "triangles": crate::app::export::triangles(&self.result).len() })
@@ -860,7 +1111,9 @@ impl Session {
                 let mut v = json!({ "width": w, "height": h, "bytes": png.len() });
                 if let Some(s) = a.str("path") {
                     let p = resolve_path(s);
-                    if let Some(dir) = p.parent() { std::fs::create_dir_all(dir).map_err(|e| e.to_string())?; }
+                    if let Some(dir) = p.parent() {
+                        std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
+                    }
                     std::fs::write(&p, &png).map_err(|e| format!("{}: {}", p.display(), e))?;
                     v["written"] = json!(p);
                 }
@@ -895,25 +1148,47 @@ impl Session {
         let t = &self.result.topo;
         Ok(match kind {
             "faces" => {
-                let faces: Vec<Value> = (0..t.faces.len()).take(limit).map(|i| {
-                    let f = &t.faces[i];
-                    let mut v = json!({ "index": i, "planar": f.planar, "center": v3(f.center), "normal": v3(f.normal), "area": r(f.area) });
-                    if let Some(fr) = t.face_frame(i) { v["local_x"] = v3(fr.x); v["local_y"] = v3(fr.y); }
-                    if let Some(id) = self.result.tag_owner.get(&t.face_tag(i)) { v["feature"] = json!(id); }
-                    v
-                }).collect();
+                let faces: Vec<Value> = (0..t.faces.len())
+                    .take(limit)
+                    .map(|i| {
+                        let f = &t.faces[i];
+                        let mut v = json!({ "index": i, "planar": f.planar, "center": v3(f.center), "normal": v3(f.normal), "area": r(f.area) });
+                        if let Some(fr) = t.face_frame(i) {
+                            v["local_x"] = v3(fr.x);
+                            v["local_y"] = v3(fr.y);
+                        }
+                        if let Some(id) = self.result.tag_owner.get(&t.face_tag(i)) {
+                            v["feature"] = json!(id);
+                        }
+                        v
+                    })
+                    .collect();
                 json!({ "count": t.faces.len(), "faces": faces })
             }
             "edges" => {
-                let edges: Vec<Value> = t.chains.iter().enumerate().take(limit).map(|(i, c)| json!({
-                    "index": i, "start": v3(c.points[0]), "end": v3(*c.points.last().unwrap()), "mid": v3(c.mid()), "length": r(c.length()),
-                    "straight": c.is_straight(), "closed": c.closed, "convex": c.convex, "faces": [c.face_a, c.face_b],
-                })).collect();
+                let edges: Vec<Value> = t
+                    .chains
+                    .iter()
+                    .enumerate()
+                    .take(limit)
+                    .map(|(i, c)| {
+                        json!({
+                            "index": i, "start": v3(c.points[0]), "end": v3(*c.points.last().unwrap()), "mid": v3(c.mid()), "length": r(c.length()),
+                            "straight": c.is_straight(), "closed": c.closed, "convex": c.convex, "faces": [c.face_a, c.face_b],
+                        })
+                    })
+                    .collect();
                 json!({ "count": t.chains.len(), "edges": edges })
             }
             "datums" => {
-                let planes: Vec<Value> = self.result.planes.iter().map(|p| json!({ "id": p.id, "name": p.name, "origin": v3(p.frame.origin), "normal": v3(p.frame.z()), "local_x": v3(p.frame.x), "local_y": v3(p.frame.y) })).collect();
-                let axes: Vec<Value> = self.result.axes.iter().map(|x| json!({ "id": x.id, "name": x.name, "feature": x.feature, "point": v3(x.point), "direction": v3(x.dir) })).collect();
+                let planes: Vec<Value> = self
+                    .result
+                    .planes
+                    .iter()
+                    .map(|p| json!({ "id": p.id, "name": p.name, "origin": v3(p.frame.origin), "normal": v3(p.frame.z()), "local_x": v3(p.frame.x), "local_y": v3(p.frame.y) }))
+                    .collect();
+                let axes: Vec<Value> =
+                    self.result.axes.iter().map(|x| json!({ "id": x.id, "name": x.name, "feature": x.feature, "point": v3(x.point), "direction": v3(x.dir) })).collect();
                 let points: Vec<Value> = self.result.points.iter().map(|p| json!({ "id": p.id, "name": p.name, "point": v3(p.p) })).collect();
                 json!({ "planes": planes, "axes": axes, "points": points })
             }
@@ -927,7 +1202,10 @@ impl Session {
         let mut kind = f.kind.clone();
         if let Some(shapes) = a.get("shapes") {
             let sk = build_sketch(shapes)?;
-            match sketch_of_mut(&mut kind) { Some(s) => *s = sk, None => return Err(format!("{} has no sketch.", f.name)) }
+            match sketch_of_mut(&mut kind) {
+                Some(s) => *s = sk,
+                None => return Err(format!("{} has no sketch.", f.name)),
+            }
         }
         if let Some(p) = a.get("plane") {
             let p = self.plane_ref(p)?;
@@ -958,7 +1236,10 @@ impl Session {
         if let Some(set) = a.get("set") {
             let set = set.as_object().ok_or("set must be an object of field path → value")?;
             let mut v = serde_json::to_value(&kind).map_err(|e| e.to_string())?;
-            let inner = match &mut v { Value::Object(o) if o.len() == 1 => o.values_mut().next().unwrap(), _ => return Err(format!("{} has no editable fields.", f.name)) };
+            let inner = match &mut v {
+                Value::Object(o) if o.len() == 1 => o.values_mut().next().unwrap(),
+                _ => return Err(format!("{} has no editable fields.", f.name)),
+            };
             for (path, val) in set {
                 let mut cur: &mut Value = &mut *inner;
                 for seg in path.split('.') {
@@ -969,7 +1250,10 @@ impl Session {
                             }
                             o.get_mut(seg).unwrap()
                         }
-                        Value::Array(arr) => { let i: usize = seg.parse().map_err(|_| format!("{:?} must be an array index", seg))?; arr.get_mut(i).ok_or(format!("index {} out of range", i))? }
+                        Value::Array(arr) => {
+                            let i: usize = seg.parse().map_err(|_| format!("{:?} must be an array index", seg))?;
+                            arr.get_mut(i).ok_or(format!("index {} out of range", i))?
+                        }
                         _ => return Err(format!("{} cannot be indexed with {:?}", path, seg)),
                     };
                 }
@@ -983,12 +1267,16 @@ impl Session {
         }
         let new_name = a.str("name").map(|s| s.trim().to_string()).filter(|s| !s.is_empty());
         if let Some(n) = &new_name {
-            if self.data.features.iter().any(|g| g.id != id && g.name.eq_ignore_ascii_case(n)) { return Err(format!("A feature named {} already exists.", n)); }
+            if self.data.features.iter().any(|g| g.id != id && g.name.eq_ignore_ascii_case(n)) {
+                return Err(format!("A feature named {} already exists.", n));
+            }
         }
         self.commit(|d| {
             let g = d.features.iter_mut().find(|g| g.id == id).unwrap();
             g.kind = kind;
-            if let Some(n) = new_name { g.name = n; }
+            if let Some(n) = new_name {
+                g.name = n;
+            }
             Ok(())
         })?;
         let g = self.data.feature(id).unwrap();
@@ -998,31 +1286,47 @@ impl Session {
 
 fn sketch_of(k: &FeatureKind) -> Option<&Sketch> {
     match k {
-        FeatureKind::Sketch(d) => Some(&d.sketch), FeatureKind::Extrude(d) => Some(&d.sketch), FeatureKind::Revolve(d) => Some(&d.sketch),
-        FeatureKind::Rib(d) => Some(&d.sketch), _ => None,
+        FeatureKind::Sketch(d) => Some(&d.sketch),
+        FeatureKind::Extrude(d) => Some(&d.sketch),
+        FeatureKind::Revolve(d) => Some(&d.sketch),
+        FeatureKind::Rib(d) => Some(&d.sketch),
+        _ => None,
     }
 }
 
 fn sketch_of_mut(k: &mut FeatureKind) -> Option<&mut Sketch> {
     match k {
-        FeatureKind::Sketch(d) => Some(&mut d.sketch), FeatureKind::Extrude(d) => Some(&mut d.sketch), FeatureKind::Revolve(d) => Some(&mut d.sketch),
-        FeatureKind::Rib(d) => Some(&mut d.sketch), _ => None,
+        FeatureKind::Sketch(d) => Some(&mut d.sketch),
+        FeatureKind::Extrude(d) => Some(&mut d.sketch),
+        FeatureKind::Revolve(d) => Some(&mut d.sketch),
+        FeatureKind::Rib(d) => Some(&mut d.sketch),
+        _ => None,
     }
 }
 
 // ---------------------------------------------------------------- JSON-RPC
 
-pub struct Server { pub session: Session }
-
-impl Default for Server {
-    fn default() -> Self { Server::new() }
+pub struct Server {
+    pub session: Session,
 }
 
-fn rpc_error(id: Value, code: i64, msg: &str) -> Value { json!({ "jsonrpc": "2.0", "id": id, "error": { "code": code, "message": msg } }) }
-fn rpc_ok(id: Value, result: Value) -> Value { json!({ "jsonrpc": "2.0", "id": id, "result": result }) }
+impl Default for Server {
+    fn default() -> Self {
+        Server::new()
+    }
+}
+
+fn rpc_error(id: Value, code: i64, msg: &str) -> Value {
+    json!({ "jsonrpc": "2.0", "id": id, "error": { "code": code, "message": msg } })
+}
+fn rpc_ok(id: Value, result: Value) -> Value {
+    json!({ "jsonrpc": "2.0", "id": id, "result": result })
+}
 
 impl Server {
-    pub fn new() -> Server { Server { session: Session::new() } }
+    pub fn new() -> Server {
+        Server { session: Session::new() }
+    }
 
     /// Handles one line of input; returns the line to send back, if any.
     pub fn handle_line(&mut self, line: &str) -> Option<String> {
@@ -1033,7 +1337,11 @@ impl Server {
         match msg {
             Value::Array(batch) => {
                 let out: Vec<Value> = batch.into_iter().filter_map(|m| self.handle(m)).collect();
-                if out.is_empty() { None } else { Some(Value::Array(out).to_string()) }
+                if out.is_empty() {
+                    None
+                } else {
+                    Some(Value::Array(out).to_string())
+                }
             }
             m => self.handle(m).map(|v| v.to_string()),
         }
@@ -1051,31 +1359,42 @@ impl Server {
             "initialize" => {
                 let asked = params.get("protocolVersion").and_then(Value::as_str).unwrap_or("");
                 let version = PROTOCOL_VERSIONS.iter().find(|v| **v == asked).copied().unwrap_or(PROTOCOL_VERSIONS[0]);
-                rpc_ok(id, json!({
-                    "protocolVersion": version,
-                    "capabilities": { "tools": { "listChanged": false }, "resources": { "listChanged": false, "subscribe": false } },
-                    "serverInfo": { "name": "freo", "title": "Freo parametric CAD", "version": env!("CARGO_PKG_VERSION") },
-                    "instructions": INSTRUCTIONS,
-                }))
+                rpc_ok(
+                    id,
+                    json!({
+                        "protocolVersion": version,
+                        "capabilities": { "tools": { "listChanged": false }, "resources": { "listChanged": false, "subscribe": false } },
+                        "serverInfo": { "name": "freo", "title": "Freo parametric CAD", "version": env!("CARGO_PKG_VERSION") },
+                        "instructions": INSTRUCTIONS,
+                    }),
+                )
             }
             "ping" => rpc_ok(id, json!({})),
             "tools/list" => rpc_ok(id, json!({ "tools": tool_list() })),
             "tools/call" => {
                 let Some(name) = params.get("name").and_then(Value::as_str) else { return Some(rpc_error(id, -32602, "tools/call needs a tool name")) };
-                if !tool_list().iter().any(|t| t["name"] == name) { return Some(rpc_error(id, -32602, &format!("Unknown tool: {}", name))); }
+                if !tool_list().iter().any(|t| t["name"] == name) {
+                    return Some(rpc_error(id, -32602, &format!("Unknown tool: {}", name)));
+                }
                 let args = params.get("arguments").and_then(Value::as_object).cloned().unwrap_or_default();
                 rpc_ok(id, self.call_tool(name, &args))
             }
-            "resources/list" => rpc_ok(id, json!({ "resources": [
+            "resources/list" => rpc_ok(
+                id,
+                json!({ "resources": [
                 { "uri": "freo://model/current", "name": "current-model", "title": "Current part (Freo JSON)", "description": "The complete part definition as saved in .pfprt files", "mimeType": "application/json" },
                 { "uri": "freo://model/features", "name": "model-tree", "title": "Model tree", "description": "Features with ids, types, states and main dimensions", "mimeType": "application/json" },
-            ] })),
+            ] }),
+            ),
             "resources/templates/list" => rpc_ok(id, json!({ "resourceTemplates": [] })),
             "resources/read" => {
                 let uri = params.get("uri").and_then(Value::as_str).unwrap_or("");
                 let text = match uri {
                     "freo://model/current" => serde_json::to_string_pretty(&self.session.data).unwrap_or_default(),
-                    "freo://model/features" => match self.session.call("list_features", &Map::new()) { Ok(o) => serde_json::to_string_pretty(&o.value).unwrap_or_default(), Err(e) => e },
+                    "freo://model/features" => match self.session.call("list_features", &Map::new()) {
+                        Ok(o) => serde_json::to_string_pretty(&o.value).unwrap_or_default(),
+                        Err(e) => e,
+                    },
                     _ => return Some(rpc_error(id, -32002, &format!("Resource not found: {}", uri))),
                 };
                 rpc_ok(id, json!({ "contents": [{ "uri": uri, "mimeType": "application/json", "text": text }] }))
@@ -1103,9 +1422,13 @@ impl Server {
             Ok(out) => {
                 let text = out.value.to_string();
                 let mut content = vec![json!({ "type": "text", "text": text })];
-                if let Some(png) = out.png { content.push(json!({ "type": "image", "data": base64(&png), "mimeType": "image/png" })); }
+                if let Some(png) = out.png {
+                    content.push(json!({ "type": "image", "data": base64(&png), "mimeType": "image/png" }));
+                }
                 let mut res = json!({ "content": content, "isError": false });
-                if out.value.is_object() { res["structuredContent"] = out.value; }
+                if out.value.is_object() {
+                    res["structuredContent"] = out.value;
+                }
                 res
             }
             Err(e) => json!({ "content": [{ "type": "text", "text": e }], "isError": true }),
@@ -1118,7 +1441,9 @@ pub fn serve<R: BufRead, W: Write>(input: R, mut output: W) -> std::io::Result<(
     let mut server = Server::new();
     for line in input.lines() {
         let line = line?;
-        if line.trim().is_empty() { continue; }
+        if line.trim().is_empty() {
+            continue;
+        }
         if let Some(out) = server.handle_line(&line) {
             writeln!(output, "{}", out)?;
             output.flush()?;

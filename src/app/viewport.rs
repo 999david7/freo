@@ -22,7 +22,9 @@ fn push_line(v: &mut Vec<f32>, a: V3, b: V3, c: [f32; 4]) {
 }
 
 fn push_tri(v: &mut Vec<f32>, p: [V3; 3], c: [f32; 4]) {
-    for q in p { v.extend_from_slice(&[q.x as f32, q.y as f32, q.z as f32, c[0], c[1], c[2], c[3]]); }
+    for q in p {
+        v.extend_from_slice(&[q.x as f32, q.y as f32, q.z as f32, c[0], c[1], c[2], c[3]]);
+    }
 }
 
 fn face_tris(r: &RegenResult, faces: &[usize], out: &mut Vec<f32>) {
@@ -73,7 +75,11 @@ impl App {
                 Pick::Point(_) => {}
             }
         }
-        if self.selection.is_empty() { for id in &self.tree_selection { faces.extend(self.faces_of_feature(*id)); } }
+        if self.selection.is_empty() {
+            for id in &self.tree_selection {
+                faces.extend(self.faces_of_feature(*id));
+            }
+        }
         faces.extend(self.sim_highlight());
         for p in self.place_ref_picks() {
             match p {
@@ -91,18 +97,28 @@ impl App {
                 FeatureKind::Round(d) => edges.extend(d.sets.iter().flat_map(|s| s.edges.iter()).filter_map(|e| t.match_chain(e))),
                 FeatureKind::Chamfer(d) => edges.extend(d.edges.iter().filter_map(|e| t.match_chain(e))),
                 FeatureKind::Shell(d) => faces.extend(d.faces.iter().filter_map(|f| t.match_face(f.point, f.normal))),
-                FeatureKind::Draft(d) => { faces.extend(d.faces.iter().filter_map(|f| t.match_face(f.point, f.normal))); refs.push(d.hinge); }
+                FeatureKind::Draft(d) => {
+                    faces.extend(d.faces.iter().filter_map(|f| t.match_face(f.point, f.normal)));
+                    refs.push(d.hinge);
+                }
                 FeatureKind::Hole(d) => refs.push(d.plane),
                 FeatureKind::Mirror(d) => refs.push(d.plane),
                 FeatureKind::DatumPlane(d) => refs.push(d.reference),
-                FeatureKind::DatumAxis(d) => { refs.push(d.p1); refs.push(d.p2); }
+                FeatureKind::DatumAxis(d) => {
+                    refs.push(d.p1);
+                    refs.push(d.p2);
+                }
                 k => refs.push(k.sketch_plane()),
             }
             if self.sketch.is_none() {
                 for p in refs {
                     match p {
                         Some(PlaneRef::Datum(id)) => planes.push(id),
-                        Some(PlaneRef::Face(fr)) => if let Some(f) = t.match_face(fr.point, fr.normal) { faces.push(f) },
+                        Some(PlaneRef::Face(fr)) => {
+                            if let Some(f) = t.match_face(fr.point, fr.normal) {
+                                faces.push(f)
+                            }
+                        }
                         None => {}
                     }
                 }
@@ -123,26 +139,38 @@ impl App {
             self.fit_pending = false;
         }
         let b = self.displayed().topo.bbox;
-        if !b.is_empty() { self.camera.depth = b.diagonal() * 10.0 + 1000.0; }
+        if !b.is_empty() {
+            self.camera.depth = b.diagonal() * 10.0 + 1000.0;
+        }
 
         // ---- navigation (middle = spin, ⇧ middle = pan, wheel = zoom, as in Creo) ----
         let (scroll, zoom, mods, pointer) = ui.input(|i| (i.smooth_scroll_delta, i.zoom_delta(), i.modifiers, i.pointer.clone()));
         let hover_pos = resp.hover_pos();
         let local = |p: Pos2| (p.x - rect.min.x, p.y - rect.min.y);
         if let Some(hp) = hover_pos {
-            if zoom != 1.0 { self.camera.zoom_at(1.0 / zoom as f64, local(hp), size); }
+            if zoom != 1.0 {
+                self.camera.zoom_at(1.0 / zoom as f64, local(hp), size);
+            }
             if scroll.y != 0.0 || scroll.x != 0.0 {
-                if mods.shift { self.camera.pan(-scroll.x, -scroll.y, size.1); }
-                else if mods.alt { self.camera.orbit(-scroll.x, -scroll.y); }
-                else { self.camera.zoom_at((-scroll.y as f64 * 0.0025).exp(), local(hp), size); }
+                if mods.shift {
+                    self.camera.pan(-scroll.x, -scroll.y, size.1);
+                } else if mods.alt {
+                    self.camera.orbit(-scroll.x, -scroll.y);
+                } else {
+                    self.camera.zoom_at((-scroll.y as f64 * 0.0025).exp(), local(hp), size);
+                }
             }
         }
         let delta = pointer.delta();
         let orbit_btn = pointer.middle_down() || pointer.secondary_down() || (pointer.primary_down() && mods.alt);
         if resp.dragged() && orbit_btn && (delta.x != 0.0 || delta.y != 0.0) {
-            if mods.shift { self.camera.pan(delta.x, delta.y, size.1); }
-            else if mods.ctrl { self.camera.zoom_at((delta.y as f64 * 0.01).exp(), (size.0 / 2.0, size.1 / 2.0), size); }
-            else { self.camera.orbit(delta.x, delta.y); }
+            if mods.shift {
+                self.camera.pan(delta.x, delta.y, size.1);
+            } else if mods.ctrl {
+                self.camera.zoom_at((delta.y as f64 * 0.01).exp(), (size.0 / 2.0, size.1 / 2.0), size);
+            } else {
+                self.camera.orbit(delta.x, delta.y);
+            }
         }
         let dragging = resp.dragged() && orbit_btn;
         // Component Placement: drag moves the component being placed, ⇧ drag rotates it
@@ -154,20 +182,39 @@ impl App {
             // Skizzen-Setup: a plane or planar face picked in the graphics window becomes the new sketch plane
             self.hover = hover_pos.and_then(|hp| self.pick_at(local(hp))).filter(|p| self.plane_ref(&[*p]).is_some());
             if resp.clicked() {
-                if let Some(pr) = self.hover.and_then(|p| self.plane_ref(&[p])) { if let Some(r) = &mut self.resetup { r.0 = pr; } }
+                if let Some(pr) = self.hover.and_then(|p| self.plane_ref(&[p])) {
+                    if let Some(r) = &mut self.resetup {
+                        r.0 = pr;
+                    }
+                }
             }
         } else if self.sketch.is_some() {
             let cam = self.camera;
-            if let Some(s) = &mut self.sketch { s.interact(ui, &resp, rect, &cam); }
+            if let Some(s) = &mut self.sketch {
+                s.interact(ui, &resp, rect, &cam);
+            }
             self.hover = None;
         } else {
             // ---- preselection, selection, edit dimensions ----
             if let Some(hp) = hover_pos {
-                if !dragging && !pointer.any_down() { self.hover = self.pick_at(local(hp)); }
-            } else { self.hover = None; }
-            if let Some(fid) = self.tree_hover { if self.hover.is_none() { self.hover = Some(Pick::Feature(fid)); } }
-            self.tree_hover_ext = match self.hover { Some(p) if hover_pos.is_some() => self.owner(p), _ => None };
-            if resp.clicked() && !mods.alt {
+                if !dragging && !pointer.any_down() {
+                    self.hover = self.pick_at(local(hp));
+                }
+            } else {
+                self.hover = None;
+            }
+            if let Some(fid) = self.tree_hover {
+                if self.hover.is_none() {
+                    self.hover = Some(Pick::Feature(fid));
+                }
+            }
+            self.tree_hover_ext = match self.hover {
+                Some(p) if hover_pos.is_some() => self.owner(p),
+                _ => None,
+            };
+            if resp.clicked() && !mods.alt && ui.ctx().data(|d| d.get_temp::<egui::Rect>(egui::Id::new("dir_arrow"))).is_some_and(|r| hover_pos.is_some_and(|p| r.contains(p))) {
+                self.flip_extrude_direction();
+            } else if resp.clicked() && !mods.alt {
                 let p0 = hover_pos.and_then(|hp| self.pick_at(local(hp)));
                 let consumed = hover_pos.is_some_and(|hp| self.annot_click(ui.ctx(), hp, local(hp), p0, mods.shift || mods.command))
                     || hover_pos.map(|hp| self.dims_click(hp)).unwrap_or(false)
@@ -176,7 +223,9 @@ impl App {
                     let p = hover_pos.and_then(|hp| self.pick_at(local(hp)));
                     if self.edit_dims.is_some() {
                         let owner = p.and_then(|p| self.owner(p));
-                        if owner != self.edit_dims.as_ref().map(|e| e.feature) { self.edit_dims = None; }
+                        if owner != self.edit_dims.as_ref().map(|e| e.feature) {
+                            self.edit_dims = None;
+                        }
                     }
                     self.handle_pick(p, mods.shift || mods.command);
                     self.mini = match (p, hover_pos) {
@@ -187,14 +236,23 @@ impl App {
             }
             if resp.double_clicked() && self.editor.is_none() && !self.placing() {
                 if let Some(o) = hover_pos.and_then(|hp| self.pick_at(local(hp))).and_then(|p| self.owner(p)) {
-                    if self.in_asm() { if self.component(o).is_some() { self.edit_placement(o); } }
-                    else if self.data.feature(o).is_some() { self.start_edit_dims(o); }
+                    if self.in_asm() {
+                        if self.component(o).is_some() {
+                            self.edit_placement(o);
+                        }
+                    } else if self.data.feature(o).is_some() {
+                        self.start_edit_dims(o);
+                    }
                 }
             }
             if resp.secondary_clicked() {
                 let p = hover_pos.and_then(|hp| self.pick_at(local(hp)));
                 ui.ctx().data_mut(|d| d.insert_temp(egui::Id::new("ctx_pick"), p));
-                if let Some(p) = p { if !self.selection.contains(&p) && self.editor.is_none() && !self.placing() { self.selection = vec![p]; } }
+                if let Some(p) = p {
+                    if !self.selection.contains(&p) && self.editor.is_none() && !self.placing() {
+                        self.selection = vec![p];
+                    }
+                }
                 self.mini = None;
             }
             resp.context_menu(|ui| self.context_menu(ui));
@@ -210,34 +268,67 @@ impl App {
         let mut lines = vec![];
         match self.hover {
             Some(Pick::Face(f)) if !faces.contains(&f) => face_tris(&r, &[f], &mut hover_tris),
-            Some(Pick::Feature(id)) => { let fs = self.faces_of_feature(id); face_tris(&r, &fs, &mut hover_tris); }
+            Some(Pick::Feature(id)) => {
+                let fs = self.faces_of_feature(id);
+                face_tris(&r, &fs, &mut hover_tris);
+            }
             _ => {}
         }
         let back = self.camera.back();
         if self.show_planes || self.editor.as_ref().map(|e| e.pick.is_some()).unwrap_or(false) {
             for p in &r.planes {
-                if self.data.feature(p.id).map(|f| f.hidden).unwrap_or(false) { continue; }
+                if self.data.feature(p.id).map(|f| f.hidden).unwrap_or(false) {
+                    continue;
+                }
                 let q = plane_quad(p, &r);
                 let sel = planes.contains(&p.id);
                 let hov = self.hover == Some(Pick::Plane(p.id));
                 let front = p.frame.z().dot(back) >= 0.0;
-                let fill = if sel { [0.10, 0.80, 0.30, 0.20] } else if hov { [0.20, 0.65, 1.0, 0.18] } else if front { [0.86, 0.72, 0.46, 0.07] } else { [0.6, 0.6, 0.62, 0.05] };
+                let fill = if sel {
+                    [0.10, 0.80, 0.30, 0.20]
+                } else if hov {
+                    [0.20, 0.65, 1.0, 0.18]
+                } else if front {
+                    [0.86, 0.72, 0.46, 0.07]
+                } else {
+                    [0.6, 0.6, 0.62, 0.05]
+                };
                 push_tri(&mut glass, [q[0], q[1], q[2]], fill);
                 push_tri(&mut glass, [q[0], q[2], q[3]], fill);
-                let c = if sel { [0.05, 0.70, 0.25, 1.0] } else if hov { [0.15, 0.60, 1.0, 1.0] } else if front { DATUM_FRONT } else { DATUM_BACK };
-                for i in 0..4 { push_line(&mut lines, q[i], q[(i + 1) % 4], c); }
+                let c = if sel {
+                    [0.05, 0.70, 0.25, 1.0]
+                } else if hov {
+                    [0.15, 0.60, 1.0, 1.0]
+                } else if front {
+                    DATUM_FRONT
+                } else {
+                    DATUM_BACK
+                };
+                for i in 0..4 {
+                    push_line(&mut lines, q[i], q[(i + 1) % 4], c);
+                }
             }
         }
         if self.show_axes {
             for a in &r.axes {
                 let (p0, p1) = axis_segment(a, &r);
-                let c = if axes.contains(&a.id) { [0.05, 0.70, 0.25, 1.0] } else if self.hover == Some(Pick::Axis(a.id)) { [0.15, 0.60, 1.0, 1.0] } else { AXIS };
+                let c = if axes.contains(&a.id) {
+                    [0.05, 0.70, 0.25, 1.0]
+                } else if self.hover == Some(Pick::Axis(a.id)) {
+                    [0.15, 0.60, 1.0, 1.0]
+                } else {
+                    AXIS
+                };
                 dash_dot(&mut lines, p0, p1, c, 14);
             }
         }
         let s = (if b.is_empty() { 100.0 } else { b.diagonal() }) * 0.015;
         if self.show_points {
-            for p in &r.points { for d in [V3::X, V3::Y, V3::Z] { push_line(&mut lines, p.p - d * s, p.p + d * s, AXIS); } }
+            for p in &r.points {
+                for d in [V3::X, V3::Y, V3::Z] {
+                    push_line(&mut lines, p.p - d * s, p.p + d * s, AXIS);
+                }
+            }
         }
         let csys_on = self.show_csys && !self.data.feature(CSYS_ID).map(|f| f.hidden || f.suppressed).unwrap_or(true);
         if csys_on {
@@ -251,7 +342,9 @@ impl App {
         }
         if self.show_csys {
             for c in &r.csys {
-                if self.data.feature(c.id).map(|f| f.hidden).unwrap_or(false) { continue; }
+                if self.data.feature(c.id).map(|f| f.hidden).unwrap_or(false) {
+                    continue;
+                }
                 let l = s * 3.0;
                 let (o, f) = (c.frame.origin, c.frame);
                 for (d, side) in [(f.x, f.y), (f.y, f.x), (f.z(), f.x)] {
@@ -264,7 +357,14 @@ impl App {
         for c in &r.cosmetics {
             let w = safe_norm(c.dir.cross(if c.dir.x.abs() < 0.9 { V3::X } else { V3::Y }), V3::X);
             let v2 = c.dir.cross(w);
-            let ring = |off: f64| -> Vec<V3> { (0..=48).map(|k| { let t = std::f64::consts::TAU * k as f64 / 48.0; c.base + c.dir * off + (w * t.cos() + v2 * t.sin()) * c.radius }).collect() };
+            let ring = |off: f64| -> Vec<V3> {
+                (0..=48)
+                    .map(|k| {
+                        let t = std::f64::consts::TAU * k as f64 / 48.0;
+                        c.base + c.dir * off + (w * t.cos() + v2 * t.sin()) * c.radius
+                    })
+                    .collect()
+            };
             let (r0, r1) = (ring(0.0), ring(c.length));
             let col = [0.92, 0.55, 0.15, 1.0];
             for k in 0..48 {
@@ -276,8 +376,14 @@ impl App {
         }
         if self.show_curves {
             for c in &r.curves {
-                if self.data.feature(c.feature).map(|f| f.hidden).unwrap_or(false) { continue; }
-                for pl in &c.polylines { for w in pl.windows(2) { push_line(&mut lines, w[0], w[1], CURVE); } }
+                if self.data.feature(c.feature).map(|f| f.hidden).unwrap_or(false) {
+                    continue;
+                }
+                for pl in &c.polylines {
+                    for w in pl.windows(2) {
+                        push_line(&mut lines, w[0], w[1], CURVE);
+                    }
+                }
             }
         }
         if let Some(ed) = &self.editor {
@@ -286,7 +392,9 @@ impl App {
                     if let Some(sk) = self.sketch_for(Slot::Main) {
                         for e in &sk.entities {
                             let pts = sk.sample(e, 64);
-                            for w in pts.windows(2) { push_line(&mut lines, fr.to_world(w[0]), fr.to_world(w[1]), [0.95, 0.55, 0.05, 1.0]); }
+                            for w in pts.windows(2) {
+                                push_line(&mut lines, fr.to_world(w[0]), fr.to_world(w[1]), [0.95, 0.55, 0.05, 1.0]);
+                            }
                         }
                     }
                 }
@@ -294,13 +402,17 @@ impl App {
                     if let Some(tool) = self.preview.as_ref().and_then(|p| p.tools.get(&ed.feature.id)) {
                         let col = if tool.op == crate::model::regen::Op::Cut { [0.95, 0.35, 0.2, 0.10] } else { [1.0, 0.85, 0.1, 0.10] };
                         for p in tool.polys.iter().take(20000) {
-                            for k in 1..p.v.len() - 1 { push_tri(&mut glass, [p.v[0].p, p.v[k].p, p.v[k + 1].p], col); }
+                            for k in 1..p.v.len() - 1 {
+                                push_tri(&mut glass, [p.v[0].p, p.v[k].p, p.v[k + 1].p], col);
+                            }
                         }
                     }
                 }
             }
         }
-        if let Some(op) = self.editing_from_asm() { glass.extend_from_slice(&op.ghost); }
+        if let Some(op) = self.editing_from_asm() {
+            glass.extend_from_slice(&op.ghost);
+        }
         // Live-Simulation: the result picture replaces the model
         let sim = self.sim_frame(&mut lines);
         let a = &self.data.appearance;
@@ -312,12 +424,21 @@ impl App {
             model: sim.as_ref().map(|s| s.0.clone()).unwrap_or_else(|| self.buffers.clone()),
             color: if sim.is_some() { [1.0, 1.0, 1.0] } else { tint },
             // Transparenzsteuerung: Volumenkörper n % transparent (never fully invisible)
-            opacity: if let Some(s) = &sim { s.1 } else if self.transparent { (1.0 - self.creo.gfx.transp_pct[0] as f32 / 100.0).max(0.08) } else if self.asm_view().is_some() { 1.0 } else { a.opacity },
+            opacity: if let Some(s) = &sim {
+                s.1
+            } else if self.transparent {
+                (1.0 - self.creo.gfx.transp_pct[0] as f32 / 100.0).max(0.08)
+            } else if self.asm_view().is_some() {
+                1.0
+            } else {
+                a.opacity
+            },
             style: if sim.is_some() && matches!(self.style, Style::Wireframe | Style::HiddenLine | Style::NoHidden) { Style::ShadedEdges } else { self.style },
             section,
             hl_tris,
             hl_color: SEL,
             hover_tris,
+            overlay: self.analysis_overlay(),
             lines,
             glass,
             depth_bias: 0.0004,
@@ -327,7 +448,9 @@ impl App {
         if let Some(rend) = &self.renderer {
             let rend = rend.clone();
             let frame = Arc::new(frame);
-            let cb = eframe::egui_glow::CallbackFn::new(move |_info, p| { rend.lock().unwrap().paint(p.gl(), &frame); });
+            let cb = eframe::egui_glow::CallbackFn::new(move |_info, p| {
+                rend.lock().unwrap().paint(p.gl(), &frame);
+            });
             painter.add(egui::PaintCallback { rect, callback: Arc::new(cb) });
         }
 
@@ -336,50 +459,84 @@ impl App {
         let chain_line = |ci: usize, col: Color32, w: f32| {
             if let Some(c) = r.topo.chains.get(ci) {
                 let mut pts: Vec<Pos2> = c.points.iter().filter_map(|p| to_screen(*p)).collect();
-                if c.closed { if let Some(f) = pts.first().copied() { pts.push(f); } }
+                if c.closed {
+                    if let Some(f) = pts.first().copied() {
+                        pts.push(f);
+                    }
+                }
                 painter.add(egui::Shape::line(pts, Stroke::new(w, col)));
             }
         };
-        for &e in &edges { chain_line(e, SEL32, 3.0); }
-        if let Some(Pick::Edge(e)) = self.hover { if !edges.contains(&e) { chain_line(e, PRE32, 3.0); } }
+        for &e in &edges {
+            chain_line(e, SEL32, 3.0);
+        }
+        if let Some(Pick::Edge(e)) = self.hover {
+            if !edges.contains(&e) {
+                chain_line(e, PRE32, 3.0);
+            }
+        }
         self.draw_model_grid(&painter, &to_screen);
+        self.draw_ar_targets(&painter, &to_screen);
+        self.draw_analysis_legend(&painter, rect);
+        self.draw_direction_arrow(&painter, &to_screen);
+        self.draw_loop_offer(&painter, &to_screen);
         self.draw_annots(&painter, &to_screen);
         if self.show_tags {
             if self.show_planes {
                 for p in &r.planes {
-                    if self.data.feature(p.id).map(|f| f.hidden).unwrap_or(false) { continue; }
+                    if self.data.feature(p.id).map(|f| f.hidden).unwrap_or(false) {
+                        continue;
+                    }
                     let q = plane_quad(p, &r);
                     // tag at the corner nearest the top-left of the screen
                     let corner = q.iter().filter_map(|c| to_screen(*c)).min_by(|a, b| (a.x + a.y).partial_cmp(&(b.x + b.y)).unwrap());
-                    if let Some(sp) = corner { datum_tag(&painter, sp + egui::vec2(4.0, 3.0), &p.name, TAG); }
+                    if let Some(sp) = corner {
+                        datum_tag(&painter, sp + egui::vec2(4.0, 3.0), &p.name, TAG);
+                    }
                 }
             }
             if self.show_axes {
                 for ax in &r.axes {
                     let (_, p1) = axis_segment(ax, &r);
-                    if let Some(sp) = to_screen(p1) { datum_tag(&painter, sp + egui::vec2(3.0, -16.0), &ax.name, TAG); }
+                    if let Some(sp) = to_screen(p1) {
+                        datum_tag(&painter, sp + egui::vec2(3.0, -16.0), &ax.name, TAG);
+                    }
                 }
             }
             if self.show_points {
-                for p in &r.points { if let Some(sp) = to_screen(p.p) { datum_tag(&painter, sp + egui::vec2(6.0, -18.0), &p.name, TAG); } }
+                for p in &r.points {
+                    if let Some(sp) = to_screen(p.p) {
+                        datum_tag(&painter, sp + egui::vec2(6.0, -18.0), &p.name, TAG);
+                    }
+                }
             }
             if csys_on {
                 let l = s * 4.0;
                 for (d, n) in [(V3::X, "X"), (V3::Y, "Y"), (V3::Z, "Z")] {
-                    if let Some(sp) = to_screen(d * (l * 1.12)) { painter.text(sp, egui::Align2::CENTER_CENTER, n, egui::FontId::proportional(11.0), TAG); }
+                    if let Some(sp) = to_screen(d * (l * 1.12)) {
+                        painter.text(sp, egui::Align2::CENTER_CENTER, n, egui::FontId::proportional(11.0), TAG);
+                    }
                 }
                 let name = self.data.feature(CSYS_ID).map(|f| f.name.clone()).unwrap_or("BASIS".into());
-                if let Some(sp) = to_screen(V3::ZERO) { datum_tag(&painter, sp + egui::vec2(6.0, 6.0), &name, TAG); }
+                if let Some(sp) = to_screen(V3::ZERO) {
+                    datum_tag(&painter, sp + egui::vec2(6.0, 6.0), &name, TAG);
+                }
             }
             if self.show_csys {
                 let l = s * 3.0;
                 for c in &r.csys {
-                    if self.data.feature(c.id).map(|f| f.hidden).unwrap_or(false) { continue; }
+                    if self.data.feature(c.id).map(|f| f.hidden).unwrap_or(false) {
+                        continue;
+                    }
                     let f = c.frame;
                     for (d, n) in [(f.x, "X"), (f.y, "Y"), (f.z(), "Z")] {
-                        if let Some(sp) = to_screen(f.origin + d * (l * 1.12)) { painter.text(sp, egui::Align2::CENTER_CENTER, n, egui::FontId::proportional(11.0), TAG); }
+                        if let Some(sp) = to_screen(f.origin + d * (l * 1.12)) {
+                            painter.text(sp, egui::Align2::CENTER_CENTER, n, egui::FontId::proportional(11.0), TAG);
+                        }
                     }
-                    if let Some(sp) = to_screen(f.origin) { datum_tag(&painter, sp + egui::vec2(6.0, 6.0), &c.name, TAG); }
+                    if let Some(sp) = to_screen(f.origin) {
+                        datum_tag(&painter, sp + egui::vec2(6.0, 6.0), &c.name, TAG);
+                    }
                 }
             }
         }
@@ -394,9 +551,15 @@ impl App {
         if let Some(s) = &self.sketch {
             s.draw(&painter);
         }
-        if let Some(s) = &mut self.sketch { s.overlays(ui.ctx()); }
-        if self.edit_dims.is_some() && self.creo.gfx.annotations { self.dims_overlay(ui.ctx(), &painter, rect); }
-        if self.hover.is_some() && self.sketch.is_none() { ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand); }
+        if let Some(s) = &mut self.sketch {
+            s.overlays(ui.ctx());
+        }
+        if self.edit_dims.is_some() && self.creo.gfx.annotations {
+            self.dims_overlay(ui.ctx(), &painter, rect);
+        }
+        if self.hover.is_some() && self.sketch.is_none() {
+            ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+        }
         let cam = self.camera;
         self.sim_overlay(ui.ctx(), &painter, rect, &|p: V3| cam.project(p, size).map(|s| Pos2::new(rect.min.x + s.0, rect.min.y + s.1)));
     }
@@ -408,45 +571,110 @@ impl App {
         let p: Option<Pick> = ui.ctx().data(|d| d.get_temp(egui::Id::new("ctx_pick"))).flatten();
         if self.in_asm() {
             if self.placing() {
-                if menu_entry(ui, Icon::Ok, "OK", true, false).clicked() { self.place_finish(); ui.close_menu(); }
-                if menu_entry(ui, Icon::Cancel, "Abbrechen", true, false).clicked() { self.place_cancel(); ui.close_menu(); }
+                if menu_entry(ui, Icon::Ok, "OK", true, false).clicked() {
+                    self.place_finish();
+                    ui.close_menu();
+                }
+                if menu_entry(ui, Icon::Cancel, "Abbrechen", true, false).clicked() {
+                    self.place_cancel();
+                    ui.close_menu();
+                }
             } else if let Some(o) = p.and_then(|p| self.owner(p)).filter(|o| self.component(*o).is_some()) {
                 self.comp_menu(ui, o);
             } else {
-                if menu_entry(ui, Icon::Assemble, "Zusammenbauen...", true, false).clicked() { ui.close_menu(); self.assemble_from_file(); }
-                if menu_entry(ui, Icon::CreateComp, "Erzeugen...", true, false).clicked() { ui.close_menu(); self.windows.create_comp = Some(self.asm.as_ref().map(|a| a.data.next_part_name()).unwrap_or_default()); }
+                if menu_entry(ui, Icon::Assemble, "Zusammenbauen...", true, false).clicked() {
+                    ui.close_menu();
+                    self.assemble_from_file();
+                }
+                if menu_entry(ui, Icon::CreateComp, "Erzeugen...", true, false).clicked() {
+                    ui.close_menu();
+                    self.windows.create_comp = Some(self.asm.as_ref().map(|a| a.data.next_part_name()).unwrap_or_default());
+                }
             }
             ui.separator();
-            if menu_entry(ui, Icon::SavedViews, "Standardausrichtung", true, false).clicked() { self.camera.rot = camera::StdView::Standard.rotation(); self.fit_pending = true; ui.close_menu(); }
-            if menu_entry(ui, Icon::Refit, "Einpassen", true, false).clicked() { self.fit_pending = true; ui.close_menu(); }
+            if menu_entry(ui, Icon::SavedViews, "Standardausrichtung", true, false).clicked() {
+                self.camera.rot = camera::StdView::Standard.rotation();
+                self.fit_pending = true;
+                ui.close_menu();
+            }
+            if menu_entry(ui, Icon::Refit, "Einpassen", true, false).clicked() {
+                self.fit_pending = true;
+                ui.close_menu();
+            }
             return;
         }
         let owner = p.and_then(|p| self.owner(p)).filter(|o| self.data.feature(*o).is_some());
         if self.editor.is_none() {
             let planar = self.plane_ref(&p.into_iter().collect::<Vec<_>>()).is_some();
             if planar {
-                if menu_entry(ui, Icon::Sketch, "Skizze", true, false).clicked() { self.start_feature(FeatureKind::new_sketch()); ui.close_menu(); }
-                if menu_entry(ui, Icon::Extrude, "Profil", true, false).clicked() { self.start_feature(FeatureKind::new_extrude()); ui.close_menu(); }
-                if menu_entry(ui, Icon::Revolve, "Drehen", true, false).clicked() { self.start_feature(FeatureKind::new_revolve()); ui.close_menu(); }
-                if menu_entry(ui, Icon::Hole, "Bohrung", true, false).clicked() { self.start_feature(FeatureKind::new_hole()); ui.close_menu(); }
-                if menu_entry(ui, Icon::Plane, "Versatzebene", true, false).clicked() { self.start_feature(FeatureKind::new_plane()); ui.close_menu(); }
+                if menu_entry(ui, Icon::Sketch, "Skizze", true, false).clicked() {
+                    self.start_feature(FeatureKind::new_sketch());
+                    ui.close_menu();
+                }
+                if menu_entry(ui, Icon::Extrude, "Profil", true, false).clicked() {
+                    self.start_feature(FeatureKind::new_extrude());
+                    ui.close_menu();
+                }
+                if menu_entry(ui, Icon::Revolve, "Drehen", true, false).clicked() {
+                    self.start_feature(FeatureKind::new_revolve());
+                    ui.close_menu();
+                }
+                if menu_entry(ui, Icon::Hole, "Bohrung", true, false).clicked() {
+                    self.start_feature(FeatureKind::new_hole());
+                    ui.close_menu();
+                }
+                if menu_entry(ui, Icon::Plane, "Versatzebene", true, false).clicked() {
+                    self.start_feature(FeatureKind::new_plane());
+                    ui.close_menu();
+                }
                 ui.separator();
             }
             if matches!(p, Some(Pick::Edge(_))) {
-                if menu_entry(ui, Icon::Round, "Rundung", true, false).clicked() { self.start_feature(FeatureKind::new_round()); ui.close_menu(); }
-                if menu_entry(ui, Icon::Chamfer, "Fase", true, false).clicked() { self.start_feature(FeatureKind::new_chamfer()); ui.close_menu(); }
+                if menu_entry(ui, Icon::Round, "Rundung", true, false).clicked() {
+                    self.start_feature(FeatureKind::new_round());
+                    ui.close_menu();
+                }
+                if menu_entry(ui, Icon::Chamfer, "Fase", true, false).clicked() {
+                    self.start_feature(FeatureKind::new_chamfer());
+                    ui.close_menu();
+                }
                 ui.separator();
             }
             if let Some(o) = owner {
-                if menu_entry(ui, Icon::EditDims, "Bemaßungen editieren", true, false).clicked() { self.start_edit_dims(o); ui.close_menu(); }
-                if menu_entry(ui, Icon::EditDef, "Definition editieren", true, false).clicked() { self.edit_feature(o); ui.close_menu(); }
-                if menu_entry(ui, Icon::Suppress, "Unterdrücken", true, false).clicked() { self.ask_suppress(&[o]); ui.close_menu(); }
-                if menu_entry(ui, Icon::Hide, "Ausblenden", true, false).clicked() { self.toggle_hidden(&[o]); ui.close_menu(); }
-                if menu_entry(ui, Icon::Delete, "Löschen", true, false).clicked() { self.delete_features(&[o]); ui.close_menu(); }
+                if menu_entry(ui, Icon::EditDims, "Bemaßungen editieren", true, false).clicked() {
+                    self.start_edit_dims(o);
+                    ui.close_menu();
+                }
+                if menu_entry(ui, Icon::EditDef, "Definition editieren", true, false).clicked() {
+                    self.edit_feature(o);
+                    ui.close_menu();
+                }
+                if menu_entry(ui, Icon::Suppress, "Unterdrücken", true, false).clicked() {
+                    self.ask_suppress(&[o]);
+                    ui.close_menu();
+                }
+                if menu_entry(ui, Icon::Hide, "Ausblenden", true, false).clicked() {
+                    self.toggle_hidden(&[o]);
+                    ui.close_menu();
+                }
+                if menu_entry(ui, Icon::Delete, "Löschen", true, false).clicked() {
+                    self.delete_features(&[o]);
+                    ui.close_menu();
+                }
                 ui.separator();
             }
-        } else if menu_entry(ui, Icon::Ok, "OK", true, false).clicked() { self.finish_feature(); ui.close_menu(); }
-        if menu_entry(ui, Icon::SavedViews, "Standardausrichtung", true, false).clicked() { self.camera.rot = camera::StdView::Standard.rotation(); self.fit_pending = true; ui.close_menu(); }
-        if menu_entry(ui, Icon::Refit, "Einpassen", true, false).clicked() { self.fit_pending = true; ui.close_menu(); }
+        } else if menu_entry(ui, Icon::Ok, "OK", true, false).clicked() {
+            self.finish_feature();
+            ui.close_menu();
+        }
+        if menu_entry(ui, Icon::SavedViews, "Standardausrichtung", true, false).clicked() {
+            self.camera.rot = camera::StdView::Standard.rotation();
+            self.fit_pending = true;
+            ui.close_menu();
+        }
+        if menu_entry(ui, Icon::Refit, "Einpassen", true, false).clicked() {
+            self.fit_pending = true;
+            ui.close_menu();
+        }
     }
 }

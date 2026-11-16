@@ -1,30 +1,36 @@
 //! Application state and controller logic.
 
+pub mod analysis;
 pub mod annot3d;
+pub mod artarget;
 pub mod assembly;
-pub mod creo;
 pub mod camera;
 pub mod combostates;
+pub mod creo;
 pub mod demo;
+pub mod dialogs;
 pub mod dims3d;
+pub mod dlgkit;
 pub mod drawing;
 pub mod drawui;
+pub mod edgeloop;
+pub mod export;
+pub mod featuretab;
 pub mod gdt;
 pub mod gfxbar;
+pub mod icons;
+pub mod livesim;
 pub mod minibar;
 pub mod modelcmds;
 pub mod modelgrid;
-pub mod featuretab;
-pub mod dialogs;
-pub mod export;
-pub mod icons;
-pub mod livesim;
 pub mod navigator;
 pub mod pick;
 pub mod publish;
 pub mod render;
 pub mod ribbon;
 pub mod sketcher;
+pub mod toolsdlg;
+pub mod toolsdlg2;
 pub mod ui;
 pub mod viewport;
 
@@ -40,32 +46,84 @@ use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
-pub enum Pick { Face(usize), Edge(usize), Plane(u64), Axis(u64), Point(u64), Feature(u64) }
+pub enum Pick {
+    Face(usize),
+    Edge(usize),
+    Plane(u64),
+    Axis(u64),
+    Point(u64),
+    Feature(u64),
+}
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub enum PickTarget { SketchPlane, Edges, Faces, Plane, Plane2, Axis, Direction, Features, DepthRef, Points, Surface }
+pub enum PickTarget {
+    SketchPlane,
+    Edges,
+    Faces,
+    Plane,
+    Plane2,
+    Axis,
+    Direction,
+    Features,
+    DepthRef,
+    Points,
+    Surface,
+}
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub enum Slot { Main, Trajectory, Section, Blend(usize), Pattern }
+pub enum Slot {
+    Main,
+    Trajectory,
+    Section,
+    Blend(usize),
+    Pattern,
+}
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub enum Filter { Smart, Feature, Surface, Edge, Datum }
+pub enum Filter {
+    Smart,
+    Feature,
+    Surface,
+    Edge,
+    Datum,
+}
 
 impl Filter {
     pub const ALL: [Filter; 5] = [Filter::Smart, Filter::Feature, Filter::Surface, Filter::Edge, Filter::Datum];
     pub fn name(&self) -> &'static str {
-        match self { Filter::Smart => "Intelligent", Filter::Feature => "KE", Filter::Surface => "Fläche", Filter::Edge => "Kante", Filter::Datum => "Bezug" }
+        match self {
+            Filter::Smart => "Intelligent",
+            Filter::Feature => "KE",
+            Filter::Surface => "Fläche",
+            Filter::Edge => "Kante",
+            Filter::Datum => "Bezug",
+        }
     }
     pub fn icon(&self) -> icons::Icon {
         use icons::Icon;
-        match self { Filter::Smart => Icon::SkSelect, Filter::Feature => Icon::Extrude, Filter::Surface => Icon::SelFace, Filter::Edge => Icon::SelEdge, Filter::Datum => Icon::Plane }
+        match self {
+            Filter::Smart => Icon::SkSelect,
+            Filter::Feature => Icon::Extrude,
+            Filter::Surface => Icon::SelFace,
+            Filter::Edge => Icon::SelEdge,
+            Filter::Datum => Icon::Plane,
+        }
     }
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub enum MsgKind { Info, Success, Warning, Error, Prompt }
+pub enum MsgKind {
+    Info,
+    Success,
+    Warning,
+    Error,
+    Prompt,
+}
 
-pub struct Message { pub text: String, pub kind: MsgKind }
+pub struct Message {
+    pub text: String,
+    pub kind: MsgKind,
+}
 
 #[derive(Clone)]
 pub struct Editor {
@@ -79,24 +137,59 @@ pub struct Editor {
 /// Creo's "Skizze" dialog (Platzierung ▸ Definieren...): the sketch plane is picked first and
 /// sketching starts only on the dialog's Skizze button. Keeps what to restore on Abbrechen.
 #[derive(Clone, Copy, Debug)]
-pub struct SketchDlg { pub prev_plane: Option<PlaneRef>, pub prev_flip: bool }
+pub struct SketchDlg {
+    pub prev_plane: Option<PlaneRef>,
+    pub prev_flip: bool,
+}
 
 /// "Neu orientieren..." dialog: dynamic rotation from `base`, and a name to save the view under.
 #[derive(Clone, Debug)]
-pub struct Reorient { pub base: glam::DQuat, pub h: f64, pub v: f64, pub z: f64, pub name: String }
+pub struct Reorient {
+    pub base: glam::DQuat,
+    pub h: f64,
+    pub v: f64,
+    pub z: f64,
+    pub name: String,
+}
 
 #[derive(Clone, Copy, PartialEq, Debug)]
-pub struct SectionView { pub plane: u64, pub offset: f64, pub flip: bool }
+pub struct SectionView {
+    pub plane: u64,
+    pub offset: f64,
+    pub flip: bool,
+}
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub enum Tab { Home, Model, Analysis, LiveSim, Annot3d, Tools, View, Flex, Apps, Htl, Context, Layout, Table, Annotate, Publish }
+pub enum Tab {
+    Home,
+    Model,
+    Analysis,
+    LiveSim,
+    Annot3d,
+    Tools,
+    View,
+    Flex,
+    Apps,
+    Htl,
+    Context,
+    Layout,
+    Table,
+    Annotate,
+    Publish,
+}
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub enum NavTab { Tree, Browser }
+pub enum NavTab {
+    Tree,
+    Browser,
+}
 
 /// Creo's mini toolbar shown next to a selection in the graphics window.
 #[derive(Clone, Copy, Debug)]
-pub struct MiniBar { pub pos: eframe::egui::Pos2, pub pick: Pick }
+pub struct MiniBar {
+    pub pos: eframe::egui::Pos2,
+    pub pick: Pick,
+}
 
 #[derive(Default)]
 pub struct Windows {
@@ -119,6 +212,10 @@ pub struct App {
     pub result: RegenResult,
     pub context: Option<RegenResult>,
     pub preview: Option<RegenResult>,
+    /// regeneration state before the feature being defined: its preview starts from here
+    pub context_snap: Option<regen::Snapshot>,
+    /// regeneration state kept between changes: only what changed is regenerated
+    pub regen_cache: regen::Cache,
     pub selection: Vec<Pick>,
     pub hover: Option<Pick>,
     pub editor: Option<Editor>,
@@ -139,6 +236,13 @@ pub struct App {
     pub section: Option<SectionView>,
     pub filter: Filter,
     pub tree_selection: Vec<u64>,
+    /// plane or planar face of the last click, kept even when the KE filter turned the click into
+    /// a feature selection: Profil and Definieren... sketch on it
+    pub picked_plane: Option<PlaneRef>,
+    /// Fase / Rundung: the loop of edges around the picked one, waiting for Ja or Nein
+    pub loop_offer: Option<edgeloop::LoopOffer>,
+    /// loops the user declined for the feature being defined (edge midpoints)
+    pub loop_declined: Vec<V3>,
     pub measure: bool,
     pub tab: Tab,
     pub windows: Windows,
@@ -198,6 +302,8 @@ impl App {
             result,
             context: None,
             preview: None,
+            context_snap: None,
+            regen_cache: regen::Cache::default(),
             selection: vec![],
             hover: None,
             editor: None,
@@ -217,6 +323,9 @@ impl App {
             section: None,
             filter: Filter::Smart,
             tree_selection: vec![],
+            picked_plane: None,
+            loop_offer: None,
+            loop_declined: vec![],
             measure: false,
             tab: Tab::Model,
             windows: Windows::default(),
@@ -237,7 +346,17 @@ impl App {
             show_nav: true,
             nav_tab: NavTab::Tree,
             work_dir: default_work_dir(),
-            browser_dir: std::env::var("HOME").map(PathBuf::from).map(|h| { let d = h.join("Documents"); if d.is_dir() { d } else { h } }).unwrap_or_else(|_| PathBuf::from("/")),
+            browser_dir: std::env::var("HOME")
+                .map(PathBuf::from)
+                .map(|h| {
+                    let d = h.join("Documents");
+                    if d.is_dir() {
+                        d
+                    } else {
+                        h
+                    }
+                })
+                .unwrap_or_else(|_| PathBuf::from("/")),
             expanded: HashSet::new(),
             tree_hover: None,
             tree_hover_ext: None,
@@ -266,10 +385,16 @@ impl App {
     // ---------- derived ----------
 
     pub fn displayed(&self) -> &RegenResult {
-        if let Some(v) = self.asm_view() { return &v.display; }
-        if self.sketch.is_some() { return self.context.as_ref().unwrap_or(&self.result); }
+        if let Some(v) = self.asm_view() {
+            return &v.display;
+        }
+        if self.sketch.is_some() {
+            return self.context.as_ref().unwrap_or(&self.result);
+        }
         if let Some(ed) = &self.editor {
-            if ed.pick.is_some() || !ed.preview { return self.context.as_ref().unwrap_or(&self.result); }
+            if ed.pick.is_some() || !ed.preview {
+                return self.context.as_ref().unwrap_or(&self.result);
+            }
             return self.preview.as_ref().or(self.context.as_ref()).unwrap_or(&self.result);
         }
         &self.result
@@ -277,14 +402,20 @@ impl App {
 
     pub fn say(&mut self, text: impl Into<String>, kind: MsgKind) {
         self.messages.push(Message { text: text.into(), kind });
-        if self.messages.len() > 300 { self.messages.drain(0..100); }
+        if self.messages.len() > 300 {
+            self.messages.drain(0..100);
+        }
     }
 
-    pub fn busy(&self) -> bool { self.editor.is_some() || self.sketch.is_some() || self.placing() }
+    pub fn busy(&self) -> bool {
+        self.editor.is_some() || self.sketch.is_some() || self.placing()
+    }
 
     pub fn rebuild_buffers(&mut self) {
         let r = self.displayed();
-        if self.buffers.generation == r.generation { return; }
+        if self.buffers.generation == r.generation {
+            return;
+        }
         let t = &r.topo;
         // assembly components carry their own colour; parts are tinted by the frame colour
         let colors = self.asm_view().map(|v| v.body_colors.clone()).unwrap_or_default();
@@ -302,7 +433,9 @@ impl App {
         }
         let mut edges = Vec::with_capacity(t.draw_edges.len() * 6);
         for &(a, b) in &t.draw_edges {
-            for v in [t.positions[a], t.positions[b]] { edges.extend_from_slice(&[v.x as f32, v.y as f32, v.z as f32]); }
+            for v in [t.positions[a], t.positions[b]] {
+                edges.extend_from_slice(&[v.x as f32, v.y as f32, v.z as f32]);
+            }
         }
         // Sammelflächen: Creo's purple sheets with their open edges (the shader lights both sides
         // alike: a blue channel above 1.2 marks a quilt)
@@ -311,10 +444,17 @@ impl App {
             for p in &q.polys {
                 let n = p.plane.n;
                 for k in 1..p.v.len() - 1 {
-                    for &j in &[0, k, k + 1] { let v = p.v[j].p; solid.extend_from_slice(&[v.x as f32, v.y as f32, v.z as f32, n.x as f32, n.y as f32, n.z as f32, qc[0], qc[1], qc[2]]); }
+                    for &j in &[0, k, k + 1] {
+                        let v = p.v[j].p;
+                        solid.extend_from_slice(&[v.x as f32, v.y as f32, v.z as f32, n.x as f32, n.y as f32, n.z as f32, qc[0], qc[1], qc[2]]);
+                    }
                 }
             }
-            for (a, b, _) in crate::model::surfaces::boundary(&q.polys) { for v in [a, b] { edges.extend_from_slice(&[v.x as f32, v.y as f32, v.z as f32]); } }
+            for (a, b, _) in crate::model::surfaces::boundary(&q.polys) {
+                for v in [a, b] {
+                    edges.extend_from_slice(&[v.x as f32, v.y as f32, v.z as f32]);
+                }
+            }
         }
         self.buffers = Arc::new(ModelBuffers { generation: r.generation, solid, edges });
     }
@@ -322,17 +462,27 @@ impl App {
     // ---------- regeneration / undo ----------
 
     pub fn regenerate(&mut self, announce: bool) {
-        if self.in_asm() { self.asm_regenerate(announce); return; }
-        self.result = regen::run(&self.data);
-        if self.editor.is_some() { self.refresh_context(); }
+        if self.in_asm() {
+            self.asm_regenerate(announce);
+            return;
+        }
+        self.result = self.regen_cache.run(&self.data);
+        if self.editor.is_some() {
+            self.refresh_context();
+        }
         let valid: Vec<Pick> = self.selection.iter().copied().filter(|p| self.valid(*p)).collect();
         self.selection = valid;
         if announce {
             let n = self.result.errors.len() + self.result.param_errors.len();
-            if n == 0 { self.say(format!("Regenerierung erfolgreich abgeschlossen ({:.0} ms).", self.result.time * 1000.0), MsgKind::Success); }
-            else { self.say(format!("Regenerierung mit {} Fehler(n) abgeschlossen.", n), MsgKind::Warning); }
+            if n == 0 {
+                self.say(format!("Regenerierung erfolgreich abgeschlossen ({:.0} ms).", self.result.time * 1000.0), MsgKind::Success);
+            } else {
+                self.say(format!("Regenerierung mit {} Fehler(n) abgeschlossen.", n), MsgKind::Warning);
+            }
         }
-        for e in self.result.param_errors.clone() { self.say(e, MsgKind::Error); }
+        for e in self.result.param_errors.clone() {
+            self.say(e, MsgKind::Error);
+        }
     }
 
     fn valid(&self, p: Pick) -> bool {
@@ -349,21 +499,35 @@ impl App {
 
     pub fn commit(&mut self, label: &str, f: impl FnOnce(&mut ModelData)) {
         // in an assembly, model-level edits apply to the assembly's own datums
-        if self.in_asm() { self.asm_commit(label, |a| f(&mut a.skeleton)); return; }
+        if self.in_asm() {
+            self.asm_commit(label, |a| f(&mut a.skeleton));
+            return;
+        }
         self.undo.push(self.data.clone());
-        if self.undo.len() > 100 { self.undo.remove(0); }
+        if self.undo.len() > 100 {
+            self.undo.remove(0);
+        }
         self.redo.clear();
         f(&mut self.data);
         self.dirty = true;
         self.regenerate(false);
-        if !label.is_empty() { self.say(label, MsgKind::Success); }
+        if !label.is_empty() {
+            self.say(label, MsgKind::Success);
+        }
         let errs: Vec<(String, String)> = self.result.errors.iter().filter_map(|(id, e)| self.data.feature(*id).map(|f| (f.name.clone(), e.clone()))).collect();
-        for (n, e) in errs { self.say(format!("{} fehlgeschlagen: {}", n, e), MsgKind::Error); }
+        for (n, e) in errs {
+            self.say(format!("{} fehlgeschlagen: {}", n, e), MsgKind::Error);
+        }
     }
 
     pub fn do_undo(&mut self) {
-        if self.in_asm() { self.asm_undo(false); return; }
-        if self.busy() { return; }
+        if self.in_asm() {
+            self.asm_undo(false);
+            return;
+        }
+        if self.busy() {
+            return;
+        }
         if let Some(prev) = self.undo.pop() {
             self.redo.push(std::mem::replace(&mut self.data, prev));
             self.selection.clear();
@@ -374,8 +538,13 @@ impl App {
     }
 
     pub fn do_redo(&mut self) {
-        if self.in_asm() { self.asm_undo(true); return; }
-        if self.busy() { return; }
+        if self.in_asm() {
+            self.asm_undo(true);
+            return;
+        }
+        if self.busy() {
+            return;
+        }
         if let Some(next) = self.redo.pop() {
             self.undo.push(std::mem::replace(&mut self.data, next));
             self.selection.clear();
@@ -387,23 +556,54 @@ impl App {
 
     // ---------- feature lifecycle ----------
 
-    pub fn insert_position(&self) -> usize { self.data.insert_index.unwrap_or(self.data.features.len()) }
+    pub fn insert_position(&self) -> usize {
+        self.data.insert_index.unwrap_or(self.data.features.len())
+    }
 
     pub fn start_feature(&mut self, mut kind: FeatureKind) {
-        if self.sketch.is_some() { return; }
-        if self.in_asm() { self.say("KEs werden in Teilen erzeugt: eine Komponente öffnen (Rechtsklick ▸ Öffnen), um KEs hinzuzufügen.", MsgKind::Warning); return; }
-        if self.editor.is_some() { self.cancel_feature(); }
+        if self.sketch.is_some() {
+            return;
+        }
+        if self.in_asm() {
+            self.say("KEs werden in Teilen erzeugt: eine Komponente öffnen (Rechtsklick ▸ Öffnen), um KEs hinzuzufügen.", MsgKind::Warning);
+            return;
+        }
+        if self.editor.is_some() {
+            self.cancel_feature();
+        }
         let sel = self.selection.clone();
-        let plane = self.plane_ref(&sel);
+        // the clicked face also counts when the KE filter selected its feature instead
+        let plane = self.plane_ref(&sel).or(self.picked_plane.take().filter(|_| sel.iter().any(|p| matches!(p, Pick::Feature(_)))));
+        self.picked_plane = None;
         let edges: Vec<EdgeRef> = sel.iter().filter_map(|p| self.edge_ref(*p)).collect();
+        self.loop_offer = None;
+        self.loop_declined.clear();
+        // one edge picked before Fase / Rundung: the rest of its loop is offered
+        let offer = if edges.len() == 1 && matches!(kind, FeatureKind::Chamfer(_) | FeatureKind::Round(_)) {
+            sel.iter().find(|p| matches!(p, Pick::Edge(_))).and_then(|p| self.edge_loop_offer(*p, &edges))
+        } else {
+            None
+        };
         let faces: Vec<FaceRef> = sel.iter().filter_map(|p| self.face_ref(*p)).collect();
         let solid_feats: Vec<u64> = self.tree_selection.iter().copied().filter(|id| self.data.feature(*id).map(|f| f.kind.produces_tool()).unwrap_or(false)).collect();
         match &mut kind {
-            FeatureKind::Extrude(_) | FeatureKind::Revolve(_) | FeatureKind::Sweep(_) | FeatureKind::Blend(_) | FeatureKind::Sketch(_) | FeatureKind::Rib(_) | FeatureKind::Helix(_) => {
-                if let Some(p) = plane { kind.set_sketch_plane(p); }
+            FeatureKind::Extrude(_)
+            | FeatureKind::Revolve(_)
+            | FeatureKind::Sweep(_)
+            | FeatureKind::Blend(_)
+            | FeatureKind::Sketch(_)
+            | FeatureKind::Rib(_)
+            | FeatureKind::Helix(_) => {
+                if let Some(p) = plane {
+                    kind.set_sketch_plane(p);
+                }
             }
             FeatureKind::Thread(d) => {
-                if let Some(Pick::Face(f)) = sel.first() { if let Some(init) = self.thread_init(*f) { *d = init; } }
+                if let Some(Pick::Face(f)) = sel.first() {
+                    if let Some(init) = self.thread_init(*f) {
+                        *d = init;
+                    }
+                }
             }
             FeatureKind::Curve(d) => d.points = sel.iter().filter_map(|p| if let Pick::Point(id) = p { Some(*id) } else { None }).collect(),
             FeatureKind::Hole(d) => {
@@ -418,22 +618,51 @@ impl App {
             FeatureKind::Surface(d) => {
                 // selected quilts (or curves for a boundary blend), faces and plane become the references
                 let want_curves = d.op == SurfOp::Boundary;
-                d.inputs = self.tree_selection.iter().copied().filter(|id| self.data.feature(*id).is_some_and(|f| if want_curves {
-                    matches!(&f.kind, FeatureKind::Sketch(_) | FeatureKind::Curve(_)) || matches!(&f.kind, FeatureKind::Surface(s) if matches!(s.op, SurfOp::Intersect | SurfOp::Project))
-                } else { matches!(&f.kind, FeatureKind::Surface(s) if s.op.makes_quilt()) })).collect();
-                if matches!(d.op, SurfOp::Offset | SurfOp::Copy | SurfOp::Replace) { d.faces = faces.clone(); }
-                if !matches!(d.op, SurfOp::Merge | SurfOp::Extend | SurfOp::Thicken | SurfOp::Solidify | SurfOp::Offset | SurfOp::Copy | SurfOp::Replace | SurfOp::Boundary) { d.plane = plane; }
+                d.inputs = self
+                    .tree_selection
+                    .iter()
+                    .copied()
+                    .filter(|id| {
+                        self.data.feature(*id).is_some_and(|f| {
+                            if want_curves {
+                                matches!(&f.kind, FeatureKind::Sketch(_) | FeatureKind::Curve(_))
+                                    || matches!(&f.kind, FeatureKind::Surface(s) if matches!(s.op, SurfOp::Intersect | SurfOp::Project))
+                            } else {
+                                matches!(&f.kind, FeatureKind::Surface(s) if s.op.makes_quilt())
+                            }
+                        })
+                    })
+                    .collect();
+                if matches!(d.op, SurfOp::Offset | SurfOp::Copy | SurfOp::Replace) {
+                    d.faces = faces.clone();
+                }
+                if !matches!(
+                    d.op,
+                    SurfOp::Merge | SurfOp::Extend | SurfOp::Thicken | SurfOp::Remove | SurfOp::Solidify | SurfOp::Offset | SurfOp::Copy | SurfOp::Replace | SurfOp::Boundary
+                ) {
+                    d.plane = plane;
+                }
             }
-            FeatureKind::Body(d) => { d.target = self.data.default_body; if d.op == BodyOp::Split { d.plane = plane; } }
+            FeatureKind::Body(d) => {
+                d.target = self.data.default_body;
+                if d.op == BodyOp::Split {
+                    d.plane = plane;
+                }
+            }
             FeatureKind::Round(d) => d.sets[0].edges = edges,
             FeatureKind::Chamfer(d) => d.edges = edges,
             FeatureKind::Shell(d) => d.faces = faces,
             FeatureKind::Draft(d) => d.faces = faces,
-            FeatureKind::Mirror(d) => { d.plane = plane; d.features = solid_feats; }
+            FeatureKind::Mirror(d) => {
+                d.plane = plane;
+                d.features = solid_feats;
+            }
             FeatureKind::Pattern(d) => {
                 d.features = solid_feats;
                 if d.features.is_empty() {
-                    if let Some(last) = self.data.features[..self.insert_position()].iter().rev().find(|f| f.kind.produces_tool() && !f.suppressed) { d.features = vec![last.id]; }
+                    if let Some(last) = self.data.features[..self.insert_position()].iter().rev().find(|f| f.kind.produces_tool() && !f.suppressed) {
+                        d.features = vec![last.id];
+                    }
                 }
             }
             FeatureKind::DatumAxis(d) => {
@@ -457,12 +686,22 @@ impl App {
             let ed = self.editor.as_ref().unwrap();
             ed.pick.is_none() && ed.feature.kind.has_sketch() && ed.feature.kind.sketch_plane().is_some()
         };
-        if go_sketch { self.begin_sketch(Slot::Main); }
+        if go_sketch {
+            self.begin_sketch(Slot::Main);
+        }
+        self.loop_offer = offer;
     }
 
     pub fn edit_feature(&mut self, id: u64) {
-        if self.sketch.is_some() { return; }
-        if self.in_asm() { if self.component(id).is_some() { self.edit_placement(id); } return; }
+        if self.sketch.is_some() {
+            return;
+        }
+        if self.in_asm() {
+            if self.component(id).is_some() {
+                self.edit_placement(id);
+            }
+            return;
+        }
         let Some(idx) = self.data.index_of(id) else { return };
         let f = self.data.features[idx].clone();
         match &f.kind {
@@ -470,7 +709,10 @@ impl App {
                 self.say("Standardbezugsebenen haben keine editierbare Definition.", MsgKind::Warning);
                 return;
             }
-            FeatureKind::Csys => { self.say("Das Standardkoordinatensystem kann nicht neu definiert werden.", MsgKind::Warning); return; }
+            FeatureKind::Csys => {
+                self.say("Das Standardkoordinatensystem kann nicht neu definiert werden.", MsgKind::Warning);
+                return;
+            }
             _ => {}
         }
         let name = f.name.clone();
@@ -486,15 +728,45 @@ impl App {
     }
 
     pub fn refresh_context(&mut self) {
-        let Some(ed) = &self.editor else { self.context = None; self.preview = None; return };
+        let Some(ed) = &self.editor else {
+            self.context = None;
+            self.preview = None;
+            self.context_snap = None;
+            return;
+        };
         let before = &self.data.features[..ed.index.min(self.data.features.len())];
-        self.context = Some(regen::run_features(&self.data, before, None));
+        // the state before the feature is usually still there from the last regeneration
+        let kept = if self.data.family.active.is_none() { self.regen_cache.snapshot(&self.data, before).cloned() } else { None };
+        match kept {
+            Some(snap) => {
+                self.context = Some(if before.len() == self.data.features.len() && self.result.rolled_back.is_empty() {
+                    self.result.clone()
+                } else {
+                    regen::run_after(&self.data, &snap, &[])
+                });
+                self.context_snap = Some(snap);
+            }
+            None => {
+                let (ctx, snap) = regen::run_snapshot(&self.data, before);
+                self.context = Some(ctx);
+                self.context_snap = Some(snap);
+            }
+        }
         self.update_preview();
     }
 
     pub fn update_preview(&mut self) {
-        let Some(ed) = &self.editor else { self.preview = None; return };
-        let mut feats = self.data.features[..ed.index.min(self.data.features.len())].to_vec();
+        let Some(ed) = &self.editor else {
+            self.preview = None;
+            return;
+        };
+        let before = &self.data.features[..ed.index.min(self.data.features.len())];
+        // only the feature being defined is regenerated, on top of the state before it
+        if let Some(snap) = self.context_snap.as_ref().filter(|s| s.fits(&self.data, before)) {
+            self.preview = Some(regen::run_after(&self.data, snap, std::slice::from_ref(&ed.feature)));
+            return;
+        }
+        let mut feats = before.to_vec();
         feats.push(ed.feature.clone());
         self.preview = Some(regen::run_features(&self.data, &feats, None));
     }
@@ -505,14 +777,18 @@ impl App {
     }
 
     pub fn update_editor(&mut self, f: impl FnOnce(&mut Feature)) {
-        if let Some(ed) = &mut self.editor { f(&mut ed.feature); }
+        if let Some(ed) = &mut self.editor {
+            f(&mut ed.feature);
+        }
         self.update_preview();
     }
 
     pub fn set_pick_target(&mut self, t: Option<PickTarget>) {
         let Some(ed) = &mut self.editor else { return };
         ed.pick = if ed.pick == t { None } else { t };
-        if ed.pick.is_some() { self.prompt_pick(); }
+        if ed.pick.is_some() {
+            self.prompt_pick();
+        }
     }
 
     /// Status-bar prompt for the active collector (Creo's wording for the Profil/Drehen sketch).
@@ -530,25 +806,46 @@ impl App {
     /// Platzierung ▸ Definieren...: opens the Skizze dialog for the sketch plane.
     pub fn open_sketch_dialog(&mut self) {
         let Some(ed) = &mut self.editor else { return };
-        if !ed.feature.kind.has_sketch() { return; }
+        if !ed.feature.kind.has_sketch() {
+            return;
+        }
         let prev_flip = matches!(&ed.feature.kind, FeatureKind::Extrude(d) if d.flip);
         self.sketch_dlg = Some(SketchDlg { prev_plane: ed.feature.kind.sketch_plane(), prev_flip });
         self.dash_panel = None;
         ed.pick = Some(PickTarget::SketchPlane);
+        // a plane or planar face that is selected already becomes the sketch plane
+        let sel = self.selection.clone();
+        if let Some(p) = self.plane_ref(&sel).or(self.picked_plane.take()) {
+            self.update_editor(|f| f.kind.set_sketch_plane(p));
+            if let Some(ed) = &mut self.editor {
+                ed.pick = None;
+            }
+            self.selection.clear();
+            let name = self.plane_name(&Some(p));
+            self.say(format!("Skizzierebene: {}.", name), MsgKind::Info);
+            return;
+        }
         self.prompt_pick();
     }
 
     /// Skizze dialog: Abbrechen restores the plane the feature had before.
     pub fn cancel_sketch_dialog(&mut self) {
         let Some(dlg) = self.sketch_dlg.take() else { return };
-        self.update_editor(|f| {
-            match &mut f.kind {
-                FeatureKind::Extrude(d) => { d.plane = dlg.prev_plane; d.flip = dlg.prev_flip; }
-                FeatureKind::Revolve(d) => d.plane = dlg.prev_plane,
-                k => if let Some(p) = dlg.prev_plane { k.set_sketch_plane(p) },
+        self.update_editor(|f| match &mut f.kind {
+            FeatureKind::Extrude(d) => {
+                d.plane = dlg.prev_plane;
+                d.flip = dlg.prev_flip;
+            }
+            FeatureKind::Revolve(d) => d.plane = dlg.prev_plane,
+            k => {
+                if let Some(p) = dlg.prev_plane {
+                    k.set_sketch_plane(p)
+                }
             }
         });
-        if let Some(ed) = &mut self.editor { ed.pick = if ed.feature.kind.sketch_plane().is_none() { Some(PickTarget::SketchPlane) } else { None }; }
+        if let Some(ed) = &mut self.editor {
+            ed.pick = if ed.feature.kind.sketch_plane().is_none() { Some(PickTarget::SketchPlane) } else { None };
+        }
         self.prompt_pick();
     }
 
@@ -574,7 +871,9 @@ impl App {
             FeatureKind::Curve(d) if d.points.len() < 2 => Some(PickTarget::Points),
             _ => None,
         };
-        if ed.pick.is_some() { self.prompt_pick(); }
+        if ed.pick.is_some() {
+            self.prompt_pick();
+        }
     }
 
     pub fn finish_feature(&mut self) {
@@ -584,6 +883,8 @@ impl App {
             return;
         }
         let Some(ed) = self.editor.take() else { return };
+        self.loop_offer = None;
+        self.loop_declined.clear();
         self.sketch_dlg = None;
         self.context = None;
         self.preview = None;
@@ -595,29 +896,41 @@ impl App {
                 let i = ed.index.min(d.features.len());
                 d.features.insert(i, f.clone());
                 d.next_id = d.next_id.max(f.id + 1);
-                if let Some(ii) = d.insert_index { d.insert_index = Some(ii + 1); }
+                if let Some(ii) = d.insert_index {
+                    d.insert_index = Some(ii + 1);
+                }
                 // new features go into the default body; a new body becomes the default (Creo)
                 match &f.kind {
                     FeatureKind::Body(b) if b.op == BodyOp::New => d.default_body = f.id,
                     FeatureKind::Body(_) => {}
-                    _ => if d.default_body != 0 { d.feature_body.insert(f.id, d.default_body); },
+                    _ => {
+                        if d.default_body != 0 {
+                            d.feature_body.insert(f.id, d.default_body);
+                        }
+                    }
                 }
             });
         } else {
             self.commit(&format!("{} neu definiert.", f.name), |d| {
-                if let Some(i) = d.index_of(f.id) { d.features[i] = f.clone(); }
+                if let Some(i) = d.index_of(f.id) {
+                    d.features[i] = f.clone();
+                }
             });
         }
         self.tree_selection = vec![ed.feature.id];
     }
 
     pub fn cancel_feature(&mut self) {
-        if self.sketch.is_some() { self.restore_camera(); }
+        if self.sketch.is_some() {
+            self.restore_camera();
+        }
         self.sketch = None;
         self.sketch_dlg = None;
         self.dash_panel = None;
         self.tab = Tab::Model;
         self.editor = None;
+        self.loop_offer = None;
+        self.loop_declined.clear();
         self.context = None;
         self.preview = None;
         self.say("KE-Erzeugung abgebrochen.", MsgKind::Info);
@@ -639,13 +952,21 @@ impl App {
 
     pub fn edge_ref(&self, p: Pick) -> Option<EdgeRef> {
         let r = self.displayed();
-        if let Pick::Edge(i) = p { if i < r.topo.chains.len() { return Some(r.topo.edge_ref(i)); } }
+        if let Pick::Edge(i) = p {
+            if i < r.topo.chains.len() {
+                return Some(r.topo.edge_ref(i));
+            }
+        }
         None
     }
 
     pub fn face_ref(&self, p: Pick) -> Option<FaceRef> {
         let r = self.displayed();
-        if let Pick::Face(f) = p { if f < r.topo.faces.len() && r.topo.faces[f].planar { return Some(r.topo.face_ref(f)); } }
+        if let Pick::Face(f) = p {
+            if f < r.topo.faces.len() && r.topo.faces[f].planar {
+                return Some(r.topo.face_ref(f));
+            }
+        }
         None
     }
 
@@ -681,26 +1002,51 @@ impl App {
 
     pub fn handle_pick(&mut self, item: Option<Pick>, additive: bool) {
         if self.placing() {
-            if let Some(it) = item { self.place_pick(it); }
+            if let Some(it) = item {
+                self.place_pick(it);
+            }
             return;
         }
         if let Some(t) = self.editor.as_ref().and_then(|e| e.pick) {
-            if let Some(it) = item { self.route_pick(it, t); }
+            if let Some(it) = item {
+                self.route_pick(it, t);
+            }
             return;
         }
         let Some(mut item) = item.filter(|p| self.valid(*p)) else {
-            if !additive { self.selection.clear(); self.tree_selection.clear(); }
+            if !additive {
+                self.selection.clear();
+                self.tree_selection.clear();
+                self.picked_plane = None;
+            }
             return;
         };
-        if self.filter == Filter::Feature { if let Some(o) = self.owner(item) { item = Pick::Feature(o); } }
+        self.picked_plane = self.plane_ref(&[item]);
+        if self.filter == Filter::Feature {
+            if let Some(o) = self.owner(item) {
+                item = Pick::Feature(o);
+            }
+        }
         if additive || self.measure {
-            if let Some(i) = self.selection.iter().position(|p| *p == item) { self.selection.remove(i); } else { self.selection.push(item); }
-            if self.measure && self.selection.len() > 2 { self.selection.remove(0); }
+            if let Some(i) = self.selection.iter().position(|p| *p == item) {
+                self.selection.remove(i);
+            } else {
+                self.selection.push(item);
+            }
+            if self.measure && self.selection.len() > 2 {
+                self.selection.remove(0);
+            }
         } else {
             self.selection = vec![item];
         }
         if let Some(o) = self.owner(item) {
-            if additive { if !self.tree_selection.contains(&o) { self.tree_selection.push(o); } } else { self.tree_selection = vec![o]; }
+            if additive {
+                if !self.tree_selection.contains(&o) {
+                    self.tree_selection.push(o);
+                }
+            } else {
+                self.tree_selection = vec![o];
+            }
         }
         self.describe(item);
     }
@@ -709,8 +1055,14 @@ impl App {
         let r = self.displayed();
         let owner = self.owner(p).map(|id| self.comp_label(id)).unwrap_or_default();
         let s = match p {
-            Pick::Face(f) => { let Some(face) = r.topo.faces.get(f) else { return }; format!("Fläche von {}{}, Inhalt {} mm².", owner, if face.planar { " (eben)" } else { "" }, fmt_num(face.area, 2)) }
-            Pick::Edge(e) => { let Some(c) = r.topo.chains.get(e) else { return }; format!("Kante von {}, Länge {} mm{}.", owner, fmt_num(c.length(), 3), if c.closed { " (geschlossen)" } else { "" }) }
+            Pick::Face(f) => {
+                let Some(face) = r.topo.faces.get(f) else { return };
+                format!("Fläche von {}{}, Inhalt {} mm².", owner, if face.planar { " (eben)" } else { "" }, fmt_num(face.area, 2))
+            }
+            Pick::Edge(e) => {
+                let Some(c) = r.topo.chains.get(e) else { return };
+                format!("Kante von {}, Länge {} mm{}.", owner, fmt_num(c.length(), 3), if c.closed { " (geschlossen)" } else { "" })
+            }
             Pick::Plane(id) => format!("Bezugsebene {}.", r.plane(id).map(|x| x.name.clone()).unwrap_or_default()),
             Pick::Axis(id) => format!("Achse {}.", r.axis(id).map(|x| x.name.clone()).unwrap_or_default()),
             Pick::Point(_) | Pick::Feature(_) => format!("{} ausgewählt.", owner),
@@ -734,6 +1086,19 @@ impl App {
             _ => None,
         };
         let mut used_sketch = None;
+        // Fase / Rundung: the loop around the picked edge, found before the model changes
+        let have: Vec<EdgeRef> = match self.editor.as_ref().map(|e| &e.feature.kind) {
+            Some(FeatureKind::Round(d)) => d.sets.iter().flat_map(|s| s.edges.iter().copied()).collect(),
+            Some(FeatureKind::Chamfer(d)) if !d.corner => d.edges.clone(),
+            _ => vec![],
+        };
+        let mut offer = if target == PickTarget::Edges
+            && matches!(self.editor.as_ref().map(|e| &e.feature.kind), Some(FeatureKind::Round(_)) | Some(FeatureKind::Chamfer(ChamferDef { corner: false, .. })))
+        {
+            self.edge_loop_offer(item, &have)
+        } else {
+            None
+        };
         let Some(ed) = self.editor.as_mut() else { return };
         let mut done = false;
         let mut warn: Option<&str> = None;
@@ -743,63 +1108,126 @@ impl App {
             PickTarget::SketchPlane => match (plane, picked_sketch) {
                 (_, Some((name, s))) if ed.feature.kind.accepts_sketch() => {
                     ed.feature.kind.set_sketch_plane(s.plane.unwrap());
-                    match &mut ed.feature.kind { FeatureKind::Extrude(d) => d.sketch = s.sketch, FeatureKind::Revolve(d) => d.sketch = s.sketch, _ => {} }
+                    match &mut ed.feature.kind {
+                        FeatureKind::Extrude(d) => d.sketch = s.sketch,
+                        FeatureKind::Revolve(d) => d.sketch = s.sketch,
+                        _ => {}
+                    }
                     used_sketch = Some(name);
                     done = true;
                 }
-                (Some(p), _) => { ed.feature.kind.set_sketch_plane(p); done = true; }
+                (Some(p), _) => {
+                    ed.feature.kind.set_sketch_plane(p);
+                    done = true;
+                }
                 _ => warn = Some("Eine Bezugsebene oder eine ebene Fläche wählen."),
             },
-            PickTarget::Plane | PickTarget::Plane2 => {
-                match (&mut ed.feature.kind, plane, item) {
-                    (FeatureKind::DatumPlane(d), _, Pick::Axis(id)) if target == PickTarget::Plane2 => { d.axis = Some(AxisRef::Axis(id)); done = true; }
-                    (FeatureKind::DatumAxis(d), Some(p), _) => {
-                        if target == PickTarget::Plane && d.kind == AxisKind::TwoPlanes { d.p1 = Some(p); next_target = Some(PickTarget::Plane2); }
-                        else if target == PickTarget::Plane2 { d.p2 = Some(p); done = true; } else { d.p1 = Some(p); done = true; }
-                    }
-                    (FeatureKind::DatumPlane(d), Some(p), _) => { d.reference = Some(p); done = true; }
-                    (FeatureKind::Hole(d), Some(p), _) => {
-                        d.plane = Some(p);
-                        if let (PlaneRef::Face(fr), Some(fp)) = (p, frame_of_face) {
-                            let q = fp.to_local(fr.point);
-                            d.x = Dim::v((q.x * 100.0).round() / 100.0);
-                            d.y = Dim::v((q.y * 100.0).round() / 100.0);
-                        }
+            PickTarget::Plane | PickTarget::Plane2 => match (&mut ed.feature.kind, plane, item) {
+                (FeatureKind::DatumPlane(d), _, Pick::Axis(id)) if target == PickTarget::Plane2 => {
+                    d.axis = Some(AxisRef::Axis(id));
+                    done = true;
+                }
+                (FeatureKind::DatumAxis(d), Some(p), _) => {
+                    if target == PickTarget::Plane && d.kind == AxisKind::TwoPlanes {
+                        d.p1 = Some(p);
+                        next_target = Some(PickTarget::Plane2);
+                    } else if target == PickTarget::Plane2 {
+                        d.p2 = Some(p);
+                        done = true;
+                    } else {
+                        d.p1 = Some(p);
                         done = true;
                     }
-                    (FeatureKind::Mirror(d), Some(p), _) => { d.plane = Some(p); done = true; }
-                    (FeatureKind::Draft(d), Some(p), _) => { d.hinge = Some(p); done = true; }
-                    (FeatureKind::Surface(d), Some(p), _) => { d.plane = Some(p); done = true; }
-                    (FeatureKind::Body(d), Some(p), _) => { d.plane = Some(p); done = true; }
-                    _ => warn = Some("Eine Bezugsebene oder eine ebene Fläche wählen."),
                 }
-            }
+                (FeatureKind::DatumPlane(d), Some(p), _) => {
+                    d.reference = Some(p);
+                    done = true;
+                }
+                (FeatureKind::Hole(d), Some(p), _) => {
+                    d.plane = Some(p);
+                    if let (PlaneRef::Face(fr), Some(fp)) = (p, frame_of_face) {
+                        let q = fp.to_local(fr.point);
+                        d.x = Dim::v((q.x * 100.0).round() / 100.0);
+                        d.y = Dim::v((q.y * 100.0).round() / 100.0);
+                    }
+                    done = true;
+                }
+                (FeatureKind::Mirror(d), Some(p), _) => {
+                    d.plane = Some(p);
+                    done = true;
+                }
+                (FeatureKind::Draft(d), Some(p), _) => {
+                    d.hinge = Some(p);
+                    done = true;
+                }
+                (FeatureKind::Surface(d), Some(p), _) => {
+                    d.plane = Some(p);
+                    done = true;
+                }
+                (FeatureKind::Body(d), Some(p), _) => {
+                    d.plane = Some(p);
+                    done = true;
+                }
+                _ => warn = Some("Eine Bezugsebene oder eine ebene Fläche wählen."),
+            },
             PickTarget::DepthRef => match (plane, &mut ed.feature.kind) {
-                (Some(p), FeatureKind::Extrude(d)) => { d.to_ref = Some(p); done = true; }
+                (Some(p), FeatureKind::Extrude(d)) => {
+                    d.to_ref = Some(p);
+                    done = true;
+                }
                 _ => warn = Some("Eine Bezugsebene oder eine ebene Fläche wählen."),
             },
             PickTarget::Edges => match edge {
                 Some(er) => {
                     let rs = self.round_set;
-                    let list = match &mut ed.feature.kind { FeatureKind::Round(d) => { let i = rs.min(d.sets.len() - 1); Some(&mut d.sets[i].edges) } FeatureKind::Chamfer(d) => Some(&mut d.edges), _ => None };
+                    let list = match &mut ed.feature.kind {
+                        FeatureKind::Round(d) => {
+                            let i = rs.min(d.sets.len() - 1);
+                            Some(&mut d.sets[i].edges)
+                        }
+                        FeatureKind::Chamfer(d) => Some(&mut d.edges),
+                        _ => None,
+                    };
                     if let Some(l) = list {
-                        if let Some(i) = l.iter().position(|e| (e.m - er.m).length() < 1e-6) { l.remove(i); } else { l.push(er); }
+                        // an edge that is taken out again does not bring its loop
+                        if let Some(i) = l.iter().position(|e| (e.m - er.m).length() < 1e-6) {
+                            l.remove(i);
+                            offer = None;
+                        } else {
+                            l.push(er);
+                        }
                     }
                 }
                 None => warn = Some("Eine Kante wählen."),
             },
             PickTarget::Faces => match face {
                 Some(fr) => {
-                    let list = match &mut ed.feature.kind { FeatureKind::Shell(d) => Some(&mut d.faces), FeatureKind::Draft(d) => Some(&mut d.faces), FeatureKind::Surface(d) => Some(&mut d.faces), _ => None };
+                    let list = match &mut ed.feature.kind {
+                        FeatureKind::Shell(d) => Some(&mut d.faces),
+                        FeatureKind::Draft(d) => Some(&mut d.faces),
+                        FeatureKind::Surface(d) => Some(&mut d.faces),
+                        _ => None,
+                    };
                     if let Some(l) = list {
-                        if let Some(i) = l.iter().position(|f| (f.point - fr.point).length() < 1e-6 && f.normal.dot(fr.normal) > 0.999) { l.remove(i); } else { l.push(fr); }
+                        if let Some(i) = l.iter().position(|f| (f.point - fr.point).length() < 1e-6 && f.normal.dot(fr.normal) > 0.999) {
+                            l.remove(i);
+                        } else {
+                            l.push(fr);
+                        }
                     }
                 }
                 None => warn = Some("Eine ebene Fläche wählen."),
             },
             PickTarget::Axis => match (item, &mut ed.feature.kind) {
-                (Pick::Axis(id), FeatureKind::Pattern(d)) => { d.axis = AxisRef::Axis(id); d.kind = PatternKind::Axis; done = true; }
-                (Pick::Axis(id), FeatureKind::DatumPlane(d)) => { d.axis = Some(AxisRef::Axis(id)); done = true; }
+                (Pick::Axis(id), FeatureKind::Pattern(d)) => {
+                    d.axis = AxisRef::Axis(id);
+                    d.kind = PatternKind::Axis;
+                    done = true;
+                }
+                (Pick::Axis(id), FeatureKind::DatumPlane(d)) => {
+                    d.axis = Some(AxisRef::Axis(id));
+                    done = true;
+                }
                 _ => warn = Some("Eine Achse wählen."),
             },
             PickTarget::Direction => {
@@ -811,7 +1239,10 @@ impl App {
                     _ => None,
                 };
                 match (dir, &mut ed.feature.kind) {
-                    (Some(a), FeatureKind::Pattern(d)) => { d.dir1 = a; done = true; }
+                    (Some(a), FeatureKind::Pattern(d)) => {
+                        d.dir1 = a;
+                        done = true;
+                    }
                     _ => warn = Some("Eine Achse oder eine Standardbezugsebene wählen."),
                 }
             }
@@ -820,7 +1251,10 @@ impl App {
                 _ => warn = Some("Einen Bezugspunkt wählen."),
             },
             PickTarget::Surface => match (thread, &mut ed.feature.kind) {
-                (Some(t), FeatureKind::Thread(d)) => { *d = ThreadDef { flip: d.flip, ..t }; done = true; }
+                (Some(t), FeatureKind::Thread(d)) => {
+                    *d = ThreadDef { flip: d.flip, ..t };
+                    done = true;
+                }
                 _ => warn = Some("Eine zylindrische Fläche wählen."),
             },
             PickTarget::Features => {
@@ -832,16 +1266,33 @@ impl App {
                 }
             }
         }
-        if let Some(w) = warn { self.say(w, MsgKind::Warning); return; }
+        if let Some(w) = warn {
+            self.say(w, MsgKind::Warning);
+            return;
+        }
+        if target == PickTarget::Edges {
+            self.loop_offer = offer;
+        }
         let ed = self.editor.as_mut().unwrap();
-        if done { ed.pick = None; }
-        if let Some(n) = next_target { ed.pick = Some(n); }
+        if done {
+            ed.pick = None;
+        }
+        if let Some(n) = next_target {
+            ed.pick = Some(n);
+        }
         self.update_preview();
-        if let Some(n) = next_target { self.say(prompt_for(n), MsgKind::Prompt); }
-        if let Some(n) = used_sketch { self.say(format!("{} wird als Skizze verwendet.", n), MsgKind::Info); return; }
+        if let Some(n) = next_target {
+            self.say(prompt_for(n), MsgKind::Prompt);
+        }
+        if let Some(n) = used_sketch {
+            self.say(format!("{} wird als Skizze verwendet.", n), MsgKind::Info);
+            return;
+        }
         if done && target == PickTarget::SketchPlane {
             // in the Skizze dialog the plane only fills the collector; the Skizze button starts sketching
-            if self.sketch_dlg.is_none() { self.begin_sketch(Slot::Main); }
+            if self.sketch_dlg.is_none() {
+                self.begin_sketch(Slot::Main);
+            }
         }
     }
 
@@ -850,7 +1301,9 @@ impl App {
     pub fn thread_init(&self, f: usize) -> Option<ThreadDef> {
         let r = self.displayed();
         let t = &r.topo;
-        if t.faces.get(f).map_or(true, |x| x.planar) { return None; }
+        if t.faces.get(f).map_or(true, |x| x.planar) {
+            return None;
+        }
         let (_, _, rad, len, internal) = regen::thread_cylinder(t, f, false)?;
         let (major, pitch) = regen::thread_for_cylinder(rad * 2.0, internal);
         let round = |x: f64| (x * 100.0).round() / 100.0;
@@ -861,32 +1314,69 @@ impl App {
         if self.in_asm() {
             let is_plane = matches!(self.data.feature(id).map(|f| &f.kind), Some(FeatureKind::DatumPlane(_)));
             if self.placing() {
-                if is_plane { self.place_pick(Pick::Plane(id)); }
+                if is_plane {
+                    self.place_pick(Pick::Plane(id));
+                }
                 return;
             }
-            if additive { toggle(&mut self.tree_selection, id); } else { self.tree_selection = vec![id]; }
+            if additive {
+                toggle(&mut self.tree_selection, id);
+            } else {
+                self.tree_selection = vec![id];
+            }
             let pick = if is_plane { Pick::Plane(id) } else { Pick::Feature(id) };
-            if additive { if !self.selection.contains(&pick) { self.selection.push(pick); } } else { self.selection = vec![pick]; }
+            if additive {
+                if !self.selection.contains(&pick) {
+                    self.selection.push(pick);
+                }
+            } else {
+                self.selection = vec![pick];
+            }
             return;
         }
         if let Some(t) = self.editor.as_ref().and_then(|e| e.pick) {
             let is_plane = matches!(self.data.feature(id).map(|f| &f.kind), Some(FeatureKind::DatumPlane(_)));
             match t {
-                PickTarget::Features => { self.route_pick(Pick::Feature(id), t); return; }
-                PickTarget::SketchPlane if matches!(self.data.feature(id).map(|f| &f.kind), Some(FeatureKind::Sketch(_))) => { self.route_pick(Pick::Feature(id), t); return; }
-                PickTarget::Points if matches!(self.data.feature(id).map(|f| &f.kind), Some(FeatureKind::DatumPoint(_))) => { self.route_pick(Pick::Point(id), t); return; }
-                PickTarget::Plane | PickTarget::Plane2 | PickTarget::SketchPlane | PickTarget::Direction | PickTarget::DepthRef if is_plane => { self.route_pick(Pick::Plane(id), t); return; }
-                PickTarget::Axis | PickTarget::Direction if self.displayed().axis(id).is_some() => { self.route_pick(Pick::Axis(id), t); return; }
+                PickTarget::Features => {
+                    self.route_pick(Pick::Feature(id), t);
+                    return;
+                }
+                PickTarget::SketchPlane if matches!(self.data.feature(id).map(|f| &f.kind), Some(FeatureKind::Sketch(_))) => {
+                    self.route_pick(Pick::Feature(id), t);
+                    return;
+                }
+                PickTarget::Points if matches!(self.data.feature(id).map(|f| &f.kind), Some(FeatureKind::DatumPoint(_))) => {
+                    self.route_pick(Pick::Point(id), t);
+                    return;
+                }
+                PickTarget::Plane | PickTarget::Plane2 | PickTarget::SketchPlane | PickTarget::Direction | PickTarget::DepthRef if is_plane => {
+                    self.route_pick(Pick::Plane(id), t);
+                    return;
+                }
+                PickTarget::Axis | PickTarget::Direction if self.displayed().axis(id).is_some() => {
+                    self.route_pick(Pick::Axis(id), t);
+                    return;
+                }
                 _ => {}
             }
         }
-        if additive { toggle(&mut self.tree_selection, id); } else { self.tree_selection = vec![id]; }
+        if additive {
+            toggle(&mut self.tree_selection, id);
+        } else {
+            self.tree_selection = vec![id];
+        }
         let pick = match self.data.feature(id).map(|f| &f.kind) {
             Some(FeatureKind::DatumPlane(_)) => Pick::Plane(id),
             Some(FeatureKind::DatumAxis(_)) => Pick::Axis(id),
             _ => Pick::Feature(id),
         };
-        if additive { if !self.selection.contains(&pick) { self.selection.push(pick); } } else { self.selection = vec![pick]; }
+        if additive {
+            if !self.selection.contains(&pick) {
+                self.selection.push(pick);
+            }
+        } else {
+            self.selection = vec![pick];
+        }
     }
 
     // ---------- sketches ----------
@@ -913,36 +1403,69 @@ impl App {
 
     pub fn begin_sketch(&mut self, slot_in: Slot) {
         let Some(ed) = &self.editor else { return };
-        if ed.feature.kind.sketch_plane().is_some() { self.sketch_dlg = None; }
+        if ed.feature.kind.sketch_plane().is_some() {
+            self.sketch_dlg = None;
+        }
         let mut slot = slot_in;
-        if matches!(ed.feature.kind, FeatureKind::Sweep(_) | FeatureKind::Helix(_)) && slot == Slot::Main { slot = Slot::Trajectory; }
-        if matches!(ed.feature.kind, FeatureKind::Blend(_)) && slot == Slot::Main { slot = Slot::Blend(0); }
-        if matches!(ed.feature.kind, FeatureKind::Pattern(_)) { slot = Slot::Pattern; }
+        if matches!(ed.feature.kind, FeatureKind::Sweep(_) | FeatureKind::Helix(_)) && slot == Slot::Main {
+            slot = Slot::Trajectory;
+        }
+        if matches!(ed.feature.kind, FeatureKind::Blend(_)) && slot == Slot::Main {
+            slot = Slot::Blend(0);
+        }
+        if matches!(ed.feature.kind, FeatureKind::Pattern(_)) {
+            slot = Slot::Pattern;
+        }
         let ctx = self.context.clone().unwrap_or_else(|| self.result.clone());
-        let Some(pr) = ed.feature.kind.sketch_plane() else { self.set_pick_target(Some(PickTarget::SketchPlane)); return };
-        let Some(mut frame) = ctx.frame_for(&pr) else { self.say("Die Referenz der Skizzierebene kann nicht aufgelöst werden.", MsgKind::Error); return };
+        let Some(pr) = ed.feature.kind.sketch_plane() else {
+            self.set_pick_target(Some(PickTarget::SketchPlane));
+            return;
+        };
+        let Some(mut frame) = ctx.frame_for(&pr) else {
+            self.say("Die Referenz der Skizzierebene kann nicht aufgelöst werden.", MsgKind::Error);
+            return;
+        };
         let mut ghosts: Vec<Vec<V2>> = vec![];
         let mut title = "Skizze".to_string();
         match (&ed.feature.kind, slot) {
             (FeatureKind::Sweep(d), Slot::Section) => {
-                let Ok((pts, _)) = d.trajectory.trajectory() else { self.say("Zuerst die Leitkurve skizzieren.", MsgKind::Warning); return };
-                if pts.len() < 2 { self.say("Zuerst die Leitkurve skizzieren.", MsgKind::Warning); return; }
+                let Ok((pts, _)) = d.trajectory.trajectory() else {
+                    self.say("Zuerst die Leitkurve skizzieren.", MsgKind::Warning);
+                    return;
+                };
+                if pts.len() < 2 {
+                    self.say("Zuerst die Leitkurve skizzieren.", MsgKind::Warning);
+                    return;
+                }
                 let path: Vec<V3> = pts.iter().map(|p| frame.to_world(*p)).collect();
                 frame = regen::sweep_section_frame(&path);
                 title = "Zugquerschnitt".into();
             }
             (FeatureKind::Sweep(d), Slot::Blend(_)) => {
-                let Ok((pts, _)) = d.trajectory.trajectory() else { self.say("Zuerst die Leitkurve skizzieren.", MsgKind::Warning); return };
-                if pts.len() < 2 { self.say("Zuerst die Leitkurve skizzieren.", MsgKind::Warning); return; }
+                let Ok((pts, _)) = d.trajectory.trajectory() else {
+                    self.say("Zuerst die Leitkurve skizzieren.", MsgKind::Warning);
+                    return;
+                };
+                if pts.len() < 2 {
+                    self.say("Zuerst die Leitkurve skizzieren.", MsgKind::Warning);
+                    return;
+                }
                 let path: Vec<V3> = pts.iter().map(|p| frame.to_world(*p)).collect();
                 frame = regen::sweep_end_frame(&path);
-                for e in &d.section.entities { ghosts.push(d.section.sample(e, 64)); }
+                for e in &d.section.entities {
+                    ghosts.push(d.section.sample(e, 64));
+                }
                 title = "Zug-Verbund — Querschnitt am Ende".into();
             }
             (FeatureKind::Sweep(_), _) => title = "Zugleitkurve".into(),
             (FeatureKind::Helix(d), Slot::Section) => {
-                if d.profile.trajectory().is_err() { self.say("Zuerst das Spiralzugprofil skizzieren.", MsgKind::Warning); return; }
-                for e in &d.profile.entities { ghosts.push(d.profile.sample(e, 64)); }
+                if d.profile.trajectory().is_err() {
+                    self.say("Zuerst das Spiralzugprofil skizzieren.", MsgKind::Warning);
+                    return;
+                }
+                for e in &d.profile.entities {
+                    ghosts.push(d.profile.sample(e, 64));
+                }
                 title = "Spiralzugquerschnitt".into();
             }
             (FeatureKind::Helix(_), _) => title = "Spiralzugprofil".into(),
@@ -950,10 +1473,17 @@ impl App {
             (FeatureKind::Surface(d), _) => title = format!("{} — Skizze", d.op.name()),
             (FeatureKind::Blend(d), Slot::Blend(i)) if d.rotational => {
                 if i > 0 {
-                    let Some((ap, au)) = d.sections.first().and_then(|s| s.centerline_axis()) else { self.say("Im ersten Querschnitt eine Mittellinie als Drehachse skizzieren.", MsgKind::Warning); return };
+                    let Some((ap, au)) = d.sections.first().and_then(|s| s.centerline_axis()) else {
+                        self.say("Im ersten Querschnitt eine Mittellinie als Drehachse skizzieren.", MsgKind::Warning);
+                        return;
+                    };
                     let angs: Vec<f64> = (0..i).map(|k| d.offsets.get(k).map(|o| o.value(&ctx.vars, 45.0)).unwrap_or(45.0)).collect();
                     frame = *regen::rotational_blend_frames(&frame, ap, au, &angs, d.flip).0.last().unwrap();
-                    for s in d.sections.iter().take(i) { for e in &s.entities { ghosts.push(s.sample(e, 64)); } }
+                    for s in d.sections.iter().take(i) {
+                        for e in &s.entities {
+                            ghosts.push(s.sample(e, 64));
+                        }
+                    }
                 }
                 title = format!("Rotationsverbund-Querschnitt {}", i + 1);
             }
@@ -961,7 +1491,11 @@ impl App {
                 if i > 0 {
                     let offs: Vec<f64> = (0..i).map(|k| d.offsets.get(k).map(|o| o.value(&ctx.vars, 20.0)).unwrap_or(20.0)).collect();
                     frame = *regen::blend_frames(&frame, &offs, d.flip).last().unwrap();
-                    for s in d.sections.iter().take(i) { for e in s.profile_entities() { ghosts.push(s.sample(e, 64)); } }
+                    for s in d.sections.iter().take(i) {
+                        for e in s.profile_entities() {
+                            ghosts.push(s.sample(e, 64));
+                        }
+                    }
                 }
                 title = format!("Verbundquerschnitt {}", i + 1);
             }
@@ -969,7 +1503,9 @@ impl App {
         }
         let sk = self.sketch_for(slot).unwrap_or_default();
         let mut named: Vec<(String, [V2; 2])> = projected_refs_named(&frame, &ctx).into_iter().filter(|r| !sk_saved_hidden(&self.sketch_for(slot), &r.1)).collect();
-        if let Some(s) = self.sketch_for(slot) { named.extend(s.extra_refs.iter().cloned()); }
+        if let Some(s) = self.sketch_for(slot) {
+            named.extend(s.extra_refs.iter().cloned());
+        }
         let refs: Vec<[V2; 2]> = named.iter().map(|r| r.1).collect();
         let requirement = match (&ed.feature.kind, slot) {
             (FeatureKind::Revolve(_), _) => sketcher::Requirement::Revolve,
@@ -986,11 +1522,15 @@ impl App {
         let (cand_lines, cand_points) = candidate_refs(&frame, &ctx);
         session.set_ref_info(named.into_iter().map(|r| r.0).collect(), axis_ref_names(&frame, &ctx), cand_lines, cand_points);
         session.requirement = requirement;
-        if self.saved_camera.is_none() { self.saved_camera = Some(self.camera); }
+        if self.saved_camera.is_none() {
+            self.saved_camera = Some(self.camera);
+        }
         self.sketch = Some(session);
         self.sketch_view();
         self.tab = Tab::Context;
-        if let Some(e) = &mut self.editor { e.pick = None; }
+        if let Some(e) = &mut self.editor {
+            e.pick = None;
+        }
         if self.sketch.as_ref().is_some_and(|s| s.sketch.is_empty()) && requirement != sketcher::Requirement::Any {
             self.say("Schnitt muss geometrische Elemente für dieses KE enthalten.", MsgKind::Info);
         } else {
@@ -1012,7 +1552,9 @@ impl App {
     }
 
     pub fn restore_camera(&mut self) {
-        if let Some(c) = self.saved_camera.take() { self.camera = c; }
+        if let Some(c) = self.saved_camera.take() {
+            self.camera = c;
+        }
     }
 
     pub fn cancel_sketch(&mut self) {
@@ -1049,10 +1591,14 @@ impl App {
             (FeatureKind::Helix(d), Slot::Section) => d.section = s,
             (FeatureKind::Helix(d), _) => d.profile = s,
             (FeatureKind::Blend(d), Slot::Blend(i)) => {
-                while d.sections.len() <= i { d.sections.push(Sketch::default()); }
+                while d.sections.len() <= i {
+                    d.sections.push(Sketch::default());
+                }
                 d.sections[i] = s;
                 let step = if d.rotational { 45.0 } else { 20.0 };
-                while d.offsets.len() + 1 < d.sections.len() { d.offsets.push(Dim::v(step)); }
+                while d.offsets.len() + 1 < d.sections.len() {
+                    d.offsets.push(Dim::v(step));
+                }
             }
             _ => {}
         });
@@ -1066,7 +1612,13 @@ impl App {
         self.store_sketch(s.sketch, slot);
         self.update_editor(|f| {
             f.kind.set_sketch_plane(plane);
-            if flip { match &mut f.kind { FeatureKind::Extrude(d) => d.flip = !d.flip, FeatureKind::Revolve(d) => d.flip = !d.flip, _ => {} } }
+            if flip {
+                match &mut f.kind {
+                    FeatureKind::Extrude(d) => d.flip = !d.flip,
+                    FeatureKind::Revolve(d) => d.flip = !d.flip,
+                    _ => {}
+                }
+            }
         });
         self.refresh_context();
         self.begin_sketch(slot);
@@ -1081,14 +1633,24 @@ impl App {
             Some(ed) => (
                 matches!(ed.feature.kind, FeatureKind::Sketch(_)),
                 ed.is_new,
-                (matches!(&ed.feature.kind, FeatureKind::Sweep(d) if d.section.is_empty()) || matches!(&ed.feature.kind, FeatureKind::Helix(d) if d.section.is_empty())) && slot == Slot::Trajectory,
+                (matches!(&ed.feature.kind, FeatureKind::Sweep(d) if d.section.is_empty()) || matches!(&ed.feature.kind, FeatureKind::Helix(d) if d.section.is_empty()))
+                    && slot == Slot::Trajectory,
             ),
             None => (false, false, false),
         };
-        if is_sketch && is_new && self.editor_error().is_none() { self.finish_feature(); }
+        if is_sketch && is_new && self.editor_error().is_none() {
+            self.finish_feature();
+        }
         if sweep_needs_section {
             let helix = matches!(self.editor.as_ref().map(|e| &e.feature.kind), Some(FeatureKind::Helix(_)));
-            self.say(if helix { "Jetzt den Querschnitt am Anfang des Profils skizzieren (er läuft durch die Achse um)." } else { "Jetzt den Zugquerschnitt skizzieren (seine Ebene steht senkrecht zum Anfang der Leitkurve)." }, MsgKind::Prompt);
+            self.say(
+                if helix {
+                    "Jetzt den Querschnitt am Anfang des Profils skizzieren (er läuft durch die Achse um)."
+                } else {
+                    "Jetzt den Zugquerschnitt skizzieren (seine Ebene steht senkrecht zum Anfang der Leitkurve)."
+                },
+                MsgKind::Prompt,
+            );
             self.begin_sketch(Slot::Section);
         }
     }
@@ -1097,10 +1659,14 @@ impl App {
 
     pub fn delete_features(&mut self, ids: &[u64]) {
         let mut all: Vec<u64> = ids.iter().copied().filter(|id| ![FRONT_ID, TOP_ID, RIGHT_ID, CSYS_ID].contains(id) || self.data.features.len() > 4).collect();
-        if all.is_empty() { return; }
+        if all.is_empty() {
+            return;
+        }
         loop {
             let extra: Vec<u64> = self.data.features.iter().filter(|f| !all.contains(&f.id) && f.kind.references().iter().any(|r| all.contains(r))).map(|f| f.id).collect();
-            if extra.is_empty() { break; }
+            if extra.is_empty() {
+                break;
+            }
             all.extend(extra);
         }
         let n = all.len();
@@ -1108,7 +1674,9 @@ impl App {
         let label = if children > 0 { format!("{} KE(s) gelöscht, einschließlich {} abhängiger Kind-KE(s).", n, children) } else { format!("{} KE(s) gelöscht.", n) };
         self.commit(&label, |d| {
             d.features.retain(|f| !all.contains(&f.id));
-            if let Some(ii) = d.insert_index { d.insert_index = Some(ii.min(d.features.len())); }
+            if let Some(ii) = d.insert_index {
+                d.insert_index = Some(ii.min(d.features.len()));
+            }
         });
         self.selection.clear();
         self.tree_selection.clear();
@@ -1117,25 +1685,43 @@ impl App {
     pub fn set_suppressed(&mut self, ids: &[u64], s: bool) {
         let ids = ids.to_vec();
         self.commit(&format!("{}: {} KE(s).", if s { "Unterdrückt" } else { "Fortgesetzt" }, ids.len()), |d| {
-            for f in &mut d.features { if ids.contains(&f.id) { f.suppressed = s; } }
+            for f in &mut d.features {
+                if ids.contains(&f.id) {
+                    f.suppressed = s;
+                }
+            }
         });
     }
 
     pub fn toggle_hidden(&mut self, ids: &[u64]) {
         let ids = ids.to_vec();
-        self.commit("", |d| for f in &mut d.features { if ids.contains(&f.id) { f.hidden = !f.hidden; } });
+        self.commit("", |d| {
+            for f in &mut d.features {
+                if ids.contains(&f.id) {
+                    f.hidden = !f.hidden;
+                }
+            }
+        });
     }
 
     pub fn rename(&mut self, id: u64, name: &str) {
         let n = name.trim().to_string();
-        if n.is_empty() { return; }
-        self.commit(&format!("Umbenannt in {}.", n), |d| if let Some(i) = d.index_of(id) { d.features[i].name = n.clone(); });
+        if n.is_empty() {
+            return;
+        }
+        self.commit(&format!("Umbenannt in {}.", n), |d| {
+            if let Some(i) = d.index_of(id) {
+                d.features[i].name = n.clone();
+            }
+        });
     }
 
     pub fn move_feature(&mut self, id: u64, delta: i32) {
         let Some(i) = self.data.index_of(id) else { return };
         let j = i as i32 + delta;
-        if j < 0 || j as usize >= self.data.features.len() { return; }
+        if j < 0 || j as usize >= self.data.features.len() {
+            return;
+        }
         let j = j as usize;
         let (a, b) = (&self.data.features[i], &self.data.features[j]);
         if (delta < 0 && a.kind.references().contains(&b.id)) || (delta > 0 && b.kind.references().contains(&a.id)) {
@@ -1155,15 +1741,20 @@ impl App {
 
     // ---------- files ----------
 
-    pub fn new_part(&mut self) { self.new_part_named("PRT0001"); }
+    pub fn new_part(&mut self) {
+        self.new_part_named("PRT0001");
+    }
 
     pub fn new_part_named(&mut self, name: &str) {
         self.leave_home();
-        self.editor = None; self.sketch = None;
+        self.editor = None;
+        self.sketch = None;
         self.asm = None;
         self.drw = None;
-        self.selection.clear(); self.tree_selection.clear();
-        self.undo.clear(); self.redo.clear();
+        self.selection.clear();
+        self.tree_selection.clear();
+        self.undo.clear();
+        self.redo.clear();
         self.data = ModelData::new_part_template(name);
         self.tab = Tab::Model;
         self.path = None;
@@ -1174,12 +1765,23 @@ impl App {
     }
 
     pub fn save(&mut self, save_as: bool) {
-        if self.drawing_active() { self.save_drawing(save_as); return; }
-        if self.in_asm() { self.asm_save(save_as); return; }
-        if self.busy() { self.say("Vor dem Speichern das aktive KE abschließen.", MsgKind::Warning); return; }
+        if self.drawing_active() {
+            self.save_drawing(save_as);
+            return;
+        }
+        if self.in_asm() {
+            self.asm_save(save_as);
+            return;
+        }
+        if self.busy() {
+            self.say("Vor dem Speichern das aktive KE abschließen.", MsgKind::Warning);
+            return;
+        }
         let (cur, file) = (self.path.clone(), format!("{}.pfprt", self.data.name.to_lowercase()));
         let path = self.save_target(cur.as_ref(), save_as, &file, creo::SaveKind::Part);
-        if let Some(p) = path { self.save_part_to(p); }
+        if let Some(p) = path {
+            self.save_part_to(p);
+        }
     }
 
     /// Writes the part to `p` and makes it the part's file.
@@ -1191,7 +1793,11 @@ impl App {
                 // a component opened from an assembly now lives in this file
                 if let Some(name) = self.editing_from_asm().map(|o| o.part.clone()) {
                     let data = self.data.clone();
-                    if let Some(pe) = self.asm.as_mut().and_then(|a| a.data.part_mut(&name)) { pe.source = Some(p.clone()); pe.data = data; pe.modified = false; }
+                    if let Some(pe) = self.asm.as_mut().and_then(|a| a.data.part_mut(&name)) {
+                        pe.source = Some(p.clone());
+                        pe.data = data;
+                        pe.modified = false;
+                    }
                 }
                 self.path = Some(p);
                 self.dirty = false;
@@ -1201,22 +1807,39 @@ impl App {
     }
 
     /// File ▸ Open: Creo's "Datei öffnen" dialog.
-    pub fn open(&mut self) { self.open_in(None); }
+    pub fn open(&mut self) {
+        self.open_in(None);
+    }
 
     pub fn load(&mut self, p: PathBuf) {
         let name = p.file_name().map(|s| s.to_string_lossy().to_string()).unwrap_or_default();
-        if creo::is_creo_file(&name) { self.show_creo_file(&p); return; }
+        if creo::is_creo_file(&name) {
+            self.show_creo_file(&p);
+            return;
+        }
         self.leave_home();
-        if creo::is_neutral_file(&name) { self.open_neutral(&p); return; }
-        if p.extension().map(|e| e == "pfasm").unwrap_or(false) { self.asm_load(p); return; }
-        if p.extension().map(|e| e == "pfdrw").unwrap_or(false) { self.load_drawing(p); return; }
+        if creo::is_neutral_file(&name) {
+            self.open_neutral(&p);
+            return;
+        }
+        if p.extension().map(|e| e == "pfasm").unwrap_or(false) {
+            self.asm_load(p);
+            return;
+        }
+        if p.extension().map(|e| e == "pfdrw").unwrap_or(false) {
+            self.load_drawing(p);
+            return;
+        }
         match std::fs::read_to_string(&p).map_err(|e| e.to_string()).and_then(|s| serde_json::from_str::<ModelData>(&s).map_err(|e| e.to_string())) {
             Ok(d) => {
-                self.editor = None; self.sketch = None;
+                self.editor = None;
+                self.sketch = None;
                 self.asm = None;
                 self.drw = None;
-                self.selection.clear(); self.tree_selection.clear();
-                self.undo.clear(); self.redo.clear();
+                self.selection.clear();
+                self.tree_selection.clear();
+                self.undo.clear();
+                self.redo.clear();
                 self.tab = Tab::Model;
                 let n = d.features.len();
                 self.data = d;
@@ -1226,15 +1849,23 @@ impl App {
                 self.fit_pending = true;
                 self.say(format!("{} geöffnet ({} KEs).", p.display(), n), MsgKind::Success);
                 self.add_recent(&p);
-                if let Some(dir) = p.parent() { self.browser_dir = dir.to_path_buf(); }
+                if let Some(dir) = p.parent() {
+                    self.browser_dir = dir.to_path_buf();
+                }
             }
             Err(e) => self.say(format!("Datei konnte nicht geöffnet werden: {}", e), MsgKind::Error),
         }
     }
 
     pub fn toggle_section(&mut self) {
-        if self.section.is_some() { self.section = None; return; }
-        let plane = match self.selection.first() { Some(Pick::Plane(id)) => *id, _ => FRONT_ID };
+        if self.section.is_some() {
+            self.section = None;
+            return;
+        }
+        let plane = match self.selection.first() {
+            Some(Pick::Plane(id)) => *id,
+            _ => FRONT_ID,
+        };
         self.section = Some(SectionView { plane, offset: 0.0, flip: false });
         let name = self.data.feature(plane).map(|f| f.name.clone()).unwrap_or_default();
         self.say(format!("Schnittansicht durch {}. Den Versatz im Register Ansicht anpassen.", name), MsgKind::Info);
@@ -1245,13 +1876,20 @@ impl App {
 pub fn default_work_dir() -> PathBuf {
     let home = std::env::var("HOME").map(PathBuf::from).unwrap_or_else(|_| PathBuf::from("/tmp"));
     let docs = home.join("Documents");
-    if docs.is_dir() { docs.join("freo-work") } else { home.join("freo-work") }
+    if docs.is_dir() {
+        docs.join("freo-work")
+    } else {
+        home.join("freo-work")
+    }
 }
 
 impl App {
     /// Folder for dialogs that write files: the file's own folder, else the Arbeitsverzeichnis.
     pub fn save_dir(&self, current: Option<&PathBuf>) -> PathBuf {
-        current.and_then(|p| p.parent().map(PathBuf::from)).filter(|d| d.is_dir()).unwrap_or_else(|| { let _ = std::fs::create_dir_all(&self.work_dir); self.work_dir.clone() })
+        current.and_then(|p| p.parent().map(PathBuf::from)).filter(|d| d.is_dir()).unwrap_or_else(|| {
+            let _ = std::fs::create_dir_all(&self.work_dir);
+            self.work_dir.clone()
+        })
     }
 
     /// Where Speichern writes: the model's file, or — for a new model — straight into the
@@ -1260,11 +1898,22 @@ impl App {
     /// explorer opens and finishes the save itself; then this returns None.
     pub fn save_target(&mut self, current: Option<&PathBuf>, save_as: bool, file_name: &str, kind: creo::SaveKind) -> Option<PathBuf> {
         if !save_as {
-            if let Some(p) = current { return Some(p.clone()); }
+            if let Some(p) = current {
+                return Some(p.clone());
+            }
             let _ = std::fs::create_dir_all(&self.work_dir);
             let p = self.work_dir.join(file_name);
-            let replace = || rfd::MessageDialog::new().set_title("Speichern").set_description(format!("{} existiert bereits im Arbeitsverzeichnis. Ersetzen?", file_name)).set_buttons(rfd::MessageButtons::YesNo).show() == rfd::MessageDialogResult::Yes;
-            if !p.exists() || replace() { return Some(p); }
+            let replace = || {
+                rfd::MessageDialog::new()
+                    .set_title("Speichern")
+                    .set_description(format!("{} existiert bereits im Arbeitsverzeichnis. Ersetzen?", file_name))
+                    .set_buttons(rfd::MessageButtons::YesNo)
+                    .show()
+                    == rfd::MessageDialogResult::Yes
+            };
+            if !p.exists() || replace() {
+                return Some(p);
+            }
         }
         let dir = self.save_dir(current);
         self.browse(creo::BrowsePurpose::SaveAs(kind), dir, file_name.rsplit_once('.').map(|x| x.0).unwrap_or(file_name));
@@ -1273,7 +1922,11 @@ impl App {
 }
 
 pub fn toggle(v: &mut Vec<u64>, id: u64) {
-    if let Some(i) = v.iter().position(|x| *x == id) { v.remove(i); } else { v.push(id); }
+    if let Some(i) = v.iter().position(|x| *x == id) {
+        v.remove(i);
+    } else {
+        v.push(id);
+    }
 }
 
 pub fn prompt_for(t: PickTarget) -> &'static str {
@@ -1293,12 +1946,19 @@ pub fn prompt_for(t: PickTarget) -> &'static str {
 }
 
 /// Model edges lying in the sketch plane and perpendicular datum planes, as sketch references.
-pub fn projected_refs(frame: &Frame, r: &RegenResult) -> Vec<[V2; 2]> { projected_refs_named(frame, r).into_iter().map(|x| x.1).collect() }
+pub fn projected_refs(frame: &Frame, r: &RegenResult) -> Vec<[V2; 2]> {
+    projected_refs_named(frame, r).into_iter().map(|x| x.1).collect()
+}
 
 /// Creo's names of datum-plane references, e.g. "RECHTS:F1(BEZUGSEBENE)".
 fn plane_ref_name(_r: &RegenResult, p: &regen::PlaneInfo) -> String {
     // Creo's feature numbers of the start part: RECHTS F1, OBEN F2, VORNE F3
-    let n = match p.id { RIGHT_ID => 1, TOP_ID => 2, FRONT_ID => 3, id => id };
+    let n = match p.id {
+        RIGHT_ID => 1,
+        TOP_ID => 2,
+        FRONT_ID => 3,
+        id => id,
+    };
     format!("{}:F{}(BEZUGSEBENE)", p.name, n)
 }
 
@@ -1307,11 +1967,17 @@ pub fn axis_ref_names(frame: &Frame, r: &RegenResult) -> [String; 2] {
     let mut out = [String::new(), String::new()];
     for p in &r.planes {
         let n = p.frame.z();
-        if n.dot(frame.z()).abs() > 0.01 || (n.dot(p.frame.origin) - n.dot(frame.origin)).abs() > 1e-7 { continue; }
+        if n.dot(frame.z()).abs() > 0.01 || (n.dot(p.frame.origin) - n.dot(frame.origin)).abs() > 1e-7 {
+            continue;
+        }
         let d3 = n.cross(frame.z());
         let d2 = V2::new(d3.dot(frame.x), d3.dot(frame.y));
-        if d2.x.abs() > 0.9999 && out[0].is_empty() { out[0] = plane_ref_name(r, p); }
-        if d2.y.abs() > 0.9999 && out[1].is_empty() { out[1] = plane_ref_name(r, p); }
+        if d2.x.abs() > 0.9999 && out[0].is_empty() {
+            out[0] = plane_ref_name(r, p);
+        }
+        if d2.y.abs() > 0.9999 && out[1].is_empty() {
+            out[1] = plane_ref_name(r, p);
+        }
     }
     out
 }
@@ -1326,26 +1992,43 @@ pub fn candidate_refs(frame: &Frame, r: &RegenResult) -> (Vec<(String, [V2; 2])>
     let t = &r.topo;
     let tol = 1e-4 * t.bbox.diagonal().max(1.0);
     let mut pts: Vec<(String, V2)> = vec![];
-    for p in &r.points { pts.push((format!("{}:F{}(BEZUGSPUNKT)", p.name, p.id), frame.to_local(p.p))); }
+    for p in &r.points {
+        pts.push((format!("{}:F{}(BEZUGSPUNKT)", p.name, p.id), frame.to_local(p.p)));
+    }
     let mut out: Vec<(String, [V2; 2])> = vec![];
     for a in &r.axes {
         let d = V2::new(a.dir.dot(frame.x), a.dir.dot(frame.y));
         let o = frame.to_local(a.point);
         let name = format!("{}:F{}(BEZUGSACHSE)", a.name, a.feature);
-        if d.length() < 1e-6 { pts.push((name, o)); } else { let u = d.normalize(); out.push((name, [o - u * 50.0, o + u * 50.0])); }
+        if d.length() < 1e-6 {
+            pts.push((name, o));
+        } else {
+            let u = d.normalize();
+            out.push((name, [o - u * 50.0, o + u * 50.0]));
+        }
     }
     for &(a, b) in &t.draw_edges {
         for q in [frame.to_local(t.positions[a]), frame.to_local(t.positions[b])] {
-            if pts.len() < 3000 && !pts.iter().any(|x| (x.1 - q).length() < tol) { pts.push(("Eckpunkt".into(), q)); }
+            if pts.len() < 3000 && !pts.iter().any(|x| (x.1 - q).length() < tol) {
+                pts.push(("Eckpunkt".into(), q));
+            }
         }
     }
     for &(a, b) in &t.draw_edges {
         let (pa, pb) = (frame.to_local(t.positions[a]), frame.to_local(t.positions[b]));
-        if (pb - pa).length() < tol { continue; }
-        if frame.height(t.positions[a]).abs() < tol && frame.height(t.positions[b]).abs() < tol { continue; }
-        if out.iter().any(|o| ((o.1[0] - pa).length() < tol && (o.1[1] - pb).length() < tol) || ((o.1[0] - pb).length() < tol && (o.1[1] - pa).length() < tol)) { continue; }
+        if (pb - pa).length() < tol {
+            continue;
+        }
+        if frame.height(t.positions[a]).abs() < tol && frame.height(t.positions[b]).abs() < tol {
+            continue;
+        }
+        if out.iter().any(|o| ((o.1[0] - pa).length() < tol && (o.1[1] - pb).length() < tol) || ((o.1[0] - pb).length() < tol && (o.1[1] - pa).length() < tol)) {
+            continue;
+        }
         out.push(("Kante (projiziert)".into(), [pa, pb]));
-        if out.len() > 1500 { break; }
+        if out.len() > 1500 {
+            break;
+        }
     }
     (out, pts)
 }
@@ -1356,20 +2039,30 @@ pub fn projected_refs_named(frame: &Frame, r: &RegenResult) -> Vec<(String, [V2;
     let mut out: Vec<(String, [V2; 2])> = vec![];
     for &(a, b) in &t.draw_edges {
         let (pa, pb) = (t.positions[a], t.positions[b]);
-        if frame.height(pa).abs() < tol && frame.height(pb).abs() < tol { out.push(("Kante".into(), [frame.to_local(pa), frame.to_local(pb)])); }
-        if out.len() > 800 { break; }
+        if frame.height(pa).abs() < tol && frame.height(pb).abs() < tol {
+            out.push(("Kante".into(), [frame.to_local(pa), frame.to_local(pb)]));
+        }
+        if out.len() > 800 {
+            break;
+        }
     }
     for p in &r.planes {
         let n = p.frame.z();
-        if n.dot(frame.z()).abs() > 0.01 { continue; }
+        if n.dot(frame.z()).abs() > 0.01 {
+            continue;
+        }
         let d3 = n.cross(frame.z());
         let d2 = V2::new(d3.dot(frame.x), d3.dot(frame.y));
-        if d2.length() < 1e-6 { continue; }
+        if d2.length() < 1e-6 {
+            continue;
+        }
         let w = n.dot(p.frame.origin) - n.dot(frame.origin);
         let nn = V2::new(n.dot(frame.x), n.dot(frame.y));
         let p0 = nn * (w / nn.dot(nn));
         let dd = d2.normalize();
-        if p0.length() < 1e-7 && (dd.x.abs() > 0.9999 || dd.y.abs() > 0.9999) { continue; }
+        if p0.length() < 1e-7 && (dd.x.abs() > 0.9999 || dd.y.abs() > 0.9999) {
+            continue;
+        }
         out.push((plane_ref_name(r, p), [p0 - dd * 50.0, p0 + dd * 50.0]));
     }
     out

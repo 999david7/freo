@@ -53,23 +53,40 @@ impl CornerShape {
     /// Name used in files of other tools and by the MCP server.
     pub fn key(self) -> &'static str {
         match self {
-            CornerShape::Circular => "circular", CornerShape::G2Three => "g2_three_piece", CornerShape::G3Three => "g3_three_piece",
-            CornerShape::G3ThreeRelief => "g3_three_piece_relief", CornerShape::G3One => "g3_one_piece", CornerShape::G3OneRelief => "g3_one_piece_relief",
+            CornerShape::Circular => "circular",
+            CornerShape::G2Three => "g2_three_piece",
+            CornerShape::G3Three => "g3_three_piece",
+            CornerShape::G3ThreeRelief => "g3_three_piece_relief",
+            CornerShape::G3One => "g3_one_piece",
+            CornerShape::G3OneRelief => "g3_one_piece_relief",
         }
     }
 
-    pub fn from_key(k: &str) -> Option<CornerShape> { CornerShape::ALL.into_iter().find(|s| s.key() == k) }
+    pub fn from_key(k: &str) -> Option<CornerShape> {
+        CornerShape::ALL.into_iter().find(|s| s.key() == k)
+    }
 
     /// Stored in a sketch entity's `r` (see `SkKind::Corner`).
-    pub fn code(self) -> f64 { CornerShape::ALL.iter().position(|s| *s == self).unwrap_or(0) as f64 }
-    pub fn from_code(c: f64) -> CornerShape { CornerShape::ALL.get(c.round().max(0.0) as usize).copied().unwrap_or(CornerShape::G3One) }
+    pub fn code(self) -> f64 {
+        CornerShape::ALL.iter().position(|s| *s == self).unwrap_or(0) as f64
+    }
+    pub fn from_code(c: f64) -> CornerShape {
+        CornerShape::ALL.get(c.round().max(0.0) as usize).copied().unwrap_or(CornerShape::G3One)
+    }
 
     /// Curvature along the curve, `u` from 0 (first edge) to 1 (second edge); any positive scale.
     pub fn curvature(self, u: f64) -> f64 {
         let u = u.clamp(0.0, 1.0);
         let v = u.min(1.0 - u);
         // ramp over the first `w` of the length, then the plateau of the circular middle piece
-        let ramp = |w: f64, smooth: bool| { let t = (v / w).min(1.0); if smooth { t * t * (3.0 - 2.0 * t) } else { t } };
+        let ramp = |w: f64, smooth: bool| {
+            let t = (v / w).min(1.0);
+            if smooth {
+                t * t * (3.0 - 2.0 * t)
+            } else {
+                t
+            }
+        };
         match self {
             CornerShape::Circular => 1.0,
             CornerShape::G2Three => ramp(0.3, false),
@@ -111,11 +128,19 @@ impl CornerShape {
         let want = 1.0 / half.sin() - 1.0;
         let f = want / (pts[FINE / 2] - apex).length().max(1e-12);
         let d = 1.0 / half.tan();
-        (0..=n).map(|i| {
-            let q = (pts[i * FINE / n] - apex) * f;
-            let b = q.y / (d * u2.y);
-            let a = (q.x - b * d * u2.x) / d;
-            if i == 0 { (a, 0.0) } else if i == n { (0.0, b) } else { (a, b) }
-        }).collect()
+        (0..=n)
+            .map(|i| {
+                let q = (pts[i * FINE / n] - apex) * f;
+                let b = q.y / (d * u2.y);
+                let a = (q.x - b * d * u2.x) / d;
+                if i == 0 {
+                    (a, 0.0)
+                } else if i == n {
+                    (0.0, b)
+                } else {
+                    (a, b)
+                }
+            })
+            .collect()
     }
 }

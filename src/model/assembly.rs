@@ -18,7 +18,9 @@ use std::sync::Arc;
 pub const COMP_SHIFT: u64 = 32;
 pub const FIRST_COMPONENT_ID: u64 = 100;
 
-pub fn comp_datum_id(comp: u64, local: u64) -> u64 { (comp << COMP_SHIFT) | local }
+pub fn comp_datum_id(comp: u64, local: u64) -> u64 {
+    (comp << COMP_SHIFT) | local
+}
 
 /// Splits an assembly-level datum id into (component, part-local id).
 pub fn split_datum_id(id: u64) -> (Option<u64>, u64) {
@@ -27,54 +29,87 @@ pub fn split_datum_id(id: u64) -> (Option<u64>, u64) {
 }
 
 /// Default component colours, used when a part keeps the default appearance.
-pub const PALETTE: [[f32; 3]; 8] = [
-    [0.74, 0.76, 0.79],
-    [0.56, 0.68, 0.86],
-    [0.86, 0.71, 0.46],
-    [0.60, 0.78, 0.58],
-    [0.86, 0.57, 0.53],
-    [0.72, 0.63, 0.85],
-    [0.51, 0.76, 0.78],
-    [0.88, 0.80, 0.52],
-];
+pub const PALETTE: [[f32; 3]; 8] =
+    [[0.74, 0.76, 0.79], [0.56, 0.68, 0.86], [0.86, 0.71, 0.46], [0.60, 0.78, 0.58], [0.86, 0.57, 0.53], [0.72, 0.63, 0.85], [0.51, 0.76, 0.78], [0.88, 0.80, 0.52]];
 
 // ---------------------------------------------------------------- data
 
 /// Rigid placement: world = rot · local + pos.
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
-pub struct Placement { pub rot: DQuat, pub pos: V3 }
+pub struct Placement {
+    pub rot: DQuat,
+    pub pos: V3,
+}
 
-impl Default for Placement { fn default() -> Self { Placement { rot: DQuat::IDENTITY, pos: V3::ZERO } } }
+impl Default for Placement {
+    fn default() -> Self {
+        Placement { rot: DQuat::IDENTITY, pos: V3::ZERO }
+    }
+}
 
 impl Placement {
-    pub fn translation(d: V3) -> Placement { Placement { rot: DQuat::IDENTITY, pos: d } }
-    pub fn point(&self, p: V3) -> V3 { self.rot * p + self.pos }
-    pub fn vector(&self, v: V3) -> V3 { self.rot * v }
-    pub fn inverse(&self) -> Placement { let r = self.rot.inverse(); Placement { rot: r, pos: -(r * self.pos) } }
-    pub fn xform(&self) -> Xform { Xform { m: DMat3::from_quat(self.rot), t: self.pos } }
-    pub fn moved(&self, d: V3) -> Placement { Placement { rot: self.rot, pos: self.pos + d } }
+    pub fn translation(d: V3) -> Placement {
+        Placement { rot: DQuat::IDENTITY, pos: d }
+    }
+    pub fn point(&self, p: V3) -> V3 {
+        self.rot * p + self.pos
+    }
+    pub fn vector(&self, v: V3) -> V3 {
+        self.rot * v
+    }
+    pub fn inverse(&self) -> Placement {
+        let r = self.rot.inverse();
+        Placement { rot: r, pos: -(r * self.pos) }
+    }
+    pub fn xform(&self) -> Xform {
+        Xform { m: DMat3::from_quat(self.rot), t: self.pos }
+    }
+    pub fn moved(&self, d: V3) -> Placement {
+        Placement { rot: self.rot, pos: self.pos + d }
+    }
     /// Rotation by `angle` about the world axis through `centre` along `axis`.
     pub fn rotated(&self, centre: V3, axis: V3, angle: f64) -> Placement {
         let q = DQuat::from_axis_angle(safe_norm(axis, V3::Z), angle);
         Placement { rot: (q * self.rot).normalize(), pos: centre + q * (self.pos - centre) }
     }
-    pub fn frame(&self, f: &Frame) -> Frame { Frame { origin: self.point(f.origin), x: self.vector(f.x), y: self.vector(f.y) } }
+    pub fn frame(&self, f: &Frame) -> Frame {
+        Frame { origin: self.point(f.origin), x: self.vector(f.x), y: self.vector(f.y) }
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub enum AsmCType { Automatic, Distance, Angle, Parallel, Coincident, Normal, Default, Fix }
+pub enum AsmCType {
+    Automatic,
+    Distance,
+    Angle,
+    Parallel,
+    Coincident,
+    Normal,
+    Default,
+    Fix,
+}
 
 impl AsmCType {
-    pub const MENU: [AsmCType; 8] = [AsmCType::Automatic, AsmCType::Distance, AsmCType::Angle, AsmCType::Parallel, AsmCType::Coincident, AsmCType::Normal, AsmCType::Default, AsmCType::Fix];
+    pub const MENU: [AsmCType; 8] =
+        [AsmCType::Automatic, AsmCType::Distance, AsmCType::Angle, AsmCType::Parallel, AsmCType::Coincident, AsmCType::Normal, AsmCType::Default, AsmCType::Fix];
     pub fn name(&self) -> &'static str {
         match self {
-            AsmCType::Automatic => "Automatisch", AsmCType::Distance => "Abstand", AsmCType::Angle => "Winkelversatz",
-            AsmCType::Parallel => "Parallel", AsmCType::Coincident => "Zusammenfallend", AsmCType::Normal => "Normal",
-            AsmCType::Default => "Standard", AsmCType::Fix => "Fixieren",
+            AsmCType::Automatic => "Automatisch",
+            AsmCType::Distance => "Abstand",
+            AsmCType::Angle => "Winkelversatz",
+            AsmCType::Parallel => "Parallel",
+            AsmCType::Coincident => "Zusammenfallend",
+            AsmCType::Normal => "Normal",
+            AsmCType::Default => "Standard",
+            AsmCType::Fix => "Fixieren",
         }
     }
-    pub fn needs_refs(&self) -> bool { !matches!(self, AsmCType::Default | AsmCType::Fix) }
-    pub fn has_offset(&self) -> bool { matches!(self, AsmCType::Distance | AsmCType::Angle) }
+    pub fn needs_refs(&self) -> bool {
+        !matches!(self, AsmCType::Default | AsmCType::Fix)
+    }
+    pub fn has_offset(&self) -> bool {
+        matches!(self, AsmCType::Distance | AsmCType::Angle)
+    }
 }
 
 /// A placement reference. Component references are stored in part coordinates and are
@@ -121,13 +156,21 @@ pub struct AsmConstraint {
     pub enabled: bool,
 }
 
-fn yes() -> bool { true }
+fn yes() -> bool {
+    true
+}
 
 impl AsmConstraint {
-    pub fn new(ty: AsmCType) -> AsmConstraint { AsmConstraint { ty, a: None, b: None, offset: 0.0, sign: 0.0, enabled: true } }
-    pub fn complete(&self) -> bool { !self.ty.needs_refs() || (self.a.is_some() && self.b.is_some()) }
+    pub fn new(ty: AsmCType) -> AsmConstraint {
+        AsmConstraint { ty, a: None, b: None, offset: 0.0, sign: 0.0, enabled: true }
+    }
+    pub fn complete(&self) -> bool {
+        !self.ty.needs_refs() || (self.a.is_some() && self.b.is_some())
+    }
     /// Flip button: reverse the orientation (relative to the current one when it is free).
-    pub fn flip(&mut self) { self.sign = if self.sign == 0.0 || self.sign == 2.0 { 2.0 } else { -self.sign }; }
+    pub fn flip(&mut self) {
+        self.sign = if self.sign == 0.0 || self.sign == 2.0 { 2.0 } else { -self.sign };
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -179,16 +222,28 @@ impl AssemblyData {
     pub fn new(name: &str) -> AssemblyData {
         AssemblyData { name: name.into(), skeleton: skeleton(name), parts: vec![], components: vec![], next_id: FIRST_COMPONENT_ID }
     }
-    pub fn part(&self, name: &str) -> Option<&PartEntry> { self.parts.iter().find(|p| p.data.name == name) }
-    pub fn part_mut(&mut self, name: &str) -> Option<&mut PartEntry> { self.parts.iter_mut().find(|p| p.data.name == name) }
-    pub fn component(&self, id: u64) -> Option<&Component> { self.components.iter().find(|c| c.id == id) }
-    pub fn component_mut(&mut self, id: u64) -> Option<&mut Component> { self.components.iter_mut().find(|c| c.id == id) }
-    pub fn index_of(&self, id: u64) -> Option<usize> { self.components.iter().position(|c| c.id == id) }
+    pub fn part(&self, name: &str) -> Option<&PartEntry> {
+        self.parts.iter().find(|p| p.data.name == name)
+    }
+    pub fn part_mut(&mut self, name: &str) -> Option<&mut PartEntry> {
+        self.parts.iter_mut().find(|p| p.data.name == name)
+    }
+    pub fn component(&self, id: u64) -> Option<&Component> {
+        self.components.iter().find(|c| c.id == id)
+    }
+    pub fn component_mut(&mut self, id: u64) -> Option<&mut Component> {
+        self.components.iter_mut().find(|c| c.id == id)
+    }
+    pub fn index_of(&self, id: u64) -> Option<usize> {
+        self.components.iter().position(|c| c.id == id)
+    }
 
     /// Adds a part to the part list (reusing an entry of the same name) and returns its name.
     pub fn add_part(&mut self, data: ModelData, source: Option<PathBuf>) -> String {
         let name = data.name.clone();
-        if self.part(&name).is_none() { self.parts.push(PartEntry { data, source, modified: false }); }
+        if self.part(&name).is_none() {
+            self.parts.push(PartEntry { data, source, modified: false });
+        }
         name
     }
 
@@ -200,12 +255,20 @@ impl AssemblyData {
     pub fn color_of(&self, part: &str) -> [f32; 3] {
         let i = self.parts.iter().position(|p| p.data.name == part).unwrap_or(0);
         let c = self.parts.get(i).map(|p| p.data.appearance.color).unwrap_or(PALETTE[0]);
-        if c == Appearance::default().color { PALETTE[i % PALETTE.len()] } else { c }
+        if c == Appearance::default().color {
+            PALETTE[i % PALETTE.len()]
+        } else {
+            c
+        }
     }
 
     /// Components whose constraints reference `id` (directly), i.e. its children.
     pub fn children_of(&self, id: u64) -> Vec<u64> {
-        self.components.iter().filter(|c| c.id != id && c.constraints.iter().any(|k| k.a.and_then(|r| r.comp()) == Some(id) || k.b.and_then(|r| r.comp()) == Some(id))).map(|c| c.id).collect()
+        self.components
+            .iter()
+            .filter(|c| c.id != id && c.constraints.iter().any(|k| k.a.and_then(|r| r.comp()) == Some(id) || k.b.and_then(|r| r.comp()) == Some(id)))
+            .map(|c| c.id)
+            .collect()
     }
 }
 
@@ -213,7 +276,14 @@ impl AssemblyData {
 pub fn skeleton(name: &str) -> ModelData {
     let mut m = ModelData::new_part(name);
     for f in &mut m.features {
-        f.name = match f.id { RIGHT_ID => "ASM_RIGHT", TOP_ID => "ASM_TOP", FRONT_ID => "ASM_FRONT", CSYS_ID => "ASM_DEF_CSYS", _ => continue }.into();
+        f.name = match f.id {
+            RIGHT_ID => "ASM_RIGHT",
+            TOP_ID => "ASM_TOP",
+            FRONT_ID => "ASM_FRONT",
+            CSYS_ID => "ASM_DEF_CSYS",
+            _ => continue,
+        }
+        .into();
     }
     m
 }
@@ -221,7 +291,11 @@ pub fn skeleton(name: &str) -> ModelData {
 // ---------------------------------------------------------------- geometry of references
 
 #[derive(Clone, Copy, Debug)]
-pub enum Geo { Plane { p: V3, n: V3 }, Line { p: V3, d: V3 }, Point(V3) }
+pub enum Geo {
+    Plane { p: V3, n: V3 },
+    Line { p: V3, d: V3 },
+    Point(V3),
+}
 
 impl Geo {
     pub fn placed(&self, pl: &Placement) -> Geo {
@@ -231,7 +305,13 @@ impl Geo {
             Geo::Point(p) => Geo::Point(pl.point(p)),
         }
     }
-    pub fn kind_name(&self) -> &'static str { match self { Geo::Plane { .. } => "plane", Geo::Line { .. } => "axis", Geo::Point(_) => "point" } }
+    pub fn kind_name(&self) -> &'static str {
+        match self {
+            Geo::Plane { .. } => "plane",
+            Geo::Line { .. } => "axis",
+            Geo::Point(_) => "point",
+        }
+    }
 }
 
 /// Resolves a component reference in its part's coordinates.
@@ -255,7 +335,9 @@ pub fn local_geo(r: &AsmRef, part: &RegenResult) -> Option<Geo> {
     }
 }
 
-fn perp(v: V3, d: V3) -> V3 { v - d * v.dot(d) }
+fn perp(v: V3, d: V3) -> V3 {
+    v - d * v.dot(d)
+}
 
 /// Orientation chosen when a constraint is first solved: surfaces mate (opposed),
 /// datum planes align, axes keep their current sense.
@@ -265,12 +347,25 @@ fn default_sign(c: &AsmConstraint, a: &Geo, b: &Geo) -> f64 {
     let near = |u: V3, v: V3| if u.dot(v) >= 0.0 { 1.0 } else { -1.0 };
     match (a, b) {
         (Geo::Plane { n: na, .. }, Geo::Plane { n: nb, .. }) => {
-            if c.ty == AsmCType::Angle { 1.0 }
-            else if surf(c.a) && surf(c.b) { -1.0 }
-            else if datum(c.a) && datum(c.b) { 1.0 }
-            else { near(*na, *nb) }
+            if c.ty == AsmCType::Angle {
+                1.0
+            } else if surf(c.a) && surf(c.b) {
+                -1.0
+            } else if datum(c.a) && datum(c.b) {
+                1.0
+            } else {
+                near(*na, *nb)
+            }
         }
-        (Geo::Line { d: da, .. }, Geo::Line { d: db, .. }) => if c.ty == AsmCType::Angle { 1.0 } else if c.sign == 2.0 { -near(*da, *db) } else { 0.0 },
+        (Geo::Line { d: da, .. }, Geo::Line { d: db, .. }) => {
+            if c.ty == AsmCType::Angle {
+                1.0
+            } else if c.sign == 2.0 {
+                -near(*da, *db)
+            } else {
+                0.0
+            }
+        }
         (Geo::Line { d, .. }, Geo::Plane { n, .. }) | (Geo::Plane { n, .. }, Geo::Line { d, .. }) => near(*d, *n),
         _ => 1.0,
     }
@@ -289,8 +384,14 @@ fn residual(ty: AsmCType, sign: f64, off: f64, a: &Geo, b: &Geo, l: f64, out: &m
             v3(out, *na - *nb * sign, l);
             out.push(nb.dot(*pa - *pb) - d);
         }
-        (AsmCType::Coincident, Line { p: pa, d: da }, Line { p: pb, d: db }) => { v3(out, along(*da, *db), l); v3(out, perp(*pa - *pb, *db), 1.0); }
-        (AsmCType::Distance, Line { p: pa, d: da }, Line { p: pb, d: db }) => { v3(out, along(*da, *db), l); out.push(perp(*pa - *pb, *db).length() - d); }
+        (AsmCType::Coincident, Line { p: pa, d: da }, Line { p: pb, d: db }) => {
+            v3(out, along(*da, *db), l);
+            v3(out, perp(*pa - *pb, *db), 1.0);
+        }
+        (AsmCType::Distance, Line { p: pa, d: da }, Line { p: pb, d: db }) => {
+            v3(out, along(*da, *db), l);
+            out.push(perp(*pa - *pb, *db).length() - d);
+        }
         (AsmCType::Coincident, Point(pa), Point(pb)) => v3(out, *pa - *pb, 1.0),
         (AsmCType::Distance, Point(pa), Point(pb)) => out.push((*pa - *pb).length() - d),
         (AsmCType::Coincident | AsmCType::Distance, Point(pa), Plane { p: pb, n: nb }) => out.push(nb.dot(*pa - *pb) - d),
@@ -299,8 +400,14 @@ fn residual(ty: AsmCType, sign: f64, off: f64, a: &Geo, b: &Geo, l: f64, out: &m
         (AsmCType::Coincident, Line { p: pa, d: da }, Point(pb)) => v3(out, perp(*pb - *pa, *da), 1.0),
         (AsmCType::Distance, Point(pa), Line { p: pb, d: db }) => out.push(perp(*pa - *pb, *db).length() - d),
         (AsmCType::Distance, Line { p: pa, d: da }, Point(pb)) => out.push(perp(*pb - *pa, *da).length() - d),
-        (AsmCType::Coincident | AsmCType::Distance, Line { p: pa, d: da }, Plane { p: pb, n: nb }) => { out.push(nb.dot(*da) * l); out.push(nb.dot(*pa - *pb) - d); }
-        (AsmCType::Coincident | AsmCType::Distance, Plane { p: pa, n: na }, Line { p: pb, d: db }) => { out.push(na.dot(*db) * l); out.push(na.dot(*pb - *pa) - d); }
+        (AsmCType::Coincident | AsmCType::Distance, Line { p: pa, d: da }, Plane { p: pb, n: nb }) => {
+            out.push(nb.dot(*da) * l);
+            out.push(nb.dot(*pa - *pb) - d);
+        }
+        (AsmCType::Coincident | AsmCType::Distance, Plane { p: pa, n: na }, Line { p: pb, d: db }) => {
+            out.push(na.dot(*db) * l);
+            out.push(na.dot(*pb - *pa) - d);
+        }
         (AsmCType::Parallel, Plane { n: na, .. }, Plane { n: nb, .. }) => v3(out, *na - *nb * sign, l),
         (AsmCType::Parallel, Line { d: na, .. }, Line { d: nb, .. }) => v3(out, along(*na, *nb), l),
         (AsmCType::Parallel, Line { d, .. }, Plane { n, .. }) | (AsmCType::Parallel, Plane { n, .. }, Line { d, .. }) => out.push(n.dot(*d) * l),
@@ -317,7 +424,13 @@ fn residual(ty: AsmCType, sign: f64, off: f64, a: &Geo, b: &Geo, l: f64, out: &m
 // ---------------------------------------------------------------- placement solver
 
 #[derive(Clone, Debug, PartialEq)]
-pub enum PlaceStatus { Packaged, Partial(usize), Full, Assumed, Invalid(String) }
+pub enum PlaceStatus {
+    Packaged,
+    Partial(usize),
+    Full,
+    Assumed,
+    Invalid(String),
+}
 
 impl PlaceStatus {
     pub fn text(&self) -> String {
@@ -329,12 +442,20 @@ impl PlaceStatus {
             PlaceStatus::Invalid(e) => format!("Bedingungen ungültig — {}", e),
         }
     }
-    pub fn is_full(&self) -> bool { matches!(self, PlaceStatus::Full | PlaceStatus::Assumed) }
+    pub fn is_full(&self) -> bool {
+        matches!(self, PlaceStatus::Full | PlaceStatus::Assumed)
+    }
 }
 
 /// A constraint ready to solve: component geometry in part coordinates, assembly geometry in world.
 #[derive(Clone, Copy, Debug)]
-pub struct Prepared { pub ty: AsmCType, pub sign: f64, pub off: f64, pub a: Geo, pub b: Geo }
+pub struct Prepared {
+    pub ty: AsmCType,
+    pub sign: f64,
+    pub off: f64,
+    pub a: Geo,
+    pub b: Geo,
+}
 
 fn trial(start: &Placement, centre: V3, x: &[f64; 6]) -> Placement {
     let rot = (DQuat::from_scaled_axis(V3::new(x[0], x[1], x[2])) * start.rot).normalize();
@@ -347,12 +468,16 @@ fn eval(start: &Placement, centre: V3, l: f64, cons: &[Prepared], target: Option
     let mut r = vec![];
     if let Some(t) = target {
         let mut dq = pl.rot * t.rot.inverse();
-        if dq.w < 0.0 { dq = -dq; }
+        if dq.w < 0.0 {
+            dq = -dq;
+        }
         r.extend_from_slice(&[dq.x * 2.0 * l, dq.y * 2.0 * l, dq.z * 2.0 * l]);
         let d = pl.point(centre) - t.point(centre);
         r.extend_from_slice(&[d.x, d.y, d.z]);
     }
-    for c in cons { residual(c.ty, c.sign, c.off, &c.a.placed(&pl), &c.b, l, &mut r)?; }
+    for c in cons {
+        residual(c.ty, c.sign, c.off, &c.a.placed(&pl), &c.b, l, &mut r)?;
+    }
     Ok(r)
 }
 
@@ -360,8 +485,12 @@ fn eval(start: &Placement, centre: V3, l: f64, cons: &[Prepared], target: Option
 /// `l` its size; `target` pins the whole placement (Default / Fix). `spin` lists world axes
 /// about which a remaining rotation may be assumed fixed (coaxial constraints).
 pub fn solve_placement(start: Placement, centre: V3, l: f64, cons: &[Prepared], target: Option<Placement>, spin: &[V3], assumptions: bool) -> (Placement, PlaceStatus) {
-    if cons.is_empty() && target.is_none() { return (start, PlaceStatus::Packaged); }
-    if let Some(e) = eval(&start, centre, l, cons, target, &[0.0; 6]).err() { return (start, PlaceStatus::Invalid(e)); }
+    if cons.is_empty() && target.is_none() {
+        return (start, PlaceStatus::Packaged);
+    }
+    if let Some(e) = eval(&start, centre, l, cons, target, &[0.0; 6]).err() {
+        return (start, PlaceStatus::Invalid(e));
+    }
     // a reversed orientation sits on a saddle of the residual: retry from turned starts
     let c = start.point(centre);
     let starts = [
@@ -376,8 +505,12 @@ pub fn solve_placement(start: Placement, centre: V3, l: f64, cons: &[Prepared], 
     for s in starts {
         let (pl, st, res) = solve_from(s, centre, l, cons, target, spin, assumptions);
         let ok = !matches!(st, PlaceStatus::Invalid(_));
-        if ok { return (pl, st); }
-        if best.as_ref().map(|b| res < b.2).unwrap_or(true) { best = Some((pl, st, res)); }
+        if ok {
+            return (pl, st);
+        }
+        if best.as_ref().map(|b| res < b.2).unwrap_or(true) {
+            best = Some((pl, st, res));
+        }
     }
     // nothing satisfies the constraints: the component keeps its position
     (start, best.map(|b| b.1).unwrap_or(PlaceStatus::Packaged))
@@ -386,7 +519,10 @@ pub fn solve_placement(start: Placement, centre: V3, l: f64, cons: &[Prepared], 
 fn solve_from(start: Placement, centre: V3, l: f64, cons: &[Prepared], target: Option<Placement>, spin: &[V3], assumptions: bool) -> (Placement, PlaceStatus, f64) {
     let f = |x: &[f64; 6]| eval(&start, centre, l, cons, target, x);
     let mut x = [0.0f64; 6];
-    let mut r = match f(&x) { Ok(r) => r, Err(e) => return (start, PlaceStatus::Invalid(e), f64::INFINITY) };
+    let mut r = match f(&x) {
+        Ok(r) => r,
+        Err(e) => return (start, PlaceStatus::Invalid(e), f64::INFINITY),
+    };
     let sq = |r: &[f64]| r.iter().map(|v| v * v).sum::<f64>();
     let mut fx = sq(&r);
     let mut lambda = 1e-3;
@@ -399,30 +535,45 @@ fn solve_from(start: Placement, centre: V3, l: f64, cons: &[Prepared], target: O
             xp[k] += h;
             xm[k] -= h;
             let (rp, rm) = (f(&xp).unwrap_or_default(), f(&xm).unwrap_or_default());
-            if rp.len() != m || rm.len() != m { continue; }
-            for i in 0..m { j[i * 6 + k] = (rp[i] - rm[i]) / (2.0 * h); }
+            if rp.len() != m || rm.len() != m {
+                continue;
+            }
+            for i in 0..m {
+                j[i * 6 + k] = (rp[i] - rm[i]) / (2.0 * h);
+            }
         }
         j
     };
     let tol = 1e-9 * l.max(1.0);
     'outer: for _ in 0..200 {
-        if fx.sqrt() < tol { break; }
+        if fx.sqrt() < tol {
+            break;
+        }
         let j = jac(&x);
         let mut a = [0.0f64; 36];
         let mut g = [0.0f64; 6];
         for i in 0..m {
             for p in 0..6 {
                 g[p] += j[i * 6 + p] * r[i];
-                for q in 0..6 { a[p * 6 + q] += j[i * 6 + p] * j[i * 6 + q]; }
+                for q in 0..6 {
+                    a[p * 6 + q] += j[i * 6 + p] * j[i * 6 + q];
+                }
             }
         }
         loop {
             let mut aa = a;
-            for p in 0..6 { aa[p * 7] += lambda * (a[p * 7] + 1e-6); }
+            for p in 0..6 {
+                aa[p * 7] += lambda * (a[p * 7] + 1e-6);
+            }
             let Some(dx) = solve_dense(&aa, &g.map(|v| -v), 6) else { break 'outer };
             let mut xn = x;
-            for k in 0..6 { xn[k] += dx[k]; }
-            let rn = match f(&xn) { Ok(v) => v, Err(_) => break 'outer };
+            for k in 0..6 {
+                xn[k] += dx[k];
+            }
+            let rn = match f(&xn) {
+                Ok(v) => v,
+                Err(_) => break 'outer,
+            };
             let fnew = sq(&rn);
             if fnew < fx {
                 let step: f64 = dx.iter().map(|v| v * v).sum::<f64>().sqrt();
@@ -430,26 +581,36 @@ fn solve_from(start: Placement, centre: V3, l: f64, cons: &[Prepared], target: O
                 r = rn;
                 fx = fnew;
                 lambda = (lambda * 0.3).max(1e-12);
-                if step < 1e-13 * l.max(1.0) { break 'outer; }
+                if step < 1e-13 * l.max(1.0) {
+                    break 'outer;
+                }
                 break;
             }
             lambda *= 10.0;
-            if lambda > 1e14 { break 'outer; }
+            if lambda > 1e14 {
+                break 'outer;
+            }
         }
     }
     let pl = trial(&start, centre, &x);
     let res = fx.sqrt();
-    if res > 1e-5 * l.max(1.0) { return (pl, PlaceStatus::Invalid("die Referenzen können nicht gleichzeitig erfüllt werden".into()), res); }
+    if res > 1e-5 * l.max(1.0) {
+        return (pl, PlaceStatus::Invalid("die Referenzen können nicht gleichzeitig erfüllt werden".into()), res);
+    }
     let j = jac(&x);
     let maxabs = j.iter().fold(0.0f64, |a, v| a.max(v.abs())).max(1e-9);
     let rank = matrix_rank(&j, m, 6, 1e-6 * maxabs);
-    if rank >= 6 { return (pl, PlaceStatus::Full, res); }
+    if rank >= 6 {
+        return (pl, PlaceStatus::Full, res);
+    }
     if assumptions && rank == 5 {
         // a single free rotation about a coaxial reference is assumed fixed (Creo's Allow Assumptions)
         for s in spin {
             let mut jj = j.clone();
             jj.extend_from_slice(&[s.x * maxabs, s.y * maxabs, s.z * maxabs, 0.0, 0.0, 0.0]);
-            if matrix_rank(&jj, m + 1, 6, 1e-6 * maxabs) == 6 { return (pl, PlaceStatus::Assumed, res); }
+            if matrix_rank(&jj, m + 1, 6, 1e-6 * maxabs) == 6 {
+                return (pl, PlaceStatus::Assumed, res);
+            }
         }
     }
     (pl, PlaceStatus::Partial(6 - rank), res)
@@ -459,7 +620,9 @@ fn solve_from(start: Placement, centre: V3, l: f64, cons: &[Prepared], target: O
 
 /// Regenerated parts, keyed by part name and invalidated by content.
 #[derive(Default)]
-pub struct PartCache { map: HashMap<String, (u64, Arc<RegenResult>)> }
+pub struct PartCache {
+    map: HashMap<String, (u64, Arc<RegenResult>)>,
+}
 
 impl PartCache {
     pub fn get(&mut self, d: &ModelData) -> Arc<RegenResult> {
@@ -467,7 +630,11 @@ impl PartCache {
         let mut h = std::collections::hash_map::DefaultHasher::new();
         serde_json::to_string(d).unwrap_or_default().hash(&mut h);
         let key = h.finish();
-        if let Some((k, r)) = self.map.get(&d.name) { if *k == key { return r.clone(); } }
+        if let Some((k, r)) = self.map.get(&d.name) {
+            if *k == key {
+                return r.clone();
+            }
+        }
         let r = Arc::new(regen::run(d));
         self.map.insert(d.name.clone(), (key, r.clone()));
         r
@@ -492,7 +659,9 @@ pub struct AsmResult {
 }
 
 impl AsmResult {
-    pub fn comp_of_tag(&self, tag: u32) -> Option<u64> { self.bodies.get(((tag >> BODY_SHIFT) as usize).checked_sub(1)?).copied() }
+    pub fn comp_of_tag(&self, tag: u32) -> Option<u64> {
+        self.bodies.get(((tag >> BODY_SHIFT) as usize).checked_sub(1)?).copied()
+    }
 }
 
 /// Resolves a reference in world coordinates, using the placements solved so far.
@@ -502,7 +671,9 @@ pub fn world_geo(r: &AsmRef, skel: &RegenResult, parts: &HashMap<String, Arc<Reg
         _ => {
             let id = r.comp()?;
             let c = comps.iter().find(|c| c.id == id)?;
-            if c.suppressed { return None; }
+            if c.suppressed {
+                return None;
+            }
             let pl = placed.get(&c.id).copied().unwrap_or(c.placement);
             local_geo(r, parts.get(&c.part)?).map(|g| g.placed(&pl))
         }
@@ -516,11 +687,21 @@ pub struct RegenOpts<'a> {
     pub editing: Option<&'a Component>,
 }
 
-impl Default for RegenOpts<'_> { fn default() -> Self { RegenOpts { explode: 0.0, editing: None } } }
+impl Default for RegenOpts<'_> {
+    fn default() -> Self {
+        RegenOpts { explode: 0.0, editing: None }
+    }
+}
 
 /// Prepares and solves one component; returns its placement, status and the orientation
 /// signs decided for constraints that had none.
-pub fn place_component(c: &Component, comps: &[Component], parts: &HashMap<String, Arc<RegenResult>>, skel: &RegenResult, placed: &HashMap<u64, Placement>) -> (Placement, PlaceStatus, Vec<f64>) {
+pub fn place_component(
+    c: &Component,
+    comps: &[Component],
+    parts: &HashMap<String, Arc<RegenResult>>,
+    skel: &RegenResult,
+    placed: &HashMap<u64, Placement>,
+) -> (Placement, PlaceStatus, Vec<f64>) {
     let Some(part) = parts.get(&c.part) else { return (c.placement, PlaceStatus::Invalid(format!("Teil {} fehlt", c.part)), vec![]) };
     let mut prepared = vec![];
     let mut target = None;
@@ -528,25 +709,47 @@ pub fn place_component(c: &Component, comps: &[Component], parts: &HashMap<Strin
     let mut signs = vec![];
     for k in &c.constraints {
         signs.push(k.sign);
-        if !k.enabled { continue; }
+        if !k.enabled {
+            continue;
+        }
         match k.ty {
-            AsmCType::Default => { target = Some(Placement::default()); continue; }
-            AsmCType::Fix => { target = Some(c.placement); continue; }
+            AsmCType::Default => {
+                target = Some(Placement::default());
+                continue;
+            }
+            AsmCType::Fix => {
+                target = Some(c.placement);
+                continue;
+            }
             _ => {}
         }
         let (Some(mut ra), Some(mut rb)) = (k.a, k.b) else { continue };
-        if ra.comp() != Some(c.id) && rb.comp() == Some(c.id) { std::mem::swap(&mut ra, &mut rb); }
-        if ra.comp() != Some(c.id) { return (c.placement, PlaceStatus::Invalid("eine Bedingung hat keine Referenz an dieser Komponente".into()), signs); }
+        if ra.comp() != Some(c.id) && rb.comp() == Some(c.id) {
+            std::mem::swap(&mut ra, &mut rb);
+        }
+        if ra.comp() != Some(c.id) {
+            return (c.placement, PlaceStatus::Invalid("eine Bedingung hat keine Referenz an dieser Komponente".into()), signs);
+        }
         let Some(ga) = local_geo(&ra, part) else { return (c.placement, PlaceStatus::Invalid("eine Komponentenreferenz fehlt".into()), signs) };
         let Some(gb) = world_geo(&rb, skel, parts, comps, placed) else { return (c.placement, PlaceStatus::Invalid("eine Baugruppenreferenz fehlt".into()), signs) };
-        let ty = if k.ty == AsmCType::Automatic { if k.offset != 0.0 { AsmCType::Distance } else { AsmCType::Coincident } } else { k.ty };
+        let ty = if k.ty == AsmCType::Automatic {
+            if k.offset != 0.0 {
+                AsmCType::Distance
+            } else {
+                AsmCType::Coincident
+            }
+        } else {
+            k.ty
+        };
         let mut kk = k.clone();
         kk.ty = ty;
         kk.a = Some(ra);
         kk.b = Some(rb);
         let sign = if k.sign == 0.0 || k.sign == 2.0 { default_sign(&kk, &ga.placed(&c.placement), &gb) } else { k.sign };
         *signs.last_mut().unwrap() = sign;
-        if let (AsmCType::Coincident, Geo::Line { d, .. }) = (ty, gb) { spin.push(d); }
+        if let (AsmCType::Coincident, Geo::Line { d, .. }) = (ty, gb) {
+            spin.push(d);
+        }
         prepared.push(Prepared { ty, sign, off: k.offset, a: ga, b: gb });
     }
     let b = &part.topo.bbox;
@@ -560,16 +763,25 @@ pub fn place_component(c: &Component, comps: &[Component], parts: &HashMap<Strin
 pub fn regen(asm: &AssemblyData, cache: &mut PartCache, opts: &RegenOpts) -> AsmResult {
     let t0 = std::time::Instant::now();
     let mut res = AsmResult::default();
-    for p in &asm.parts { res.parts.insert(p.data.name.clone(), cache.get(&p.data)); }
+    for p in &asm.parts {
+        res.parts.insert(p.data.name.clone(), cache.get(&p.data));
+    }
     res.skeleton = cache.get(&asm.skeleton);
     let mut comps: Vec<Component> = asm.components.clone();
     if let Some(e) = opts.editing {
-        match comps.iter().position(|c| c.id == e.id) { Some(i) => comps[i] = e.clone(), None => comps.push(e.clone()) }
+        match comps.iter().position(|c| c.id == e.id) {
+            Some(i) => comps[i] = e.clone(),
+            None => comps.push(e.clone()),
+        }
     }
     for c in &comps {
-        if c.suppressed { continue; }
+        if c.suppressed {
+            continue;
+        }
         let (pl, st, _) = place_component(c, &comps, &res.parts, &res.skeleton, &res.placements);
-        if let PlaceStatus::Invalid(e) = &st { res.messages.push(format!("{}: {}", c.part, e)); }
+        if let PlaceStatus::Invalid(e) = &st {
+            res.messages.push(format!("{}: {}", c.part, e));
+        }
         res.placements.insert(c.id, pl);
         res.status.insert(c.id, st);
     }
@@ -578,7 +790,9 @@ pub fn regen(asm: &AssemblyData, cache: &mut PartCache, opts: &RegenOpts) -> Asm
     let mut all = BBox::default();
     for c in comps.iter().filter(|c| !c.suppressed) {
         let (Some(part), Some(pl)) = (res.parts.get(&c.part), res.placements.get(&c.id)) else { continue };
-        if part.topo.bbox.is_empty() { continue; }
+        if part.topo.bbox.is_empty() {
+            continue;
+        }
         let cc = pl.point(part.topo.bbox.center());
         centre_of.insert(c.id, cc);
         for k in 0..8 {
@@ -605,7 +819,9 @@ pub fn regen(asm: &AssemblyData, cache: &mut PartCache, opts: &RegenOpts) -> Asm
         }
         res.bodies.push(c.id);
         res.body_colors.push(asm.color_of(&c.part));
-        if c.hidden { continue; }
+        if c.hidden {
+            continue;
+        }
         let body = (res.bodies.len() as u32) << BODY_SHIFT;
         let x = pl.xform();
         for p in &part.polys {
@@ -625,9 +841,15 @@ pub fn regen(asm: &AssemblyData, cache: &mut PartCache, opts: &RegenOpts) -> Asm
         for a in &part.axes {
             d.axes.push(AxisInfo { id: comp_datum_id(c.id, a.id), name: a.name.clone(), point: pl.point(a.point), dir: pl.vector(a.dir), feature: c.id });
         }
-        for q in &part.points { d.points.push(PointInfo { id: comp_datum_id(c.id, q.id), name: q.name.clone(), p: pl.point(q.p) }); }
-        for cu in &part.curves { d.curves.push(CurveInfo { feature: c.id, polylines: cu.polylines.iter().map(|l| l.iter().map(|v| pl.point(*v)).collect()).collect() }); }
-        for co in &part.cosmetics { d.cosmetics.push(Cosmetic { feature: c.id, base: pl.point(co.base), dir: pl.vector(co.dir), radius: co.radius, length: co.length, label: co.label.clone() }); }
+        for q in &part.points {
+            d.points.push(PointInfo { id: comp_datum_id(c.id, q.id), name: q.name.clone(), p: pl.point(q.p) });
+        }
+        for cu in &part.curves {
+            d.curves.push(CurveInfo { feature: c.id, polylines: cu.polylines.iter().map(|l| l.iter().map(|v| pl.point(*v)).collect()).collect() });
+        }
+        for co in &part.cosmetics {
+            d.cosmetics.push(Cosmetic { feature: c.id, base: pl.point(co.base), dir: pl.vector(co.dir), radius: co.radius, length: co.length, label: co.label.clone() });
+        }
     }
     d.topo = Arc::new(Topology::new(&polys));
     d.polys = polys;
@@ -648,33 +870,58 @@ pub fn world_polys(c: &Component, res: &AsmResult) -> Vec<CPolygon> {
 /// Pairs of components whose solids overlap, with the interference volume (mm³).
 pub fn interference(asm: &AssemblyData, res: &AsmResult) -> Vec<(u64, u64, f64)> {
     let comps: Vec<&Component> = asm.components.iter().filter(|c| !c.suppressed && res.placements.contains_key(&c.id)).collect();
-    let geo: Vec<(Vec<CPolygon>, BBox)> = comps.iter().map(|c| { let p = world_polys(c, res); let b = csg::bbox(&p); (p, b) }).collect();
+    let geo: Vec<(Vec<CPolygon>, BBox)> = comps
+        .iter()
+        .map(|c| {
+            let p = world_polys(c, res);
+            let b = csg::bbox(&p);
+            (p, b)
+        })
+        .collect();
     let mut out = vec![];
     for i in 0..comps.len() {
         for j in i + 1..comps.len() {
             let (a, b) = (&geo[i], &geo[j]);
-            if a.0.is_empty() || b.0.is_empty() { continue; }
+            if a.0.is_empty() || b.0.is_empty() {
+                continue;
+            }
             let overlap = a.1.min.x < b.1.max.x && b.1.min.x < a.1.max.x && a.1.min.y < b.1.max.y && b.1.min.y < a.1.max.y && a.1.min.z < b.1.max.z && b.1.min.z < a.1.max.z;
-            if !overlap { continue; }
+            if !overlap {
+                continue;
+            }
             let v = csg::signed_volume(&csg::intersect(&a.0, &b.0));
             let scale = csg::signed_volume(&a.0).abs().min(csg::signed_volume(&b.0).abs());
-            if v > (scale * 1e-6).max(1e-3) { out.push((comps[i].id, comps[j].id, v)); }
+            if v > (scale * 1e-6).max(1e-3) {
+                out.push((comps[i].id, comps[j].id, v));
+            }
         }
     }
     out
 }
 
 #[derive(Clone, Debug)]
-pub struct BomRow { pub part: String, pub qty: usize, pub volume: f64, pub mass: f64, pub density: f64, pub source: Option<PathBuf> }
+pub struct BomRow {
+    pub part: String,
+    pub qty: usize,
+    pub volume: f64,
+    pub mass: f64,
+    pub density: f64,
+    pub source: Option<PathBuf>,
+}
 
 /// Bill of materials: one row per part with its quantity in the assembly.
 pub fn bom(asm: &AssemblyData, res: &AsmResult) -> Vec<BomRow> {
-    asm.parts.iter().filter_map(|p| {
-        let qty = asm.components.iter().filter(|c| c.part == p.data.name && !c.suppressed).count();
-        if qty == 0 { return None; }
-        let volume = res.parts.get(&p.data.name).map(|r| csg::signed_volume(&r.polys)).unwrap_or(0.0);
-        Some(BomRow { part: p.data.name.clone(), qty, volume, mass: volume * p.data.density, density: p.data.density, source: p.source.clone() })
-    }).collect()
+    asm.parts
+        .iter()
+        .filter_map(|p| {
+            let qty = asm.components.iter().filter(|c| c.part == p.data.name && !c.suppressed).count();
+            if qty == 0 {
+                return None;
+            }
+            let volume = res.parts.get(&p.data.name).map(|r| csg::signed_volume(&r.polys)).unwrap_or(0.0);
+            Some(BomRow { part: p.data.name.clone(), qty, volume, mass: volume * p.data.density, density: p.data.density, source: p.source.clone() })
+        })
+        .collect()
 }
 
 pub fn bom_csv(asm: &AssemblyData, rows: &[BomRow]) -> String {

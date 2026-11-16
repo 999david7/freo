@@ -10,7 +10,9 @@ use freo::model::features::*;
 use freo::sketch::sketch::Sketch;
 use std::panic::{catch_unwind, AssertUnwindSafe};
 
-fn feat(id: u64, kind: FeatureKind) -> Feature { Feature { id, name: format!("F{}", id), suppressed: false, hidden: false, kind } }
+fn feat(id: u64, kind: FeatureKind) -> Feature {
+    Feature { id, name: format!("F{}", id), suppressed: false, hidden: false, kind }
+}
 
 fn block() -> ModelData {
     let mut m = ModelData::new_part("B");
@@ -22,7 +24,12 @@ fn block() -> ModelData {
     m
 }
 
-fn part_app(m: ModelData) -> App { let mut a = App::new(None); a.data = m; a.regenerate(false); a }
+fn part_app(m: ModelData) -> App {
+    let mut a = App::new(None);
+    a.data = m;
+    a.regenerate(false);
+    a
+}
 
 fn drawing(m: ModelData) -> App {
     let mut a = part_app(m);
@@ -32,42 +39,92 @@ fn drawing(m: ModelData) -> App {
 
 fn scene_all(a: &mut App) {
     let n = a.drw.as_ref().map(|d| d.data.sheets.len()).unwrap_or(0);
-    for i in 0..n { let _ = a.sheet_scene(i, &[]); }
+    for i in 0..n {
+        let _ = a.sheet_scene(i, &[]);
+    }
 }
 
 #[test]
 fn edge_cases_do_not_panic() {
     let mut failures: Vec<String> = vec![];
     let mut case = |name: &str, f: &dyn Fn()| {
-        if catch_unwind(AssertUnwindSafe(f)).is_err() { failures.push(name.to_string()); }
+        if catch_unwind(AssertUnwindSafe(f)).is_err() {
+            failures.push(name.to_string());
+        }
     };
     let prev = std::panic::take_hook();
     std::panic::set_hook(Box::new(|i| eprintln!("panic in case: {}", i)));
 
-    case("empty part undo/redo/regen", &|| { let mut a = App::new(None); a.do_undo(); a.do_redo(); a.regenerate(true); a.handle_pick(None, false); });
+    case("empty part undo/redo/regen", &|| {
+        let mut a = App::new(None);
+        a.do_undo();
+        a.do_redo();
+        a.regenerate(true);
+        a.handle_pick(None, false);
+    });
     case("every feature started and cancelled on an empty part", &|| {
         let mut a = App::new(None);
-        for k in [FeatureKind::new_extrude(), FeatureKind::new_revolve(), FeatureKind::new_sweep(), FeatureKind::new_blend(), FeatureKind::new_hole(), FeatureKind::new_round(), FeatureKind::new_chamfer(), FeatureKind::new_shell(), FeatureKind::new_draft(), FeatureKind::new_pattern(), FeatureKind::new_mirror(), FeatureKind::new_plane(), FeatureKind::new_axis(), FeatureKind::new_point(), FeatureKind::new_sketch()] {
+        for k in [
+            FeatureKind::new_extrude(),
+            FeatureKind::new_revolve(),
+            FeatureKind::new_sweep(),
+            FeatureKind::new_blend(),
+            FeatureKind::new_hole(),
+            FeatureKind::new_round(),
+            FeatureKind::new_chamfer(),
+            FeatureKind::new_shell(),
+            FeatureKind::new_draft(),
+            FeatureKind::new_pattern(),
+            FeatureKind::new_mirror(),
+            FeatureKind::new_plane(),
+            FeatureKind::new_axis(),
+            FeatureKind::new_point(),
+            FeatureKind::new_sketch(),
+        ] {
             a.start_feature(k);
             a.finish_feature();
-            if a.sketch.is_some() { a.cancel_sketch(); }
-            if a.editor.is_some() { a.cancel_feature(); }
+            if a.sketch.is_some() {
+                a.cancel_sketch();
+            }
+            if a.editor.is_some() {
+                a.cancel_feature();
+            }
         }
     });
     case("invalid dimension values regenerate with errors", &|| {
         let mut a = part_app(block());
-        a.commit("", |d| if let FeatureKind::Extrude(e) = &mut d.features[4].kind { e.depth = Dim::v(-5.0); });
-        a.commit("", |d| if let FeatureKind::Extrude(e) = &mut d.features[4].kind { e.depth = Dim("1/0".into()); });
-        a.commit("", |d| if let FeatureKind::Extrude(e) = &mut d.features[4].kind { e.depth = Dim("nonsense +".into()); });
+        a.commit("", |d| {
+            if let FeatureKind::Extrude(e) = &mut d.features[4].kind {
+                e.depth = Dim::v(-5.0);
+            }
+        });
+        a.commit("", |d| {
+            if let FeatureKind::Extrude(e) = &mut d.features[4].kind {
+                e.depth = Dim("1/0".into());
+            }
+        });
+        a.commit("", |d| {
+            if let FeatureKind::Extrude(e) = &mut d.features[4].kind {
+                e.depth = Dim("nonsense +".into());
+            }
+        });
         let FeatureKind::Round(mut r) = FeatureKind::new_round() else { unreachable!() };
         r.sets[0].radius = Dim::v(1000.0);
         let FeatureKind::Pattern(mut p) = FeatureKind::new_pattern() else { unreachable!() };
-        p.features = vec![10]; p.count1 = Dim::v(-3.0); p.spacing1 = Dim::v(0.0);
+        p.features = vec![10];
+        p.count1 = Dim::v(-3.0);
+        p.spacing1 = Dim::v(0.0);
         let FeatureKind::Shell(mut sh) = FeatureKind::new_shell() else { unreachable!() };
         sh.thickness = Dim::v(500.0);
         let FeatureKind::Hole(mut h) = FeatureKind::new_hole() else { unreachable!() };
-        h.plane = Some(PlaneRef::Datum(TOP_ID)); h.diameter = Dim::v(0.0);
-        a.commit("", |d| { d.features.push(feat(20, FeatureKind::Round(r))); d.features.push(feat(21, FeatureKind::Pattern(p))); d.features.push(feat(22, FeatureKind::Shell(sh))); d.features.push(feat(23, FeatureKind::Hole(h))); });
+        h.plane = Some(PlaneRef::Datum(TOP_ID));
+        h.diameter = Dim::v(0.0);
+        a.commit("", |d| {
+            d.features.push(feat(20, FeatureKind::Round(r)));
+            d.features.push(feat(21, FeatureKind::Pattern(p)));
+            d.features.push(feat(22, FeatureKind::Shell(sh)));
+            d.features.push(feat(23, FeatureKind::Hole(h)));
+        });
         a.start_edit_dims(10);
     });
     case("round with no sets loads and edits", &|| {
@@ -109,7 +166,9 @@ fn edge_cases_do_not_panic() {
         a.create_component("P1");
         a.handle_pick(Some(Pick::Face(9999)), false);
         a.handle_pick(Some(Pick::Plane(u64::MAX)), false);
-        a.do_undo(); a.do_undo(); a.do_redo();
+        a.do_undo();
+        a.do_undo();
+        a.do_redo();
         a.new_drawing(&NewDrawing { name: "D".into(), size: SheetSize::A3, orient: Orientation::Landscape, template: true, projection: Projection::Third });
         scene_all(&mut a);
         a.insert_bom();
@@ -159,7 +218,9 @@ fn edge_cases_do_not_panic() {
         a.drw_commit(|d| {
             let id = d.take_id();
             let mut v = DrawView::new(id, ViewKind::Detail, Orient::Front.rotation(), V2::new(150.0, 150.0));
-            v.parent = Some(ids[0]); v.detail = Some(Detail { center: V2::ZERO, radius: 0.0 }); v.scale = Some(2.0);
+            v.parent = Some(ids[0]);
+            v.detail = Some(Detail { center: V2::ZERO, radius: 0.0 });
+            v.scale = Some(2.0);
             d.sheets[0].views.push(v);
         });
         scene_all(&mut a);
@@ -167,7 +228,11 @@ fn edge_cases_do_not_panic() {
         a.drw_delete_selection();
         assert_eq!(a.drw.as_ref().unwrap().data.sheets[0].views.len(), 1, "only the pictorial view is left");
         scene_all(&mut a);
-        a.drw_undo(false); a.drw_undo(false); a.drw_undo(false); a.drw_undo(false); a.drw_undo(true);
+        a.drw_undo(false);
+        a.drw_undo(false);
+        a.drw_undo(false);
+        a.drw_undo(false);
+        a.drw_undo(true);
         a.drw_delete_selection();
         scene_all(&mut a);
     });
@@ -175,7 +240,8 @@ fn edge_cases_do_not_panic() {
         let mut a = drawing(block());
         // FRONT is not parallel to the top view, an offset plane misses the part entirely
         let FeatureKind::DatumPlane(mut dp) = FeatureKind::new_plane() else { unreachable!() };
-        dp.reference = Some(PlaneRef::Datum(RIGHT_ID)); dp.offset = Dim::v(500.0);
+        dp.reference = Some(PlaneRef::Datum(RIGHT_ID));
+        dp.offset = Dim::v(500.0);
         a.commit("", |d| d.features.push(feat(30, FeatureKind::DatumPlane(dp))));
         let vs = a.drw.as_ref().unwrap().data.sheets[0].views.clone();
         a.drw_commit(|d| {
@@ -193,18 +259,38 @@ fn edge_cases_do_not_panic() {
         let g = a.view_geom(front.id).unwrap();
         if let Some((v, r, _)) = a.anchor_at(g.world(front.pos, V3::new(0.0, 10.0, 15.0)), 2.0) {
             a.drw_commit(|d| {
-                let id = d.take_id(); d.sheets[0].finishes.push(Finish { id, view: v, kind: FinishKind::Any, value: String::new(), method: String::new(), at: r, flip: true });
-                let id = d.take_id(); d.sheets[0].datums.push(DatumSym { id, view: v, letter: "A".into(), at: r, pos: V2::ZERO });
-                let id = d.take_id(); d.sheets[0].gtols.push(Gtol { id, view: v, ch: GChar::TotalRunout, diameter: false, value: 0.0, mat: MatCond::Lmc, datums: vec![(String::new(), MatCond::Mmc)], target: Attach::Geom(r), pos: V2::ZERO });
+                let id = d.take_id();
+                d.sheets[0].finishes.push(Finish { id, view: v, kind: FinishKind::Any, value: String::new(), method: String::new(), at: r, flip: true });
+                let id = d.take_id();
+                d.sheets[0].datums.push(DatumSym { id, view: v, letter: "A".into(), at: r, pos: V2::ZERO });
+                let id = d.take_id();
+                d.sheets[0].gtols.push(Gtol {
+                    id,
+                    view: v,
+                    ch: GChar::TotalRunout,
+                    diameter: false,
+                    value: 0.0,
+                    mat: MatCond::Lmc,
+                    datums: vec![(String::new(), MatCond::Mmc)],
+                    target: Attach::Geom(r),
+                    pos: V2::ZERO,
+                });
             });
         }
         // the extrude goes away entirely
         a.commit("", |d| d.features.truncate(4));
         scene_all(&mut a);
         a.do_undo();
-        a.commit("", |d| if let FeatureKind::Extrude(e) = &mut d.features[4].kind { e.sketch = Sketch::circle(5.0, 0.0, 0.0); });
+        a.commit("", |d| {
+            if let FeatureKind::Extrude(e) = &mut d.features[4].kind {
+                e.sketch = Sketch::circle(5.0, 0.0, 0.0);
+            }
+        });
         scene_all(&mut a);
-        for i in 0..a.drw.as_ref().unwrap().data.sheets[0].shown.len() { a.commit_edit(DSel::Shown(i), "".into()); a.commit_edit(DSel::Shown(i), "abc".into()); }
+        for i in 0..a.drw.as_ref().unwrap().data.sheets[0].shown.len() {
+            a.commit_edit(DSel::Shown(i), "".into());
+            a.commit_edit(DSel::Shown(i), "abc".into());
+        }
     });
     case("tolerances with odd values", &|| {
         let mut a = drawing(block());
@@ -227,8 +313,14 @@ fn edge_cases_do_not_panic() {
         std::fs::create_dir_all(&dir).unwrap();
         let mut a = App::new(None);
         for (name, body) in [
-            ("nosheets.pfdrw", r#"{"drawing":{"name":"X","sheets":[],"next_id":1,"projection":"Third","decimals":2,"text_height":3.5,"title":"","company":"","drawn_by":"","material":"","date":""}}"#),
-            ("nomodel.pfdrw", r#"{"drawing":{"name":"X","sheets":[{"size":"A4","orient":"Landscape","scale":1.0,"views":[]}],"next_id":1,"projection":"Third","decimals":2,"text_height":3.5,"title":"","company":"","drawn_by":"","material":"","date":""},"model_path":"/nonexistent.pfprt"}"#),
+            (
+                "nosheets.pfdrw",
+                r#"{"drawing":{"name":"X","sheets":[],"next_id":1,"projection":"Third","decimals":2,"text_height":3.5,"title":"","company":"","drawn_by":"","material":"","date":""}}"#,
+            ),
+            (
+                "nomodel.pfdrw",
+                r#"{"drawing":{"name":"X","sheets":[{"size":"A4","orient":"Landscape","scale":1.0,"views":[]}],"next_id":1,"projection":"Third","decimals":2,"text_height":3.5,"title":"","company":"","drawn_by":"","material":"","date":""},"model_path":"/nonexistent.pfprt"}"#,
+            ),
             ("garbage.pfdrw", "not json"),
             ("garbage.pfasm", "{}"),
             ("garbage.pfprt", "[1,2,3]"),
@@ -236,15 +328,25 @@ fn edge_cases_do_not_panic() {
             let p = dir.join(name);
             std::fs::write(&p, body).unwrap();
             a.load(p);
-            if a.drw.is_some() { scene_all(&mut a); a.add_sheet_pub(); a.drw_undo(false); }
+            if a.drw.is_some() {
+                scene_all(&mut a);
+                a.add_sheet_pub();
+                a.drw_undo(false);
+            }
         }
         let _ = std::fs::remove_dir_all(&dir);
     });
     case("sheet tabs and sheet operations", &|| {
         let mut a = drawing(block());
-        a.add_sheet_pub(); a.add_sheet_pub();
-        a.delete_sheet_pub(); a.delete_sheet_pub(); a.delete_sheet_pub(); a.delete_sheet_pub();
-        a.drw_undo(false); a.drw_undo(false); a.drw_undo(false);
+        a.add_sheet_pub();
+        a.add_sheet_pub();
+        a.delete_sheet_pub();
+        a.delete_sheet_pub();
+        a.delete_sheet_pub();
+        a.delete_sheet_pub();
+        a.drw_undo(false);
+        a.drw_undo(false);
+        a.drw_undo(false);
         scene_all(&mut a);
     });
 

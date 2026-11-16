@@ -14,10 +14,14 @@ fn session() -> App {
     app.start_feature(FeatureKind::new_extrude());
     app
 }
-fn sk(app: &mut App) -> &mut SketchSession { app.sketch.as_mut().unwrap() }
+fn sk(app: &mut App) -> &mut SketchSession {
+    app.sketch.as_mut().unwrap()
+}
 
 /// One IGES record line: 72 data columns, section letter, sequence number.
-fn rec(data: &str, sec: char, n: usize) -> String { format!("{:<72}{}{:>7}", data, sec, n) }
+fn rec(data: &str, sec: char, n: usize) -> String {
+    format!("{:<72}{}{:>7}", data, sec, n)
+}
 
 fn iges(entities: &[(i32, &str, bool)]) -> String {
     let mut d = vec![];
@@ -57,7 +61,10 @@ fn iges_lines_arcs_bsplines_and_composites() {
     ]);
     let c = parse_iges(&text).expect("iges");
     assert_eq!(c.len(), 5, "line, arc, spline and the two composite members");
-    match &c[1] { Curve2::Arc(cen, r, _, _) => assert!((*cen - V2::new(5.0, 0.0)).length() < 1e-9 && (r - 5.0).abs() < 1e-9), _ => panic!("arc") }
+    match &c[1] {
+        Curve2::Arc(cen, r, _, _) => assert!((*cen - V2::new(5.0, 0.0)).length() < 1e-9 && (r - 5.0).abs() < 1e-9),
+        _ => panic!("arc"),
+    }
     match &c[2] {
         Curve2::Spline(p) => {
             assert!((p[0] - V2::new(20.0, 0.0)).length() < 1e-9 && (*p.last().unwrap() - V2::new(30.0, 0.0)).length() < 1e-9);
@@ -83,7 +90,9 @@ fn illustrator_pdf_and_postscript() {
     let c = parse_ai(&pdf).expect("pdf ai");
     assert_eq!(c.iter().filter(|x| matches!(x, Curve2::Line(..))).count(), 4);
     assert_eq!(c.iter().filter(|x| matches!(x, Curve2::Spline(..))).count(), 1);
-    if let Curve2::Line(_, b) = c[0] { assert!((b - V2::new(25.4, 0.0)).length() < 1e-9, "72 pt = 25.4 mm"); }
+    if let Curve2::Line(_, b) = c[0] {
+        assert!((b - V2::new(25.4, 0.0)).length() < 1e-9, "72 pt = 25.4 mm");
+    }
 
     let ps = b"%!PS-Adobe-3.0\n%%Creator: Adobe Illustrator(R) 8.0\n%%EndSetup\n0 0 m\n72 0 L\n72 72 L\n0 72 L\nf\n";
     let c = parse_ai(ps).expect("ps ai");
@@ -96,7 +105,8 @@ fn illustrator_pdf_and_postscript() {
 
 fn rect(s: &mut SketchSession) {
     s.set_tool(Tool::Rect);
-    s.click_at(V2::new(0.0, 0.0)); s.click_at(V2::new(40.0, 30.0));
+    s.click_at(V2::new(0.0, 0.0));
+    s.click_at(V2::new(40.0, 30.0));
 }
 
 fn line_at(s: &SketchSession, f: impl Fn(V2, V2) -> bool) -> i64 {
@@ -120,7 +130,10 @@ fn perimeter_with_a_variable_dimension() {
     s.set_dimension(h, "30");
     let ids: Vec<i64> = s.sketch.entities.iter().filter(|e| e.kind == SkKind::Line).map(|e| e.id).collect();
     s.set_tool(Tool::Perimeter);
-    for id in &ids { let (a, b) = s.sketch.line_ends(*id).unwrap(); s.click_at((a + b) * 0.5); }
+    for id in &ids {
+        let (a, b) = s.sketch.line_ends(*id).unwrap();
+        s.click_at((a + b) * 0.5);
+    }
     let lp = label_pos(s, w);
     s.click_at(lp);
     let per = s.sketch.constraints.iter().find(|c| c.ty == SkCType::Perimeter).expect("perimeter").id;
@@ -180,7 +193,9 @@ fn default_references_can_be_deleted_and_points_added() {
 #[test]
 fn installed_fonts_are_listed_and_usable() {
     let fonts = freo::sketch::text::system_fonts();
-    if fonts.is_empty() { return; }
+    if fonts.is_empty() {
+        return;
+    }
     let Some((name, _)) = fonts.iter().find(|f| ["Geneva", "Arial Unicode", "Helvetica", "Courier"].contains(&f.0.as_str())) else { return };
     let loops = freo::sketch::text::outline_family("H", name, 0, 1.0, 0.0, V2::ZERO, V2::new(0.0, 10.0));
     assert!(!loops.is_empty(), "outline of H in {}", name);

@@ -22,7 +22,9 @@ fn cursor_at(p: egui::Pos2, ui_fn: &dyn Fn(&mut egui::Ui)) -> CursorIcon {
 fn hand_over_buttons_arrow_elsewhere() {
     let buttons = |ui: &mut egui::Ui| {
         ui.put(Rect::from_min_size(pos2(20.0, 20.0), vec2(120.0, 30.0)), egui::Button::new("Öffnen"));
-        ui.add_enabled_ui(false, |ui| { ui.put(Rect::from_min_size(pos2(20.0, 80.0), vec2(120.0, 30.0)), egui::Button::new("Aus")); });
+        ui.add_enabled_ui(false, |ui| {
+            ui.put(Rect::from_min_size(pos2(20.0, 80.0), vec2(120.0, 30.0)), egui::Button::new("Aus"));
+        });
         // a custom ribbon-style button: rect + click sense
         ui.interact(Rect::from_min_size(pos2(200.0, 20.0), vec2(60.0, 60.0)), egui::Id::new("custom"), egui::Sense::click());
         // a work area that senses clicks but must keep the arrow

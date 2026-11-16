@@ -6,11 +6,16 @@ use freo::model::features::*;
 use freo::model::regen;
 use freo::sketch::sketch::{SkKind, Sketch};
 
-fn feat(id: u64, kind: FeatureKind) -> Feature { Feature { id, name: format!("F{}", id), suppressed: false, hidden: false, kind } }
+fn feat(id: u64, kind: FeatureKind) -> Feature {
+    Feature { id, name: format!("F{}", id), suppressed: false, hidden: false, kind }
+}
 
 fn extrude(plane: PlaneRef, sk: Sketch, dt: DepthType, depth: f64) -> ExtrudeDef {
     let FeatureKind::Extrude(mut d) = FeatureKind::new_extrude() else { unreachable!() };
-    d.plane = Some(plane); d.sketch = sk; d.depth_type = dt; d.depth = Dim::v(depth);
+    d.plane = Some(plane);
+    d.sketch = sk;
+    d.depth_type = dt;
+    d.depth = Dim::v(depth);
     d
 }
 
@@ -34,7 +39,8 @@ fn to_next_and_to_selected() {
     m.features.push(feat(10, FeatureKind::Extrude(extrude(PlaneRef::Datum(TOP_ID), Sketch::rect(100.0, 100.0, 0.0, 0.0), DepthType::Blind, 10.0))));
     // datum plane 50 above TOP; a boss sketched there extrudes down "To Next" onto the block
     let FeatureKind::DatumPlane(mut dp) = FeatureKind::new_plane() else { unreachable!() };
-    dp.reference = Some(PlaneRef::Datum(TOP_ID)); dp.offset = Dim::v(50.0);
+    dp.reference = Some(PlaneRef::Datum(TOP_ID));
+    dp.offset = Dim::v(50.0);
     m.features.push(feat(11, FeatureKind::DatumPlane(dp)));
     let mut e = extrude(PlaneRef::Datum(11), Sketch::rect(20.0, 20.0, 0.0, 0.0), DepthType::ToNext, 0.0);
     e.flip = true;
@@ -59,7 +65,10 @@ fn standard_tapped_hole_has_cosmetic_thread() {
     m.features.push(feat(10, FeatureKind::Extrude(extrude(PlaneRef::Datum(TOP_ID), Sketch::rect(40.0, 40.0, 0.0, 0.0), DepthType::Blind, 20.0))));
     let FeatureKind::Hole(mut h) = FeatureKind::new_hole() else { unreachable!() };
     h.plane = Some(PlaneRef::Face(FaceRef { point: V3::new(0.0, 20.0, 0.0), normal: V3::Y }));
-    h.ty = HoleType::Standard; h.size = "M6".into(); h.tapped = true; h.through_all = true;
+    h.ty = HoleType::Standard;
+    h.size = "M6".into();
+    h.tapped = true;
+    h.through_all = true;
     m.features.push(feat(11, FeatureKind::Hole(h)));
     let r = regen::run(&m);
     assert!(r.errors.is_empty(), "{:?}", r.errors);
@@ -109,10 +118,16 @@ fn step_export_is_a_closed_faceted_brep() {
     let mut edges = std::collections::HashMap::new();
     let mut vol = 0.0;
     for l in &loops {
-        for k in 0..l.len() { *edges.entry((l[k], l[(k + 1) % l.len()])).or_insert(0i32) += 1; }
-        for k in 1..l.len() - 1 { vol += points[&l[0]].dot(points[&l[k]].cross(points[&l[k + 1]])) / 6.0; }
+        for k in 0..l.len() {
+            *edges.entry((l[k], l[(k + 1) % l.len()])).or_insert(0i32) += 1;
+        }
+        for k in 1..l.len() - 1 {
+            vol += points[&l[0]].dot(points[&l[k]].cross(points[&l[k + 1]])) / 6.0;
+        }
     }
-    for (&(a, b), &n) in &edges { assert_eq!(n, edges.get(&(b, a)).copied().unwrap_or(0), "open edge #{}-#{}", a, b); }
+    for (&(a, b), &n) in &edges {
+        assert_eq!(n, edges.get(&(b, a)).copied().unwrap_or(0), "open edge #{}-#{}", a, b);
+    }
     assert!((vol - signed_volume(&r.polys)).abs() < 1e-3, "{} vs {}", vol, signed_volume(&r.polys));
     assert!(text.contains("SI_UNIT(.MILLI.,.METRE.)") && text.contains("PRODUCT('STEP_BLOCK'"));
 }

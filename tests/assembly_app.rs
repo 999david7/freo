@@ -8,7 +8,9 @@ use freo::model::assembly::PlaceStatus;
 use freo::model::features::*;
 use freo::sketch::sketch::Sketch;
 
-fn feat(id: u64, kind: FeatureKind) -> Feature { Feature { id, name: format!("Extrude {}", id - 9), suppressed: false, hidden: false, kind } }
+fn feat(id: u64, kind: FeatureKind) -> Feature {
+    Feature { id, name: format!("Extrude {}", id - 9), suppressed: false, hidden: false, kind }
+}
 
 fn extrude(sk: Sketch, depth: f64) -> FeatureKind {
     let FeatureKind::Extrude(mut e) = FeatureKind::new_extrude() else { unreachable!() };
@@ -67,7 +69,11 @@ fn assemble_place_edit_and_save() {
     app.handle_pick(Some(Pick::Face(hole)), false);
     assert_eq!(app.place_editor().unwrap().status, PlaceStatus::Partial(2));
     // dragging slides the peg along its free axis; it stays coaxial with the hole
-    let axis_x = |app: &App| { let pl = app.place_editor().unwrap().comp.placement; let p = pl.point(V3::ZERO); (p, pl.vector(V3::Y)) };
+    let axis_x = |app: &App| {
+        let pl = app.place_editor().unwrap().comp.placement;
+        let p = pl.point(V3::ZERO);
+        (p, pl.vector(V3::Y))
+    };
     let (p0, _) = axis_x(&app);
     app.place_drag(0.0, -40.0, false);
     let (p1, d1) = axis_x(&app);
@@ -102,7 +108,11 @@ fn assemble_place_edit_and_save() {
     app.asm_open_part(id);
     assert!(!app.in_asm() && app.editing_from_asm().is_some());
     assert!(!app.editing_from_asm().unwrap().ghost.is_empty(), "the base is shown as context");
-    app.commit("longer", |d| if let FeatureKind::Extrude(e) = &mut d.features[4].kind { e.depth = Dim::v(45.0); });
+    app.commit("longer", |d| {
+        if let FeatureKind::Extrude(e) = &mut d.features[4].kind {
+            e.depth = Dim::v(45.0);
+        }
+    });
     app.asm_return();
     assert!(app.in_asm());
     let asm = app.asm.as_ref().unwrap();

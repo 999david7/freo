@@ -4,24 +4,42 @@ use crate::kernel::math::*;
 use glam::{DQuat, Mat4, Vec3};
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub enum StdView { Standard, Default, Front, Back, Top, Bottom, Left, Right }
+pub enum StdView {
+    Standard,
+    Default,
+    Front,
+    Back,
+    Top,
+    Bottom,
+    Left,
+    Right,
+}
 
 impl StdView {
     /// The fixed orientations; the part's own saved views (GOODVIEW, …) are listed with them.
     pub const ALL: [StdView; 8] = [StdView::Standard, StdView::Default, StdView::Back, StdView::Left, StdView::Top, StdView::Right, StdView::Bottom, StdView::Front];
     pub fn name(&self) -> &'static str {
         match self {
-            StdView::Standard => "Standardorientierung", StdView::Default => "Vorgabeorientierung",
-            StdView::Front => "VORNE - FRONT", StdView::Back => "HINTEN - REAR", StdView::Top => "OBEN - TOP",
-            StdView::Bottom => "UNTEN - BOTTOM", StdView::Left => "LINKS - LEFT", StdView::Right => "RECHTS - RIGHT",
+            StdView::Standard => "Standardorientierung",
+            StdView::Default => "Vorgabeorientierung",
+            StdView::Front => "VORNE - FRONT",
+            StdView::Back => "HINTEN - REAR",
+            StdView::Top => "OBEN - TOP",
+            StdView::Bottom => "UNTEN - BOTTOM",
+            StdView::Left => "LINKS - LEFT",
+            StdView::Right => "RECHTS - RIGHT",
         }
     }
     pub fn icon(&self) -> super::icons::Icon {
         use super::icons::Icon;
         match self {
             StdView::Standard | StdView::Default => Icon::ViewStandard,
-            StdView::Front => Icon::ViewFront, StdView::Back => Icon::ViewRear, StdView::Top => Icon::ViewTop,
-            StdView::Bottom => Icon::ViewBottom, StdView::Left => Icon::ViewLeft, StdView::Right => Icon::ViewRight,
+            StdView::Front => Icon::ViewFront,
+            StdView::Back => Icon::ViewRear,
+            StdView::Top => Icon::ViewTop,
+            StdView::Bottom => Icon::ViewBottom,
+            StdView::Left => Icon::ViewLeft,
+            StdView::Right => Icon::ViewRight,
         }
     }
     pub fn rotation(&self) -> DQuat {
@@ -56,10 +74,18 @@ impl Default for Camera {
 }
 
 impl Camera {
-    pub fn right(&self) -> V3 { self.rot * V3::X }
-    pub fn up(&self) -> V3 { self.rot * V3::Y }
-    pub fn back(&self) -> V3 { self.rot * V3::Z }
-    pub fn fov_tan(&self) -> f64 { 15f64.to_radians().tan() }
+    pub fn right(&self) -> V3 {
+        self.rot * V3::X
+    }
+    pub fn up(&self) -> V3 {
+        self.rot * V3::Y
+    }
+    pub fn back(&self) -> V3 {
+        self.rot * V3::Z
+    }
+    pub fn fov_tan(&self) -> f64 {
+        15f64.to_radians().tan()
+    }
 
     pub fn eye(&self) -> V3 {
         let dist = if self.perspective { self.scale / self.fov_tan() } else { self.depth };
@@ -101,13 +127,17 @@ impl Camera {
     pub fn project(&self, p: V3, size: (f32, f32)) -> Option<(f32, f32, f64)> {
         let m = self.proj(size.0 / size.1) * self.view();
         let c = m * glam::Vec4::new(p.x as f32, p.y as f32, p.z as f32, 1.0);
-        if c.w <= 1e-6 { return None; }
+        if c.w <= 1e-6 {
+            return None;
+        }
         let ndc = Vec3::new(c.x / c.w, c.y / c.w, c.z / c.w);
         let depth = (p - self.eye()).dot(-self.back());
         Some(((ndc.x + 1.0) * 0.5 * size.0, (1.0 - ndc.y) * 0.5 * size.1, depth))
     }
 
-    pub fn pixel_size(&self, h: f32) -> f64 { self.scale * 2.0 / h as f64 }
+    pub fn pixel_size(&self, h: f32) -> f64 {
+        self.scale * 2.0 / h as f64
+    }
 
     pub fn orbit(&mut self, dx: f32, dy: f32) {
         let k = 0.008;

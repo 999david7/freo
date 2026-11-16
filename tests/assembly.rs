@@ -7,7 +7,9 @@ use freo::model::features::*;
 use freo::model::regen;
 use freo::sketch::sketch::Sketch;
 
-fn feat(id: u64, kind: FeatureKind) -> Feature { Feature { id, name: format!("F{}", id), suppressed: false, hidden: false, kind } }
+fn feat(id: u64, kind: FeatureKind) -> Feature {
+    Feature { id, name: format!("F{}", id), suppressed: false, hidden: false, kind }
+}
 
 fn block(name: &str, w: f64, d: f64, h: f64) -> ModelData {
     let mut m = ModelData::new_part(name);
@@ -99,13 +101,27 @@ fn peg_coaxial_and_mated_on_base() {
     let top = planar_face(&rb, V3::Y, 20.0);
     let bottom = planar_face(&rp, -V3::Y, 0.0);
     let mut c2 = Component::new(101, "PEG", Placement { rot: glam::DQuat::from_rotation_x(0.5), pos: V3::new(150.0, 60.0, 40.0) });
-    c2.constraints.push(AsmConstraint { ty: AsmCType::Coincident, a: Some(AsmRef::Surface { comp: 101, face: shaft, planar: false }), b: Some(AsmRef::Surface { comp: 100, face: hole, planar: false }), offset: 0.0, sign: 0.0, enabled: true });
+    c2.constraints.push(AsmConstraint {
+        ty: AsmCType::Coincident,
+        a: Some(AsmRef::Surface { comp: 101, face: shaft, planar: false }),
+        b: Some(AsmRef::Surface { comp: 100, face: hole, planar: false }),
+        offset: 0.0,
+        sign: 0.0,
+        enabled: true,
+    });
     let mut cache = PartCache::default();
     asm.components.push(c2.clone());
     let res = regen(&asm, &mut cache, &RegenOpts::default());
     assert_eq!(res.status[&101], PlaceStatus::Partial(2), "coaxial leaves spin and slide");
     // mate the peg's bottom to the base's top (references given in reverse order)
-    c2.constraints.push(AsmConstraint { ty: AsmCType::Automatic, a: Some(AsmRef::Surface { comp: 100, face: top, planar: true }), b: Some(AsmRef::Surface { comp: 101, face: bottom, planar: true }), offset: 0.0, sign: 0.0, enabled: true });
+    c2.constraints.push(AsmConstraint {
+        ty: AsmCType::Automatic,
+        a: Some(AsmRef::Surface { comp: 100, face: top, planar: true }),
+        b: Some(AsmRef::Surface { comp: 101, face: bottom, planar: true }),
+        offset: 0.0,
+        sign: 0.0,
+        enabled: true,
+    });
     asm.components[1] = c2.clone();
     let res = regen(&asm, &mut cache, &RegenOpts::default());
     assert_eq!(res.status[&101], PlaceStatus::Assumed);
@@ -210,7 +226,14 @@ fn flipping_a_free_coaxial_reverses_the_component() {
     asm.components.push(c1);
     let (rb, rp) = (regen::run(&base()), regen::run(&peg()));
     let mut c2 = Component::new(101, "PEG", Placement::translation(V3::new(20.0, 40.0, 0.0)));
-    c2.constraints.push(AsmConstraint { ty: AsmCType::Coincident, a: Some(AsmRef::Surface { comp: 101, face: cyl_face(&rp).1, planar: false }), b: Some(AsmRef::Surface { comp: 100, face: cyl_face(&rb).1, planar: false }), offset: 0.0, sign: 0.0, enabled: true });
+    c2.constraints.push(AsmConstraint {
+        ty: AsmCType::Coincident,
+        a: Some(AsmRef::Surface { comp: 101, face: cyl_face(&rp).1, planar: false }),
+        b: Some(AsmRef::Surface { comp: 100, face: cyl_face(&rb).1, planar: false }),
+        offset: 0.0,
+        sign: 0.0,
+        enabled: true,
+    });
     asm.components.push(c2);
     let mut cache = PartCache::default();
     let up = regen(&asm, &mut cache, &RegenOpts::default()).placements[&101].vector(V3::Y);
