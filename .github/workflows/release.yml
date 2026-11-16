@@ -1,7 +1,9 @@
-name: Linux release build
+name: Release builds
 
-# Builds the Ubuntu packages (.deb and .tar.gz). Runs when a release is published and attaches
-# the files to it; can also be started by hand to check the Linux build.
+# Builds the installers for every platform: Linux (.deb, .rpm, AppImage, .tar.gz for x86-64 and
+# ARM64), macOS (.dmg for Apple Silicon and Intel) and Windows (.exe and .zip for x86, x64 and ARM64).
+# Runs when a release is published and attaches the files to it; can also be started by hand to
+# check the builds.
 on:
   release:
     types: [published]
@@ -16,14 +18,21 @@ permissions:
 
 jobs:
   linux:
-    # the oldest supported Ubuntu image, so the binary also starts on older releases
-    runs-on: ubuntu-22.04
+    if: github.event_name != 'release' || github.event.release.assets[0] == null
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # the oldest supported Ubuntu images, so the programs also start on older releases
+          - { runner: ubuntu-22.04, arch: x86_64 }
+          - { runner: ubuntu-22.04-arm, arch: aarch64 }
+    runs-on: ${{ matrix.runner }}
     steps:
       - uses: actions/checkout@v4
       - name: Install build dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends libxkbcommon-dev libxkbcommon-x11-dev libwayland-dev libx11-dev libxcb1-dev libgl1-mesa-dev libfontconfig1-dev pkg-config
+          sudo apt-get install -y --no-install-recommends libxkbcommon-dev libxkbcommon-x11-dev libwayland-dev libx11-dev libxcb1-dev libgl1-mesa-dev libfontconfig1-dev pkg-config rpm file
       - name: Rust toolchain
         run: rustup toolchain install stable --profile minimal && rustup default stable
       - uses: actions/cache@v4
@@ -32,7 +41,7 @@ jobs:
             ~/.cargo/registry
             ~/.cargo/git
             target
-          key: linux-release-${{ hashFiles('Cargo.lock') }}
+          key: linux-${{ matrix.arch }}-release-${{ hashFiles('Cargo.lock') }}
       - name: Build
         run: cargo build --release --locked
       - name: Test
@@ -40,10 +49,16 @@ jobs:
         continue-on-error: true
         run: cargo test --release --locked
       - name: Package
-        run: ./scripts/package-linux.sh
-      - name: Check the package
+        run: |
+          curl -fsSL -o appimagetool "https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-${{ matrix.arch }}.AppImage"
+          chmod +x appimagetool
+          APPIMAGETOOL="$PWD/appimagetool" ./scripts/package-linux.sh
+      - name: Check the packages
         run: |
           dpkg-deb --info dist/*.deb
+          rpm -qip dist/*.rpm
+          rpm -qp --requires dist/*.rpm
+          file dist/*.AppImage
           sudo apt-get install -y ./dist/*.deb
           printf '%s\n' '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"ci","version":"0"}}}' | freo-mcp | head -c 400
           ldd /usr/bin/freo | grep -i "not found" && exit 1 || true
@@ -51,19 +66,87 @@ jobs:
         id: gui
         continue-on-error: true
         run: |
-          sudo apt-get install -y --no-install-recommends xvfb libgl1-mesa-dri libegl1 libxcursor1 libxi6 libxrandr2 libxkbcommon-x11-0
+          sudo apt-get install -y --no-install-recommends xvfb xauth libgl1-mesa-dri libegl1 libxcursor1 libxi6 libxrandr2 libxkbcommon-x11-0
           xvfb-run -a -s "-screen 0 1600x1000x24" env LIBGL_ALWAYS_SOFTWARE=1 FREO_DEMO=bracket FREO_SHOT="$PWD/linux-start.png" FREO_EXIT=1 timeout 180 freo
           test -s linux-start.png
+      - name: Start the AppImage once (virtual display)
+        id: appimage
+        continue-on-error: true
+        run: |
+          chmod +x dist/*.AppImage
+          xvfb-run -a -s "-screen 0 1600x1000x24" env LIBGL_ALWAYS_SOFTWARE=1 FREO_DEMO=bracket FREO_SHOT="$PWD/appimage-start.png" FREO_EXIT=1 timeout 180 dist/*.AppImage --appimage-extract-and-run
+          test -s appimage-start.png
       - uses: actions/upload-artifact@v4
         with:
-          name: freo-linux
+          name: freo-linux-${{ matrix.arch }}
           path: dist/*
-      - uses: actions/upload-artifact@v4
-        if: always()
+      - name: Attach to the release
+        if: github.event_name == 'release' || inputs.tag != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload "${{ github.event.release.tag_name || inputs.tag }}" dist/* --clobber
+      - name: Report start check
+        if: steps.gui.outcome == 'failure' || steps.appimage.outcome == 'failure'
+        run: echo "::warning::the app (gui=${{ steps.gui.outcome }}, appimage=${{ steps.appimage.outcome }}) did not start on the virtual display (${{ matrix.arch }})"
+      - name: Report test result
+        if: steps.test.outcome == 'failure'
+        run: echo "::warning::cargo test failed on Linux ${{ matrix.arch }}; the packages were still built"
+
+  macos:
+    if: github.event_name != 'release' || github.event.release.assets[0] == null
+    runs-on: macos-15
+    env:
+      MACOSX_DEPLOYMENT_TARGET: "11.0"
+    steps:
+      - uses: actions/checkout@v4
+      - name: Rust toolchain
+        run: |
+          rustup toolchain install stable --profile minimal && rustup default stable
+          rustup target add aarch64-apple-darwin x86_64-apple-darwin
+      - uses: actions/cache@v4
         with:
-          name: linux-start-screenshot
-          path: linux-start.png
-          if-no-files-found: ignore
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: macos-release-${{ hashFiles('Cargo.lock') }}
+      - name: Build (Apple Silicon and Intel)
+        run: |
+          cargo build --release --locked --target aarch64-apple-darwin
+          cargo build --release --locked --target x86_64-apple-darwin
+      - name: Test
+        id: test
+        continue-on-error: true
+        run: cargo test --release --locked --target aarch64-apple-darwin
+      - name: Package the disk images
+        run: |
+          VERSION=$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -1)
+          mkdir -p dist
+          for pair in "aarch64-apple-darwin:arm64" "x86_64-apple-darwin:x64"; do
+            target=${pair%%:*}; name=${pair##*:}
+            BIN_DIR=target/$target/release ICON_TOOL=target/aarch64-apple-darwin/release/make_icon ./scripts/bundle.sh
+            lipo -archs Freo.app/Contents/MacOS/freo
+            codesign --force --deep -s - Freo.app
+            rm -rf stage && mkdir stage && cp -R Freo.app stage/ && ln -s /Applications stage/Applications
+            hdiutil create -quiet -volname "Freo $VERSION" -srcfolder stage -ov -format UDZO "dist/Freo-$VERSION-macos-$name.dmg"
+            # the bare programs for the terminal and for MCP clients
+            mkdir -p "freo-$VERSION-macos-$name" && cp target/$target/release/freo target/$target/release/freo-mcp README.md "freo-$VERSION-macos-$name/"
+            tar -czf "dist/freo-$VERSION-macos-$name.tar.gz" "freo-$VERSION-macos-$name"
+          done
+          ls -la dist
+      - name: Start the app once
+        id: gui
+        continue-on-error: true
+        run: |
+          FREO_DEMO=bracket FREO_SHOT="$PWD/macos-start.png" FREO_EXIT=1 target/aarch64-apple-darwin/release/freo &
+          pid=$!
+          for i in $(seq 1 60); do test -s macos-start.png && break; sleep 2; done
+          kill $pid 2>/dev/null || true
+          test -s macos-start.png
+      - uses: actions/upload-artifact@v4
+        with:
+          name: freo-macos
+          path: dist/*
       - name: Attach to the release
         if: github.event_name == 'release' || inputs.tag != ''
         env:
@@ -71,7 +154,65 @@ jobs:
         run: gh release upload "${{ github.event.release.tag_name || inputs.tag }}" dist/* --clobber
       - name: Report start check
         if: steps.gui.outcome == 'failure'
-        run: echo "::warning::the app did not start on the virtual display"
+        run: echo "::warning::the app did not start on the macOS runner (it has no display hardware; the build itself succeeded)"
       - name: Report test result
         if: steps.test.outcome == 'failure'
-        run: echo "::warning::cargo test failed on Linux; the packages were still built"
+        run: echo "::warning::cargo test failed on macOS; the packages were still built"
+
+  windows:
+    if: github.event_name != 'release' || github.event.release.assets[0] == null
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Rust toolchain
+        run: |
+          rustup toolchain install stable --profile minimal
+          rustup default stable
+          rustup target add i686-pc-windows-msvc x86_64-pc-windows-msvc aarch64-pc-windows-msvc
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: windows-release-${{ hashFiles('Cargo.lock') }}
+      - name: Build (x86, x64 and ARM64)
+        run: |
+          cargo build --release --locked --target i686-pc-windows-msvc
+          cargo build --release --locked --target x86_64-pc-windows-msvc
+          cargo build --release --locked --target aarch64-pc-windows-msvc
+      - name: Test
+        id: test
+        continue-on-error: true
+        run: cargo test --release --locked --target x86_64-pc-windows-msvc
+      - name: Package
+        shell: pwsh
+        run: |
+          $version = (Select-String -Path Cargo.toml -Pattern '^version = "(.*)"' | Select-Object -First 1).Matches[0].Groups[1].Value
+          New-Item -ItemType Directory -Force dist | Out-Null
+          foreach ($pair in @(@('i686-pc-windows-msvc', 'x86'), @('x86_64-pc-windows-msvc', 'x64'), @('aarch64-pc-windows-msvc', 'arm64'))) {
+            $target = $pair[0]; $name = $pair[1]
+            # the app as one file, and a zip that also holds the MCP server
+            Copy-Item "target/$target/release/freo.exe" "dist/Freo-$version-windows-$name.exe"
+            $dir = "freo-$version-windows-$name"
+            New-Item -ItemType Directory -Force $dir | Out-Null
+            Copy-Item "target/$target/release/freo.exe", "target/$target/release/freo-mcp.exe", "README.md" $dir
+            Compress-Archive -Path $dir -DestinationPath "dist/$dir.zip" -Force
+          }
+          Get-ChildItem dist
+      - name: Check the MCP server
+        shell: bash
+        run: printf '%s\n' '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"ci","version":"0"}}}' | target/x86_64-pc-windows-msvc/release/freo-mcp.exe | head -c 400
+      - uses: actions/upload-artifact@v4
+        with:
+          name: freo-windows
+          path: dist/*
+      - name: Attach to the release
+        if: github.event_name == 'release' || inputs.tag != ''
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload "${{ github.event.release.tag_name || inputs.tag }}" dist/* --clobber
+      - name: Report test result
+        if: steps.test.outcome == 'failure'
+        run: echo "::warning::cargo test failed on Windows; the packages were still built"

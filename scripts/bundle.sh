@@ -1,15 +1,20 @@
 #!/bin/sh
 # Builds Freo.app (release) in the project root.
+#   BIN_DIR=<dir>    take the built programs from there (default: build and use target/release)
+#   ICON_TOOL=<file> make_icon program that runs on this machine (default: $BIN_DIR/make_icon)
+#   APP=<name.app>   name of the bundle (default: Freo.app)
 set -e
 cd "$(dirname "$0")/.."
-cargo build --release
-APP=Freo.app
+VERSION=$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -1)
+if [ -z "$BIN_DIR" ]; then cargo build --release; BIN_DIR=target/release; fi
+ICON_TOOL=${ICON_TOOL:-$BIN_DIR/make_icon}
+APP=${APP:-Freo.app}
 rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
-cp target/release/freo "$APP/Contents/MacOS/freo"
+cp "$BIN_DIR/freo" "$APP/Contents/MacOS/freo"
 ICONSET=target/Freo.iconset
 rm -rf "$ICONSET"; mkdir -p "$ICONSET"
-for s in 16 32 64 128 256 512 1024; do ./target/release/make_icon $s "$ICONSET/tmp_$s.png"; done
+for s in 16 32 64 128 256 512 1024; do "$ICON_TOOL" $s "$ICONSET/tmp_$s.png"; done
 cp "$ICONSET/tmp_16.png" "$ICONSET/icon_16x16.png"
 cp "$ICONSET/tmp_32.png" "$ICONSET/icon_16x16@2x.png"
 cp "$ICONSET/tmp_32.png" "$ICONSET/icon_32x32.png"
@@ -29,8 +34,8 @@ cat > "$APP/Contents/Info.plist" <<PLIST
   <key>CFBundleName</key><string>Freo</string>
   <key>CFBundleDisplayName</key><string>Freo</string>
   <key>CFBundleIdentifier</key><string>io.github.freo</string>
-  <key>CFBundleVersion</key><string>0.3.0</string>
-  <key>CFBundleShortVersionString</key><string>0.3.0</string>
+  <key>CFBundleVersion</key><string>$VERSION</string>
+  <key>CFBundleShortVersionString</key><string>$VERSION</string>
   <key>CFBundleExecutable</key><string>freo</string>
   <key>CFBundleIconFile</key><string>Freo</string>
   <key>CFBundlePackageType</key><string>APPL</string>

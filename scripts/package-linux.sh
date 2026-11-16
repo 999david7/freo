@@ -1,10 +1,13 @@
 #!/bin/sh
-# Packages the Linux release build as freo_<version>_amd64.deb and freo-<version>-linux-x86_64.tar.gz
-# in dist/. Run on Linux after `cargo build --release` (the release workflow does this on Ubuntu).
+# Packages the Linux release build in dist/: freo_<version>_<arch>.deb, freo-<version>-1.<arch>.rpm,
+# Freo-<version>-<arch>.AppImage and freo-<version>-linux-<arch>.tar.gz. Run on Linux after
+# `cargo build --release` (the release workflow does this on Ubuntu, for x86_64 and aarch64).
+# The .rpm needs rpmbuild and the AppImage needs APPIMAGETOOL=<path>; without them they are skipped.
 set -e
 cd "$(dirname "$0")/.."
 VERSION=$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -1)
 ARCH=$(dpkg --print-architecture 2>/dev/null || echo amd64)
+MACHINE=$(uname -m)
 OUT=dist
 PKG="$OUT/freo_${VERSION}_${ARCH}"
 rm -rf "$OUT"; mkdir -p "$PKG/DEBIAN" "$PKG/usr/bin" "$PKG/usr/share/applications" "$PKG/usr/share/mime/packages" "$PKG/usr/share/doc/freo"
@@ -53,11 +56,53 @@ Description: Creo-style parametric 3D CAD
  an MCP server (freo-mcp) for AI assistants.
 CONTROL
 dpkg-deb --build --root-owner-group "$PKG" >/dev/null
-TAR="freo-${VERSION}-linux-x86_64"
+TAR="freo-${VERSION}-linux-${MACHINE}"
 mkdir -p "$OUT/$TAR"
 cp target/release/freo target/release/freo-mcp README.md "$OUT/$TAR/"
 cp "$PKG/usr/share/applications/freo.desktop" "$OUT/$TAR/"
 cp "$PKG/usr/share/icons/hicolor/256x256/apps/freo.png" "$OUT/$TAR/"
 tar -C "$OUT" -czf "$OUT/$TAR.tar.gz" "$TAR"
+# .rpm (Fedora, openSUSE, RHEL): the same files, library dependencies found by rpmbuild
+if command -v rpmbuild >/dev/null 2>&1; then
+  TOP="$PWD/$OUT/rpm"; mkdir -p "$TOP/SPECS"
+  cat > "$TOP/SPECS/freo.spec" <<SPEC
+Name: freo
+Version: $VERSION
+Release: 1
+Summary: Creo-style parametric 3D CAD
+License: MIT
+URL: https://github.com/999david7/freo
+%global debug_package %{nil}
+%global __os_install_post %{nil}
+%description
+Freo is a history-based parametric 3D modeller that follows the PTC Creo
+workflow: sketcher, feature tree, assemblies, drawings, live simulation and
+an MCP server (freo-mcp) for AI assistants.
+%install
+mkdir -p %{buildroot}
+cp -a "$PWD/$PKG/usr" %{buildroot}/
+%files
+/usr/bin/freo
+/usr/bin/freo-mcp
+/usr/share/applications/freo.desktop
+/usr/share/mime/packages/freo.xml
+/usr/share/icons/hicolor/*/apps/freo.png
+/usr/share/doc/freo/README.md
+SPEC
+  rpmbuild --quiet --define "_topdir $TOP" --define "_build_id_links none" -bb "$TOP/SPECS/freo.spec"
+  cp "$TOP"/RPMS/*/*.rpm "$OUT/"
+  rm -rf "$TOP"
+fi
+# AppImage: one file that runs on any distribution (uses the system's graphics libraries)
+if [ -n "$APPIMAGETOOL" ]; then
+  DIR="$OUT/Freo.AppDir"; mkdir -p "$DIR"
+  cp -a "$PKG/usr" "$DIR/"
+  cp "$PKG/usr/share/applications/freo.desktop" "$DIR/freo.desktop"
+  cp "$PKG/usr/share/icons/hicolor/256x256/apps/freo.png" "$DIR/freo.png"
+  printf '#!/bin/sh\nHERE=$(dirname "$(readlink -f "$0")")\nexec "$HERE/usr/bin/freo" "$@"\n' > "$DIR/AppRun"
+  chmod +x "$DIR/AppRun"
+  ARCH=$MACHINE "$APPIMAGETOOL" --appimage-extract-and-run "$DIR" "$OUT/Freo-${VERSION}-${MACHINE}.AppImage" >/dev/null
+  rm -rf "$DIR"
+fi
 rm -rf "$PKG" "$OUT/$TAR"
 ls -la "$OUT"

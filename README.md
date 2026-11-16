@@ -1,6 +1,6 @@
-# Freo — Creo-style parametric CAD for macOS (Rust)
+# Freo — Creo-style parametric CAD for macOS, Linux and Windows (Rust)
 
-Freo is a native, history-based parametric 3D modeller for macOS that follows the PTC Creo
+Freo is a native, history-based parametric 3D modeller for macOS, Linux and Windows that follows the PTC Creo
 Parametric 10 workflow and look, with Creo's German user interface: ribbon → feature tab →
 sketcher → regenerate. It has a model tree, datum features, parameters and relations,
 assemblies built from placement constraints, associative 2D drawings, 3D annotations, a
@@ -20,6 +20,8 @@ removal, simulation solvers, STEP reader and OpenGL viewport on egui/eframe.
 | ![](docs/screens/mini.png) | ![](docs/screens/roundsets.png) | ![](docs/screens/stdhole.png) |
 | **Fill pattern in a sketched region** | **Extrude up to the next surface** | **3D annotations** |
 | ![](docs/screens/fillpattern.png) | ![](docs/screens/tonext.png) | ![](docs/screens/annot3d.png) |
+| **Analysis colours on the model** | **Whole-loop question for chamfers** | **Relations and local parameters** |
+| ![](docs/screens/analysis.png) | ![](docs/screens/loop_offer.png) | ![](docs/screens/parameters.png) |
 
 ### Live-Simulation
 
@@ -65,15 +67,30 @@ the German label where it helps to find the command.
 
 Ready-made builds are on the [releases page](https://github.com/999david7/freo/releases):
 
-- **macOS** (Apple Silicon): `Freo.dmg`. Drag `Freo.app` to Applications; on first start choose **Open Anyway** in System Settings > Privacy & Security.
-- **Ubuntu** (x86-64, 22.04 or newer): `freo_<version>_amd64.deb`, installed with `sudo apt install ./freo_<version>_amd64.deb`, or the `.tar.gz` with the bare programs.
+| System | File | Install |
+|---|---|---|
+| **macOS**, Apple Silicon | `Freo-<version>-macos-arm64.dmg` | Open it and drag `Freo.app` to Applications |
+| **macOS**, Intel | `Freo-<version>-macos-x64.dmg` | Open it and drag `Freo.app` to Applications |
+| **Windows**, x86 (32-bit) | `Freo-<version>-windows-x86.exe` | Start the file directly |
+| **Windows**, x64 | `Freo-<version>-windows-x64.exe` | Start the file; there is no installer |
+| **Windows**, ARM64 | `Freo-<version>-windows-arm64.exe` | Start the file; there is no installer |
+| **Ubuntu / Debian** | `freo_<version>_amd64.deb`, `freo_<version>_arm64.deb` | `sudo apt install ./freo_<version>_amd64.deb` |
+| **Fedora / openSUSE / RHEL** | `freo-<version>-1.x86_64.rpm`, `freo-<version>-1.aarch64.rpm` | `sudo dnf install ./freo-<version>-1.x86_64.rpm` |
+| **Linux** | `Freo-<version>-x86_64.AppImage`, `Freo-<version>-aarch64.AppImage` | `chmod +x` the file and start it |
 
-Freo is developed on macOS. The Linux build is compiled, tested and started once on Ubuntu for
-every release, but has had little hands-on use there.
+The `.tar.gz` (Linux, macOS) and `.zip` (Windows) files hold the bare programs `freo` and
+`freo-mcp` without an installer.
+
+- **macOS**: the app is not notarised; on first start choose **Open Anyway** in System Settings > Privacy & Security.
+- **Windows**: the programs are not signed; SmartScreen asks once (**More info** > **Run anyway**).
+- **Linux**: Ubuntu 22.04 or newer, or a distribution of the same age. The AppImage uses the system's graphics libraries.
+
+Freo is developed on macOS. The Linux builds are compiled, tested and started once on Ubuntu
+for every release; the Windows builds are compiled on Windows, where the x64 build runs the test suite.
 
 ## Build & run
 
-Requires a current stable Rust toolchain, on macOS 11 or later or on Linux (X11 or Wayland).
+Requires a current stable Rust toolchain, on macOS 11 or later, on Linux (X11 or Wayland) or on Windows 10 or later.
 
 ```bash
 cargo run --release
@@ -92,9 +109,9 @@ sign it ad hoc so macOS starts it:
 codesign --force --deep -s - /Applications/Freo.app
 ```
 
-On Ubuntu, `scripts/package-linux.sh` packs the release build into a `.deb` and a `.tar.gz`
-in `dist/`; the release workflow in `.github/workflows/release.yml` does this for every
-published release.
+On Linux, `scripts/package-linux.sh` packs the release build into a `.deb`, an `.rpm`, an
+AppImage and a `.tar.gz` in `dist/`. The release workflow in `.github/workflows/release.yml`
+builds the files for x86-64 and ARM64 on all three systems, plus 32-bit x86 on Windows.
 
 Open a model directly with `freo part.pfprt` / `freo asm0001.pfasm`, from Finder, or by
 dragging a file onto the window (a part dropped onto an open assembly is assembled).
@@ -188,6 +205,12 @@ recipes, checking volumes, looking at renders, and sending back renders and expo
 Copy the `freo-cad` folder into an agent's `<workspace>/skills/` (or `~/.openclaw/skills/`
 for all agents). It only shows up once `mcp.servers.freo` is configured. Check it with
 `openclaw skills info freo-cad --agent <id>`.
+
+## New in 1.0.0
+
+- **Windows** builds (x86, x64 and ARM64) and a **macOS build for Intel** next to Apple Silicon
+- **Linux**: `.rpm` packages and AppImages next to `.deb` and `.tar.gz`, all also for ARM64
+- New screenshots
 
 ## New in 0.3.0
 

@@ -991,7 +991,7 @@ dependencies = [
 
 [[package]]
 name = "freo"
-version = "0.3.0"
+version = "1.0.0"
 dependencies = [
  "ab_glyph",
  "eframe",

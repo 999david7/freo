@@ -521,6 +521,31 @@ pub fn dialog_header(ui: &mut egui::Ui, title: &str) -> bool {
     resp.clicked()
 }
 
+/// Opens a file or folder with the program the system uses for it.
+pub fn open_path(p: &Path) {
+    #[cfg(target_os = "macos")]
+    let _ = std::process::Command::new("open").arg(p).spawn();
+    #[cfg(target_os = "windows")]
+    let _ = std::process::Command::new("explorer").arg(p).spawn();
+    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
+    let _ = std::process::Command::new("xdg-open").arg(p).spawn();
+}
+
+/// Shows a file in the system's file manager (a folder is opened).
+pub fn reveal_path(p: &Path) {
+    if p.is_dir() {
+        return open_path(p);
+    }
+    #[cfg(target_os = "macos")]
+    let _ = std::process::Command::new("open").arg("-R").arg(p).spawn();
+    #[cfg(target_os = "windows")]
+    let _ = std::process::Command::new("explorer").arg(format!("/select,{}", p.display())).spawn();
+    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
+    if let Some(dir) = p.parent() {
+        open_path(dir);
+    }
+}
+
 /// A name for a new folder in `parent` that is not taken yet.
 pub fn free_folder_name(parent: &Path) -> String {
     (1..).map(|i| if i == 1 { "Neuer Ordner".to_string() } else { format!("Neuer Ordner {}", i) }).find(|n| !parent.join(n).exists()).unwrap()
@@ -2037,7 +2062,7 @@ impl App {
                 self.creo.name_dialog = Some(NameDialog { parent, name, rename: Some(p), error: None, focus: true });
             }
             FsAction::Reveal(p) => {
-                let _ = if p.is_dir() { std::process::Command::new("open").arg(&p).spawn() } else { std::process::Command::new("open").arg("-R").arg(&p).spawn() };
+                reveal_path(&p);
             }
             FsAction::Enter(p) => {
                 if p.is_dir() {
@@ -2058,7 +2083,7 @@ impl App {
                     let n = short(&p).to_lowercase();
                     let ours = n.ends_with(".pfprt") || n.ends_with(".pfasm") || n.ends_with(".pfdrw") || is_neutral_file(&n) || is_creo_file(&n);
                     if !ours {
-                        let _ = std::process::Command::new("open").arg(&p).spawn();
+                        open_path(&p);
                     } else if is_creo_file(&n) || self.confirm_discard() {
                         self.creo.open = None;
                         self.load(p);

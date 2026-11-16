@@ -1,4 +1,7 @@
-//! Freo — Creo-style parametric 3D CAD for macOS.
+//! Freo — Creo-style parametric 3D CAD.
+
+// no console window behind the app on Windows
+#![cfg_attr(target_os = "windows", windows_subsystem = "windows")]
 
 use eframe::egui::{self, Color32, CornerRadius, FontFamily, FontId, Stroke, TextStyle};
 use freo::app::App;

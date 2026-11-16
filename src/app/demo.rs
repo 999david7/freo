@@ -612,6 +612,7 @@ impl App {
                     }
                 });
                 self.set_pick_target(None);
+                self.loop_offer = None;
                 self.dash_panel = Some("Sätze");
                 self.dash_panel_anchor = egui::pos2(8.0, 166.0);
             }
