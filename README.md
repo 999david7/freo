@@ -71,15 +71,15 @@ Ready-made builds are on the [releases page](https://github.com/999david7/freo/r
 |---|---|---|
 | **macOS**, Apple Silicon | `Freo-<version>-macos-arm64.dmg` | Open it and drag `Freo.app` to Applications |
 | **macOS**, Intel | `Freo-<version>-macos-x64.dmg` | Open it and drag `Freo.app` to Applications |
-| **Windows**, x86 (32-bit) | `Freo-<version>-windows-x86.exe` | Start the file directly |
-| **Windows**, x64 | `Freo-<version>-windows-x64.exe` | Start the file; there is no installer |
-| **Windows**, ARM64 | `Freo-<version>-windows-arm64.exe` | Start the file; there is no installer |
+| **Windows**, x64 | `Freo-<version>-windows-x64-setup.exe` | Run the installer (Start menu, desktop icon, file types, uninstaller) |
+| **Windows**, ARM64 | `Freo-<version>-windows-arm64-setup.exe` | Run the installer |
+| **Windows**, 32-bit | `Freo-<version>-windows-x86-setup.exe` | Run the installer |
 | **Ubuntu / Debian** | `freo_<version>_amd64.deb`, `freo_<version>_arm64.deb` | `sudo apt install ./freo_<version>_amd64.deb` |
 | **Fedora / openSUSE / RHEL** | `freo-<version>-1.x86_64.rpm`, `freo-<version>-1.aarch64.rpm` | `sudo dnf install ./freo-<version>-1.x86_64.rpm` |
 | **Linux** | `Freo-<version>-x86_64.AppImage`, `Freo-<version>-aarch64.AppImage` | `chmod +x` the file and start it |
 
 The `.tar.gz` (Linux, macOS) and `.zip` (Windows) files hold the bare programs `freo` and
-`freo-mcp` without an installer.
+`freo-mcp` without an installer; on Windows `Freo-<version>-windows-<arch>.exe` is the app as a single file.
 
 - **macOS**: the app is not notarised; on first start choose **Open Anyway** in System Settings > Privacy & Security.
 - **Windows**: the programs are not signed; SmartScreen asks once (**More info** > **Run anyway**).

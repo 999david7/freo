@@ -200,6 +200,32 @@ jobs:
             Compress-Archive -Path $dir -DestinationPath "dist/$dir.zip" -Force
           }
           Get-ChildItem dist
+      - name: Build the installers
+        shell: pwsh
+        run: |
+          $version = (Select-String -Path Cargo.toml -Pattern '^version = "(.*)"' | Select-Object -First 1).Matches[0].Groups[1].Value
+          $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+          if (-not (Test-Path $iscc)) { choco install innosetup -y --no-progress | Out-Null }
+          foreach ($pair in @(@('i686-pc-windows-msvc', 'x86'), @('x86_64-pc-windows-msvc', 'x64'), @('aarch64-pc-windows-msvc', 'arm64'))) {
+            & $iscc /Q "/DVersion=$version" "/DArch=$($pair[1])" "/DSourceDir=$PWD\target\$($pair[0])\release" "/DOutputDir=$PWD\dist" packaging\windows\freo.iss
+            if ($LASTEXITCODE -ne 0) { throw "installer for $($pair[1]) failed" }
+          }
+          Get-ChildItem dist\*-setup.exe
+      - name: Check the installer (install, start, uninstall)
+        shell: pwsh
+        run: |
+          $setup = Get-ChildItem dist\*-windows-x64-setup.exe | Select-Object -First 1
+          $dir = "$env:RUNNER_TEMP\FreoTest"
+          Start-Process $setup.FullName -ArgumentList "/VERYSILENT", "/SUPPRESSMSGBOXES", "/CURRENTUSER", "/DIR=$dir", "/TASKS=assoc" -Wait
+          if (-not (Test-Path "$dir\freo.exe")) { throw "freo.exe was not installed" }
+          if (-not (Test-Path "$dir\freo-mcp.exe")) { throw "freo-mcp.exe was not installed" }
+          $assoc = (Get-ItemProperty "HKCU:\Software\Classes\.pfprt" -ErrorAction SilentlyContinue).'(default)'
+          if ($assoc -ne "Freo.Part") { throw ".pfprt is not associated with Freo ($assoc)" }
+          '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"ci","version":"0"}}}' | & "$dir\freo-mcp.exe" | Select-Object -First 1
+          Start-Process "$dir\unins000.exe" -ArgumentList "/VERYSILENT", "/SUPPRESSMSGBOXES" -Wait
+          Start-Sleep -Seconds 3
+          if (Test-Path "$dir\freo.exe") { throw "freo.exe is still there after uninstalling" }
+          "installed, associated and uninstalled"
       - name: Check the MCP server
         shell: bash
         run: printf '%s\n' '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"ci","version":"0"}}}' | target/x86_64-pc-windows-msvc/release/freo-mcp.exe | head -c 400
