@@ -825,7 +825,7 @@ impl App {
             "newdialog" => {
                 self.data = bracket();
                 self.regenerate(false);
-                self.new_dialog = Some(super::assembly::NewDialog { assembly: true, drawing: false, name: "asm0001".into(), common: String::new(), template: true });
+                self.new_dialog = Some(super::assembly::NewDialog { assembly: true, drawing: false, name: "asm0001".into(), common: String::new(), template: true, focus: true });
             }
             "assemble" => {
                 let mut data = sample_assembly();

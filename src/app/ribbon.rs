@@ -599,6 +599,7 @@ impl App {
             },
             common: String::new(),
             template: true,
+            focus: true,
         });
     }
 

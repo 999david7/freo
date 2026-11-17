@@ -227,19 +227,19 @@ impl App {
                     }
                     Row::Feature(i) => {
                         let f = self.data.features[i].clone();
-                        if let Some((rid, mut name)) = self.renaming.clone() {
+                        if let Some((rid, mut name, focus)) = self.renaming.clone() {
                             if rid == f.id {
                                 ui.horizontal(|ui| {
                                     ui.add_space(depth as f32 * 16.0 + 30.0);
-                                    let r = ui.add(egui::TextEdit::singleline(&mut name).desired_width(140.0));
-                                    r.request_focus();
-                                    if r.lost_focus() {
-                                        self.renaming = None;
-                                        if ui.input(|i| i.key_pressed(egui::Key::Enter)) {
-                                            self.rename(rid, &name);
+                                    match super::dlgkit::inline_edit(ui, &mut name, &f.name, focus, 140.0, "") {
+                                        super::dlgkit::InlineEdit::Commit => {
+                                            self.renaming = None;
+                                            if name.trim() != f.name {
+                                                self.rename(rid, &name);
+                                            }
                                         }
-                                    } else {
-                                        self.renaming = Some((rid, name));
+                                        super::dlgkit::InlineEdit::Cancel => self.renaming = None,
+                                        super::dlgkit::InlineEdit::Editing(has) => self.renaming = Some((rid, name, !has)),
                                     }
                                 });
                                 continue;
@@ -423,8 +423,12 @@ impl App {
         });
         ui.add_space(6.0);
         let tree_w = ui.available_width();
-        let cols = !self.creo.hide_cols && tree_w > 300.0;
-        let (c1, c2) = (tree_w * 0.52, tree_w * 0.77);
+        // the two columns are as wide as their titles, the tree gets the rest (at least 40 %);
+        // too narrow for that and the columns are left out instead of being cut off
+        let title_w = |t: &str| super::dlgkit::tw(ui, t, 12.5) + 16.0;
+        let c2 = tree_w - title_w("SACHNUMMER");
+        let c1 = c2 - title_w("BENENNUNG");
+        let cols = !self.creo.hide_cols && c1 >= tree_w * 0.4;
         if cols {
             let (hr, _) = ui.allocate_exact_size(vec2(tree_w, 26.0), Sense::hover());
             let p = ui.painter();
@@ -452,7 +456,7 @@ impl App {
             ui.close_menu();
         }
         if item(ui, Icon::SkModify, "Umbenennen") {
-            self.renaming = Some((f.id, f.name.clone()));
+            self.renaming = Some((f.id, f.name.clone(), true));
             ui.close_menu();
         }
         ui.separator();

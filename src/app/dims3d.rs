@@ -20,7 +20,8 @@ pub struct EditDims {
     pub feature: u64,
     pub ctx: RegenResult,
     pub labels: Vec<(Rect, DimKey, String)>,
-    pub editing: Option<(DimKey, String, Pos2, bool)>,
+    /// Value box open on a label: dimension, text being typed, where, take focus this frame, text it opened with.
+    pub editing: Option<(DimKey, String, Pos2, bool, String)>,
 }
 
 struct FieldDim {
@@ -534,25 +535,20 @@ impl App {
         if let Some(e) = &mut self.edit_dims {
             e.labels = labels;
         }
-        if let Some((key, mut text, pos, focus)) = editing {
-            let (mut commit, mut cancel) = (false, false);
+        if let Some((key, mut text, pos, focus, original)) = editing {
+            let mut state = super::dlgkit::InlineEdit::Editing(false);
             egui::Area::new(egui::Id::new("dims3d_edit")).fixed_pos(pos - vec2(52.0, 12.0)).order(egui::Order::Foreground).show(ctx, |ui| {
                 egui::Frame::popup(ui.style()).inner_margin(3.0).show(ui, |ui| {
-                    let r = ui.add(egui::TextEdit::singleline(&mut text).desired_width(104.0));
-                    if focus {
-                        r.request_focus();
-                    }
-                    if r.lost_focus() {
-                        if ui.input(|i| i.key_pressed(egui::Key::Enter)) {
-                            commit = true;
-                        } else {
-                            cancel = true;
-                        }
-                    }
+                    state = super::dlgkit::inline_edit(ui, &mut text, &original, focus, 104.0, "");
                 });
             });
+            // Enter on an unchanged value changes nothing (no regeneration, no undo step)
+            let commit = state == super::dlgkit::InlineEdit::Commit && text.trim() != original.trim();
             if let Some(e) = &mut self.edit_dims {
-                e.editing = if commit || cancel { None } else { Some((key.clone(), text.clone(), pos, false)) };
+                e.editing = match state {
+                    super::dlgkit::InlineEdit::Editing(has) => Some((key.clone(), text.clone(), pos, !has, original)),
+                    _ => None,
+                };
             }
             if commit {
                 self.apply_dim_edit(f.id, key, text);
@@ -564,7 +560,7 @@ impl App {
     pub fn dims_click(&mut self, pos: Pos2) -> bool {
         let Some(ed) = &mut self.edit_dims else { return false };
         if let Some((r, key, text)) = ed.labels.iter().find(|(r, _, _)| r.contains(pos)).cloned() {
-            ed.editing = Some((key, text, r.center(), true));
+            ed.editing = Some((key, text.clone(), r.center(), true, text));
             return true;
         }
         false

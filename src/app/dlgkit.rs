@@ -578,3 +578,39 @@ pub fn ok_cancel_icons(ui: &mut egui::Ui) -> (bool, bool) {
     });
     out
 }
+
+/// What happened to an inline value box this frame.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum InlineEdit {
+    /// Still typing; `true` once the box holds the keyboard (until then, keep asking for focus).
+    Editing(bool),
+    /// Enter, or a click elsewhere after the text was changed: keep the new text.
+    Commit,
+    /// Esc, or a click elsewhere without changing anything.
+    Cancel,
+}
+
+/// A single-line text box for editing a value in place (dimensions, names in the tree).
+/// On `focus` it takes the keyboard with all its text selected, so typing replaces the old
+/// value. Clicking away keeps a changed value instead of throwing it away.
+pub fn inline_edit(ui: &mut egui::Ui, text: &mut String, original: &str, focus: bool, width: f32, hint: &str) -> InlineEdit {
+    let out = egui::TextEdit::singleline(text).desired_width(width).hint_text(hint).show(ui);
+    let r = out.response;
+    if focus && !r.has_focus() {
+        r.request_focus();
+        let end = text.chars().count();
+        let mut st = out.state;
+        st.cursor.set_char_range(Some(egui::text::CCursorRange::two(egui::text::CCursor::new(0), egui::text::CCursor::new(end))));
+        st.store(ui.ctx(), r.id);
+    }
+    if ui.input(|i| i.key_pressed(egui::Key::Escape)) {
+        return InlineEdit::Cancel;
+    }
+    if r.lost_focus() {
+        if ui.input(|i| i.key_pressed(egui::Key::Enter)) || text.trim() != original.trim() {
+            return InlineEdit::Commit;
+        }
+        return InlineEdit::Cancel;
+    }
+    InlineEdit::Editing(r.has_focus())
+}

@@ -254,7 +254,8 @@ pub struct App {
     pub renderer: Option<Arc<Mutex<Renderer>>>,
     pub buffers: Arc<ModelBuffers>,
     pub fit_pending: bool,
-    pub renaming: Option<(u64, String)>,
+    /// Feature being renamed in the tree: id, name being typed, take focus this frame.
+    pub renaming: Option<(u64, String, bool)>,
     pub viewport_size: (f32, f32),
     pub relations_draft: Option<String>,
     pub player: Option<usize>,
@@ -891,6 +892,8 @@ impl App {
         self.tab = Tab::Model;
         self.dash_panel = None;
         let f = ed.feature.clone();
+        // the part had no solid yet: zoom to the first one instead of leaving it tiny in the middle
+        let was_empty = !self.in_asm() && self.result.topo.bbox.is_empty();
         if ed.is_new {
             self.commit(&format!("{} erzeugt.", f.name), |d| {
                 let i = ed.index.min(d.features.len());
@@ -916,6 +919,9 @@ impl App {
                     d.features[i] = f.clone();
                 }
             });
+        }
+        if was_empty && !self.result.topo.bbox.is_empty() {
+            self.fit_pending = true;
         }
         self.tree_selection = vec![ed.feature.id];
     }

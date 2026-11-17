@@ -319,7 +319,8 @@ pub struct SketchSession {
     pub selection: Vec<SkSel>,
     hover: Option<SkSel>,
     drag: Option<Drag>,
-    edit: Option<(i64, String, bool)>,
+    /// Inline dimension box: constraint, text being typed, take focus this frame, text it opened with.
+    edit: Option<(i64, String, bool, String)>,
     undo: Vec<Sketch>,
     redo: Vec<Sketch>,
     pub dof: usize,
@@ -2657,7 +2658,8 @@ impl SketchSession {
         }
         if self.add_checked(k) {
             if let Some(c) = self.sketch.constraints.iter().rev().find(|c| !c.weak && c.ty.is_dimension()) {
-                self.edit = Some((c.id, fmt_num(c.value, 3), true));
+                let t = fmt_num(c.value, 2);
+                self.edit = Some((c.id, t.clone(), true, t));
             }
         }
     }
@@ -2986,7 +2988,9 @@ impl SketchSession {
             if let Some(h) = hp {
                 if let Some(id) = self.hit_dimension(h) {
                     if let Some(c) = self.sketch.constraints.iter().find(|c| c.id == id && c.ty.is_dimension()) {
-                        self.edit = Some((id, c.expr.clone().unwrap_or_else(|| fmt_num(c.value, 4)), true));
+                        // the box shows the value as the label does, so it reads the same
+                        let t = c.expr.clone().unwrap_or_else(|| fmt_num(c.value, 2));
+                        self.edit = Some((id, t.clone(), true, t));
                     }
                 }
             }
@@ -3410,35 +3414,24 @@ impl SketchSession {
         self.rot_resize_ui(ctx);
         self.palette_ui(ctx);
         self.refs_ui(ctx);
-        if let Some((id, mut text, focus)) = self.edit.clone() {
+        if let Some((id, mut text, focus, original)) = self.edit.clone() {
             if let Some(c) = self.sketch.constraints.iter().find(|c| c.id == id).cloned() {
                 let pos = self.label_rect(&c).center();
-                let (mut commit, mut cancel) = (false, false);
+                let mut state = super::dlgkit::InlineEdit::Editing(false);
                 egui::Area::new(egui::Id::new("dim_edit")).fixed_pos(pos - egui::vec2(52.0, 12.0)).order(egui::Order::Foreground).show(ctx, |ui| {
                     egui::Frame::popup(ui.style()).inner_margin(3.0).show(ui, |ui| {
-                        let r = ui.add(egui::TextEdit::singleline(&mut text).desired_width(104.0).hint_text("Wert oder Beziehung"));
-                        if focus {
-                            r.request_focus();
-                        }
-                        if r.lost_focus() {
-                            if ui.input(|i| i.key_pressed(egui::Key::Enter)) {
-                                commit = true;
-                            } else {
-                                cancel = true;
-                            }
-                        }
-                        if ui.input(|i| i.key_pressed(egui::Key::Escape)) {
-                            cancel = true;
-                        }
+                        state = super::dlgkit::inline_edit(ui, &mut text, &original, focus, 104.0, "Wert oder Beziehung");
                     });
                 });
-                if commit {
-                    self.apply_edit(id, &text);
-                    self.edit = None;
-                } else if cancel {
-                    self.edit = None;
-                } else {
-                    self.edit = Some((id, text, false));
+                match state {
+                    super::dlgkit::InlineEdit::Commit => {
+                        // Enter on the unchanged (rounded) text keeps the exact value
+                        let t = if text.trim() == original.trim() && c.expr.is_none() { c.value.to_string() } else { text };
+                        self.apply_edit(id, &t);
+                        self.edit = None;
+                    }
+                    super::dlgkit::InlineEdit::Cancel => self.edit = None,
+                    super::dlgkit::InlineEdit::Editing(has) => self.edit = Some((id, text, !has, original)),
                 }
             } else {
                 self.edit = None;

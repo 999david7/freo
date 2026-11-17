@@ -81,6 +81,8 @@ pub struct NewDialog {
     pub name: String,
     pub common: String,
     pub template: bool,
+    /// The file name takes the keyboard with its text selected (on opening, and after the type changes).
+    pub focus: bool,
 }
 
 fn status_color(s: &PlaceStatus) -> Color32 {
@@ -1615,6 +1617,7 @@ impl App {
                                         _ => "prt0001",
                                     }
                                     .into();
+                                    d.focus = true;
                                 }
                             });
                         }
@@ -1636,9 +1639,16 @@ impl App {
                 ui.add_space(8.0);
                 egui::Grid::new("new_names").num_columns(2).spacing([8.0, 8.0]).show(ui, |ui| {
                     ui.label("Dateiname:");
-                    let r = ui.add(egui::TextEdit::singleline(&mut d.name).desired_width(300.0));
-                    if r.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)) {
-                        ok = true;
+                    let out = egui::TextEdit::singleline(&mut d.name).desired_width(300.0).show(ui);
+                    let r = out.response;
+                    if d.focus {
+                        // whole name selected, so typing a name replaces "prt0001"
+                        r.request_focus();
+                        let end = d.name.chars().count();
+                        let mut st = out.state;
+                        st.cursor.set_char_range(Some(egui::text::CCursorRange::two(egui::text::CCursor::new(0), egui::text::CCursor::new(end))));
+                        st.store(ui.ctx(), r.id);
+                        d.focus = false;
                     }
                     ui.end_row();
                     ui.label("Üblicher Name:");
@@ -1660,6 +1670,13 @@ impl App {
                     });
                 });
             });
+            // Enter is OK and Esc is Abbrechen, wherever the keyboard is in the dialog
+            if ctx.input(|i| i.key_pressed(egui::Key::Enter)) {
+                ok = true;
+            }
+            if ctx.input(|i| i.key_pressed(egui::Key::Escape)) {
+                keep = false;
+            }
             if ok {
                 keep = false;
                 let name = d.name.trim().to_uppercase();
@@ -1740,22 +1757,42 @@ impl App {
     }
 
     /// Asks before discarding unsaved changes; true when it is fine to continue.
-    pub fn confirm_discard(&mut self) -> bool {
+    fn has_unsaved(&self) -> bool {
         let unsaved_part_from_asm = self.editing_from_asm().map(|o| o.dirty).unwrap_or(false);
         let unsaved_drawing = self.drw.as_ref().map(|d| d.dirty).unwrap_or(false);
-        if !self.dirty && !unsaved_part_from_asm && !unsaved_drawing {
+        self.dirty || unsaved_part_from_asm || unsaved_drawing
+    }
+
+    /// Asks what to do with unsaved work: Speichern / Nicht speichern / Abbrechen.
+    /// True when it is fine to go on (saved, or discarded on purpose).
+    pub fn confirm_discard(&mut self) -> bool {
+        if !self.has_unsaved() {
             return true;
         }
         let name = match &self.drw {
             Some(d) if d.dirty => format!("{} und dessen Modell", d.data.name),
             _ => self.asm.as_ref().map(|a| a.data.name.clone()).unwrap_or_else(|| self.data.name.clone()),
         };
+        let (save, discard, cancel) = ("Speichern".to_string(), "Nicht speichern".to_string(), "Abbrechen".to_string());
         let r = rfd::MessageDialog::new()
             .set_title("Nicht gespeicherte Änderungen")
-            .set_description(format!("Nicht gespeicherte Änderungen an {} verwerfen?", name))
-            .set_buttons(rfd::MessageButtons::OkCancel)
+            .set_description(format!("Änderungen an {} speichern?", name))
+            .set_buttons(rfd::MessageButtons::YesNoCancelCustom(save.clone(), discard.clone(), cancel))
             .show();
-        r == rfd::MessageDialogResult::Ok
+        match r {
+            rfd::MessageDialogResult::Custom(c) if c == save => {
+                self.save(false);
+                // still unsaved when saving failed or needs a file name first: stay here
+                !self.has_unsaved()
+            }
+            rfd::MessageDialogResult::Custom(c) => c == discard,
+            rfd::MessageDialogResult::Yes => {
+                self.save(false);
+                !self.has_unsaved()
+            }
+            rfd::MessageDialogResult::No => true,
+            _ => false,
+        }
     }
 }
 
