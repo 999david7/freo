@@ -1112,7 +1112,7 @@ impl App {
         let s = match p {
             Pick::Face(f) => {
                 let Some(face) = r.topo.faces.get(f) else { return };
-                format!("Fläche von {}{}, Inhalt {} mm².", owner, if face.planar { " (eben)" } else { "" }, fmt_num(face.area, 2))
+                format!("Fläche von {}{}, Inhalt {} mm².", owner, if face.planar { " (eben)" } else { "" }, fmt_num(face.area, 3))
             }
             Pick::Edge(e) => {
                 let Some(c) = r.topo.chains.get(e) else { return };
@@ -2023,14 +2023,7 @@ impl App {
             }
             let _ = std::fs::create_dir_all(&self.work_dir);
             let p = self.work_dir.join(file_name);
-            let replace = || {
-                rfd::MessageDialog::new()
-                    .set_title("Speichern")
-                    .set_description(format!("{} existiert bereits im Arbeitsverzeichnis. Ersetzen?", file_name))
-                    .set_buttons(rfd::MessageButtons::YesNo)
-                    .show()
-                    == rfd::MessageDialogResult::Yes
-            };
+            let replace = || ask("Speichern", &format!("{} existiert bereits im Arbeitsverzeichnis. Ersetzen?", file_name), "Ersetzen", "Abbrechen");
             if !p.exists() || replace() {
                 return Some(p);
             }
@@ -2039,6 +2032,18 @@ impl App {
         self.browse(creo::BrowsePurpose::SaveAs(kind), dir, file_name.rsplit_once('.').map(|x| x.0).unwrap_or(file_name));
         None
     }
+}
+
+/// A question with German button names (rfd's own Yes/No/OK/Cancel sets are English on
+/// macOS). True only for `yes`; the other button, or closing the dialog, is no.
+pub fn ask(title: &str, text: &str, yes: &str, no: &str) -> bool {
+    let r = rfd::MessageDialog::new()
+        .set_title(title)
+        .set_description(text)
+        .set_level(rfd::MessageLevel::Warning)
+        .set_buttons(rfd::MessageButtons::OkCancelCustom(yes.to_string(), no.to_string()))
+        .show();
+    matches!(r, rfd::MessageDialogResult::Custom(ref c) if c == yes)
 }
 
 /// "Verwerfen" or "Weiter bearbeiten" for unfinished work; true to throw it away.

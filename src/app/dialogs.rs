@@ -6,30 +6,20 @@ use eframe::egui::{self, Color32, RichText};
 
 impl App {
     pub fn dialogs(&mut self, ctx: &egui::Context) {
-        let mut open = self.windows.mass;
-        egui::Window::new("⚖ Masseeigenschaften").open(&mut open).default_width(380.0).show(ctx, |ui| self.mass_ui(ui));
-        self.windows.mass = open;
-
-        let mut open = self.windows.info;
-        egui::Window::new("ℹ Modellinfo").open(&mut open).default_width(520.0).show(ctx, |ui| self.info_ui(ui));
-        self.windows.info = open;
-
-        if self.measure {
-            let mut open = true;
-            egui::Window::new("📏 Messen").title_bar(false).default_pos(egui::pos2(260.0, 200.0)).show(ctx, |ui| {
-                if super::creo::dialog_header(ui, "📏 Messen") {
-                    open = false;
-                }
-                self.measure_ui(ui)
-            });
-            if !open {
-                self.measure = false;
-                self.selection.clear();
-            }
+        // Creo-style dialogs (grey title bar, fixed width), named as on the ribbon
+        use super::dlgkit::{cwin, pad};
+        if self.windows.mass {
+            self.windows.mass = cwin(ctx, "mass_dlg", "Masseneigenschaften", false, egui::pos2(300.0, 170.0), 420.0, |ui| pad(ui, 10.0, |ui| self.mass_ui(ui)));
+        }
+        if self.windows.info {
+            self.windows.info = cwin(ctx, "info_dlg", "Modellinfo", false, egui::pos2(300.0, 170.0), 560.0, |ui| pad(ui, 10.0, |ui| self.info_ui(ui)));
+        }
+        if self.measure && !cwin(ctx, "measure_dlg", "Messen", false, egui::pos2(300.0, 200.0), 340.0, |ui| pad(ui, 10.0, |ui| self.measure_ui(ui))) {
+            self.measure = false;
+            self.selection.clear();
         }
 
-        let mut open = self.windows.controls;
-        egui::Window::new("⌨ Steuerung").open(&mut open).show(ctx, |ui| {
+        let controls = |ui: &mut egui::Ui| {
             egui::Grid::new("ctl").striped(true).show(ui, |ui| {
                 for (a, b) in [
                     ("Drehen", "Mittlere Taste ziehen · Rechte Taste ziehen · ⌥ + ziehen · ⌥ + Zwei-Finger-Scrollen"),
@@ -49,17 +39,20 @@ impl App {
                     ui.end_row();
                 }
             });
-        });
-        self.windows.controls = open;
-
-        let mut open = self.windows.about;
-        egui::Window::new("Über Freo").open(&mut open).show(ctx, |ui| {
-            ui.heading("Freo");
-            ui.label("Ein parametrischer, KE-basierter 3D-CAD-Modellierer im Stil von Creo für macOS, geschrieben in Rust.");
-            ui.label("Geometriekern: BSP-Baum-CSG-B-Rep mit Topologiereparatur, Skizzierer mit Bedingungslöser, historienbasierte Regenerierung.");
-            ui.label(RichText::new(format!("Version {}", env!("CARGO_PKG_VERSION"))).weak());
-        });
-        self.windows.about = open;
+        };
+        if self.windows.controls {
+            self.windows.controls = cwin(ctx, "controls_dlg", "Steuerung", false, egui::pos2(300.0, 170.0), 760.0, |ui| pad(ui, 10.0, controls));
+        }
+        if self.windows.about {
+            self.windows.about = cwin(ctx, "about_dlg", "Über Freo", false, egui::pos2(360.0, 200.0), 440.0, |ui| {
+                pad(ui, 10.0, |ui| {
+                    ui.heading("Freo");
+                    ui.label("Ein parametrischer, KE-basierter 3D-CAD-Modellierer im Stil von Creo für macOS, geschrieben in Rust.");
+                    ui.label("Geometriekern: BSP-Baum-CSG-B-Rep mit Topologiereparatur, Skizzierer mit Bedingungslöser, historienbasierte Regenerierung.");
+                    ui.label(RichText::new(format!("Version {}", env!("CARGO_PKG_VERSION"))).weak());
+                })
+            });
+        }
 
         self.tools_dialogs(ctx);
         self.ar_panel(ctx);
@@ -246,7 +239,7 @@ impl App {
 
     fn mass_ui(&mut self, ui: &mut egui::Ui) {
         if self.in_asm() {
-            ui.label(RichText::new("Masseeigenschaften der Baugruppe — jede Komponente verwendet die Dichte ihres Teils.").size(11.5));
+            ui.label(RichText::new("Masseneigenschaften der Baugruppe — jede Komponente verwendet die Dichte ihres Teils.").size(11.5));
             let Some(m) = self.asm_mass() else {
                 ui.label("Die Baugruppe hat keine Volumenkomponenten.");
                 return;
@@ -254,16 +247,19 @@ impl App {
             Self::mass_grid(ui, &m);
             return;
         }
+        // the model keeps kg/mm³; shown and typed in kg/m³ (steel 7850), which people know
+        const MATERIALS: [(&str, f64); 7] = [("Stahl", 7.85e-6), ("Edelstahl", 8.0e-6), ("Aluminium", 2.7e-6), ("Titan", 4.43e-6), ("Messing", 8.5e-6), ("ABS", 1.04e-6), ("PLA", 1.24e-6)];
         ui.horizontal(|ui| {
-            ui.label("Dichte (kg/mm³)");
-            let mut d = self.data.density;
-            if ui.add(egui::DragValue::new(&mut d).speed(1e-7).range(1e-9..=1e-3).custom_formatter(|v, _| format!("{:.3e}", v))).changed() {
-                self.data.density = d;
+            ui.label("Dichte (kg/m³)");
+            let mut d = self.data.density * 1e9;
+            if ui.add(egui::DragValue::new(&mut d).speed(5.0).range(1.0..=1e6).max_decimals(1)).changed() {
+                self.data.density = d * 1e-9;
                 self.dirty = true;
             }
-            egui::ComboBox::from_id_salt("mat").selected_text("Werkstoff").show_ui(ui, |ui| {
-                for (n, v) in [("Stahl", 7.85e-6), ("Edelstahl", 8.0e-6), ("Aluminium", 2.7e-6), ("Titan", 4.43e-6), ("Messing", 8.5e-6), ("ABS", 1.04e-6), ("PLA", 1.24e-6)] {
-                    if ui.button(n).clicked() {
+            let current = MATERIALS.iter().find(|(_, v)| (v - self.data.density).abs() < 1e-12).map(|(n, _)| *n).unwrap_or("Werkstoff");
+            egui::ComboBox::from_id_salt("mat").selected_text(current).show_ui(ui, |ui| {
+                for (n, v) in MATERIALS {
+                    if ui.selectable_label(current == n, n).clicked() {
                         self.data.density = v;
                         self.dirty = true;
                     }
@@ -283,7 +279,8 @@ impl App {
             };
             row(ui, "Volumen", format!("{} mm³", fmt_num(m.volume, 3)));
             row(ui, "Oberfläche", format!("{} mm²", fmt_num(m.area, 3)));
-            row(ui, "Masse", format!("{} kg", fmt_num(m.mass, 5)));
+            // under a kilogram in grams, so small parts keep their digits at 3 decimals
+            row(ui, "Masse", if m.mass < 1.0 { format!("{} g", fmt_num(m.mass * 1000.0, 3)) } else { format!("{} kg", fmt_num(m.mass, 3)) });
             row(ui, "Schwerpunkt", format!("({}, {}, {}) mm", fmt_num(m.cog.x, 3), fmt_num(m.cog.y, 3), fmt_num(m.cog.z, 3)));
             row(ui, "Ixx Iyy Izz @SP", format!("{} {} {} kg·mm²", fmt_num(m.inertia[0], 3), fmt_num(m.inertia[1], 3), fmt_num(m.inertia[2], 3)));
             row(ui, "Ixy Iyz Izx @SP", format!("{} {} {} kg·mm²", fmt_num(m.inertia[3], 3), fmt_num(m.inertia[4], 3), fmt_num(m.inertia[5], 3)));

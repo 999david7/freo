@@ -114,12 +114,7 @@ impl App {
             return;
         }
         if self.drw.as_ref().map(|d| d.dirty).unwrap_or(false) {
-            let r = rfd::MessageDialog::new()
-                .set_title("Nicht gespeicherte Zeichnung")
-                .set_description("Nicht gespeicherte Änderungen an der aktuellen Zeichnung verwerfen?")
-                .set_buttons(rfd::MessageButtons::OkCancel)
-                .show();
-            if r != rfd::MessageDialogResult::Ok {
+            if !super::ask("Nicht gespeicherte Zeichnung", "Nicht gespeicherte Änderungen an der aktuellen Zeichnung verwerfen?", "Verwerfen", "Abbrechen") {
                 return;
             }
         }
@@ -172,12 +167,7 @@ impl App {
     pub fn close_drawing(&mut self) {
         let dirty = self.drw.as_ref().map(|d| d.dirty).unwrap_or(false);
         if dirty {
-            let r = rfd::MessageDialog::new()
-                .set_title("Nicht gespeicherte Zeichnung")
-                .set_description("Nicht gespeicherte Änderungen an der Zeichnung verwerfen?")
-                .set_buttons(rfd::MessageButtons::OkCancel)
-                .show();
-            if r != rfd::MessageDialogResult::Ok {
+            if !super::ask("Nicht gespeicherte Zeichnung", "Nicht gespeicherte Änderungen an der Zeichnung verwerfen?", "Verwerfen", "Abbrechen") {
                 return;
             }
         }
@@ -351,8 +341,7 @@ impl App {
         let deps = self.delete_dependents();
         if !deps.is_empty() {
             let msg = format!("Die gewählte Ansicht hat {} abhängige Ansicht(en), die ebenfalls gelöscht werden:\n\n{}\n\nAlle löschen?", deps.len(), deps.join("\n"));
-            let r = rfd::MessageDialog::new().set_title("Ansichten löschen").set_description(msg).set_buttons(rfd::MessageButtons::OkCancel).show();
-            if r != rfd::MessageDialogResult::Ok {
+            if !super::ask("Ansichten löschen", &msg, "Alle löschen", "Abbrechen") {
                 return;
             }
         }

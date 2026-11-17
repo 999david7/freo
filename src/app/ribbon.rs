@@ -890,8 +890,15 @@ impl App {
                                 ui.label(egui::RichText::new("Keine zuletzt geöffneten Dateien").color(LABEL));
                             }
                             let recent = self.recent.clone();
+                            let file_name = |p: &std::path::PathBuf| p.file_name().map(|s| s.to_string_lossy().to_string()).unwrap_or_default();
                             for (i, p) in recent.iter().enumerate() {
-                                let name = p.file_name().map(|s| s.to_string_lossy().to_string()).unwrap_or_default();
+                                let mut name = file_name(p);
+                                // the same file name from two folders: add the folder, so they can be told apart
+                                if recent.iter().filter(|q| file_name(q) == name).count() > 1 {
+                                    if let Some(dir) = p.parent().and_then(|d| d.file_name()) {
+                                        name = format!("{}  ({})", name, dir.to_string_lossy());
+                                    }
+                                }
                                 let r =
                                     ui.add(egui::Button::new(egui::RichText::new(format!("{}  {}", i + 1, name)).size(12.5)).frame(false)).on_hover_text(p.display().to_string());
                                 if r.clicked() {

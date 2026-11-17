@@ -1274,13 +1274,7 @@ impl App {
                 if let Some(p) = rfd::FileDialog::new().set_title(format!("UDF {}", n.to_lowercase())).set_directory(self.work_dir()).add_filter("UDF", &["gph"]).pick_file() {
                     let file = p.file_name().map(|f| f.to_string_lossy().to_string()).unwrap_or_default();
                     if n == "Löschen" {
-                        if rfd::MessageDialog::new()
-                            .set_title("UDF löschen")
-                            .set_description(format!("{} wirklich löschen? Das lässt sich nicht rückgängig machen.", file))
-                            .set_buttons(rfd::MessageButtons::YesNo)
-                            .show()
-                            == rfd::MessageDialogResult::Yes
-                        {
+                        if super::ask("UDF löschen", &format!("{} wirklich löschen? Das lässt sich nicht rückgängig machen.", file), "Löschen", "Abbrechen") {
                             match std::fs::remove_file(&p) {
                                 Ok(_) => self.say(format!("UDF {} gelöscht.", file), MsgKind::Info),
                                 Err(e) => self.say(format!("Löschen fehlgeschlagen: {}", e), MsgKind::Error),
@@ -1301,13 +1295,7 @@ impl App {
                     .unwrap_or_default();
                 if files.is_empty() {
                     self.say("Die Bibliothek enthält keine UDFs.", MsgKind::Info);
-                } else if rfd::MessageDialog::new()
-                    .set_title("Alle UDFs löschen")
-                    .set_description(format!("{} UDF-Datei(en) in {} wirklich löschen? Das lässt sich nicht rückgängig machen.", files.len(), dir.display()))
-                    .set_buttons(rfd::MessageButtons::YesNo)
-                    .show()
-                    == rfd::MessageDialogResult::Yes
-                {
+                } else if super::ask("Alle UDFs löschen", &format!("{} UDF-Datei(en) in {} wirklich löschen? Das lässt sich nicht rückgängig machen.", files.len(), dir.display()), "Alle löschen", "Abbrechen") {
                     let n = files.iter().filter(|p| std::fs::remove_file(p).is_ok()).count();
                     self.say(format!("{} UDF-Datei(en) gelöscht.", n), MsgKind::Info);
                 }

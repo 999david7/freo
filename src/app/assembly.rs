@@ -1140,7 +1140,7 @@ impl App {
             }
         });
         group(ui, "Modellbericht", |ui| {
-            if large(ui, Icon::MassProps, "Masse-\neigenschaften", true, self.windows.mass).clicked() {
+            if large(ui, Icon::MassProps, "Massen-\neigenschaften", true, self.windows.mass).clicked() {
                 self.windows.mass = !self.windows.mass;
             }
             if large(ui, Icon::Bom, "Stück-\nliste", true, self.asm.as_ref().map(|a| a.show_bom).unwrap_or(false)).clicked() {

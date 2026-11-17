@@ -654,6 +654,8 @@ pub struct FileBrowser {
     pub history: Vec<PathBuf>,
     pub search: String,
     pub keep_at_start: bool,
+    /// Saving: the file name takes the keyboard with its text selected when the dialog opens.
+    pub focus_name: bool,
 }
 
 impl FileBrowser {
@@ -814,7 +816,7 @@ impl App {
     pub fn browse(&mut self, purpose: BrowsePurpose, dir: PathBuf, name: &str) {
         let dir = if dir.is_dir() { dir } else { home_dir() };
         let keep_at_start = self.creo.keep_work_dir;
-        self.creo.browser = Some(FileBrowser { purpose, dir, selected: None, name: name.to_string(), history: vec![], search: String::new(), keep_at_start });
+        self.creo.browser = Some(FileBrowser { purpose, dir, selected: None, name: name.to_string(), history: vec![], search: String::new(), keep_at_start, focus_name: true });
     }
 
     /// Carries out what the explorer was opened for.
@@ -1020,7 +1022,19 @@ impl App {
                 } else {
                     ui.horizontal(|ui| {
                         ui.label("Dateiname:");
-                        let r = ui.add(egui::TextEdit::singleline(&mut d.name).desired_width(320.0));
+                        let out = egui::TextEdit::singleline(&mut d.name).desired_width(320.0).show(ui);
+                        let r = out.response;
+                        if d.focus_name && d.purpose.saving() {
+                            // the proposed name is selected, so typing a new one replaces it
+                            if !r.has_focus() {
+                                r.request_focus();
+                            }
+                            let end = d.name.chars().count();
+                            let mut st = out.state;
+                            st.cursor.set_char_range(Some(egui::text::CCursorRange::two(egui::text::CCursor::new(0), egui::text::CCursor::new(end))));
+                            st.store(ui.ctx(), r.id);
+                            d.focus_name = !r.has_focus();
+                        }
                         if r.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)) {
                             finish = d.target();
                         }
@@ -1070,13 +1084,7 @@ impl App {
         }
         if let Some(p) = finish {
             let exists = p.is_file() && d.purpose.saving();
-            let ok = !exists
-                || rfd::MessageDialog::new()
-                    .set_title(title)
-                    .set_description(format!("{} existiert bereits. Ersetzen?", p.display()))
-                    .set_buttons(rfd::MessageButtons::YesNo)
-                    .show()
-                    == rfd::MessageDialogResult::Yes;
+            let ok = !exists || super::ask(title, &format!("{} existiert bereits. Ersetzen?", p.display()), "Ersetzen", "Abbrechen");
             if ok {
                 let (purpose, keep_start) = (d.purpose.clone(), d.keep_at_start);
                 if !d.purpose.folders_only() {
@@ -2691,13 +2699,7 @@ impl App {
                 file = format!("{}.{}", file, ext);
             }
             let path = d.dir.join(file);
-            let ok = !path.exists()
-                || rfd::MessageDialog::new()
-                    .set_title("Kopie speichern")
-                    .set_description(format!("{} existiert bereits. Ersetzen?", path.display()))
-                    .set_buttons(rfd::MessageButtons::YesNo)
-                    .show()
-                    == rfd::MessageDialogResult::Yes;
+            let ok = !path.exists() || super::ask("Kopie speichern", &format!("{} existiert bereits. Ersetzen?", path.display()), "Ersetzen", "Abbrechen");
             if ok {
                 let res = match d.format {
                     Some(f) => super::export::write(&self.result, &self.data, f, &path),
@@ -2744,7 +2746,6 @@ pub fn nav_header(ui: &mut egui::Ui, app: &mut App) {
     }
 }
 
-/// Days since 1970-01-01 to (year, month, day) — Howard Hinnant's civil-from-days.
 /// Seconds to add to a UTC time to get local time (time zone and daylight saving) at `utc`.
 fn local_offset_secs(utc: i64) -> i64 {
     #[cfg(unix)]
@@ -2760,6 +2761,7 @@ fn local_offset_secs(utc: i64) -> i64 {
     0
 }
 
+/// Days since 1970-01-01 to (year, month, day) — Howard Hinnant's civil-from-days.
 fn civil_from_days(z: i64) -> (i64, u32, u32) {
     let z = z + 719_468;
     let era = z.div_euclid(146_097);
