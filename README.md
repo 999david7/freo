@@ -206,6 +206,17 @@ Copy the `freo-cad` folder into an agent's `<workspace>/skills/` (or `~/.opencla
 for all agents). It only shows up once `mcp.servers.freo` is configured. Check it with
 `openclaw skills info freo-cad --agent <id>`.
 
+## New in 1.1.0
+
+Small things that got in the way, found by using Freo like a student would:
+
+- **Safer**: deleting a feature asks first and lists the child features that go with it (including sketches on its faces and rounds on its edges, which used to be left behind and fail); Abbrechen or Esc on a sketch or feature with work in it asks before throwing it away; closing the window asks **Speichern / Nicht speichern / Abbrechen**
+- **Typing values**: dimension boxes, renaming in the tree, the Neu dialog and Save As open with the text selected, so typing replaces it; clicking away keeps a changed value; Enter and Esc work in the Neu dialog
+- **Undo**: says why it cannot run while a feature is open; undoing back to the saved part no longer marks it unsaved; "fehlgeschlagen" messages disappear once the feature works again
+- **Dialogs**: all questions have German buttons; Masseneigenschaften, Modellinfo, Messen and Steuerung use the Creo dialog look; density in kg/m³ with the material shown; the same precision in Messen and the status bar
+- **Files**: the Open dialog list no longer jumps when a file is selected, and shows local times; recent files with the same name show their folder; the background colour is remembered
+- The view zooms to the first solid of a new part; the model tree columns are never cut off
+
 ## New in 1.0.0
 
 - **Windows** builds (x86, x64 and ARM64) and a **macOS build for Intel** next to Apple Silicon
