@@ -129,6 +129,9 @@ fn main() -> eframe::Result<()> {
                     app.work_dir = d;
                     app.creo.keep_work_dir = true;
                 }
+                if let Some(bg) = st.get_string("background").and_then(|k| freo::app::creo::Background::from_key(&k)) {
+                    app.creo.bg = bg;
+                }
                 if let Some(list) = st.get_string("recent_files").and_then(|s| serde_json::from_str::<Vec<String>>(&s).ok()) {
                     app.recent = list.into_iter().map(std::path::PathBuf::from).filter(|p| p.exists()).collect();
                 }

@@ -643,6 +643,11 @@ impl SketchSession {
         self.redo.clear();
     }
 
+    /// Something was drawn or changed in this session (every edit leaves an undo step).
+    pub fn has_changes(&self) -> bool {
+        !self.undo.is_empty()
+    }
+
     pub fn undo(&mut self) {
         if let Some(p) = self.undo.pop() {
             self.redo.push(std::mem::replace(&mut self.sketch, p));

@@ -21,6 +21,10 @@ image = { version = "0.25", default-features = false, features = ["png"] }
 [build-dependencies]
 winresource = "0.1"
 
+# local time for file dates (the offset from UTC, with daylight saving)
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
 # Linux needs a windowing backend; macOS uses AppKit without extra features
 [target.'cfg(target_os = "linux")'.dependencies]
 eframe = { version = "0.31", default-features = false, features = ["x11", "wayland"] }

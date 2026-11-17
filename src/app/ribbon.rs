@@ -1026,7 +1026,7 @@ impl App {
                     if asm {
                         self.asm_delete(&ids)
                     } else {
-                        self.delete_features(&ids)
+                        self.ask_delete_features(&ids)
                     }
                 }
             });

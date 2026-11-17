@@ -20,6 +20,17 @@ pub enum Background {
 }
 
 impl Background {
+    /// Name stored in the app settings, so the choice survives a restart.
+    pub fn key(self) -> &'static str {
+        match self {
+            Background::Standard => "standard",
+            Background::White => "white",
+            Background::Dark => "dark",
+        }
+    }
+    pub fn from_key(k: &str) -> Option<Background> {
+        [Background::Standard, Background::White, Background::Dark].into_iter().find(|b| b.key() == k)
+    }
     pub fn colors(self) -> (Color32, Color32) {
         match self {
             Background::Standard => (Color32::from_rgb(69, 95, 123), Color32::from_rgb(159, 202, 231)),
@@ -734,7 +745,7 @@ impl App {
         self.creo.home = true;
         self.tab = Tab::Home;
         self.nav_tab = NavTab::Browser;
-        self.messages.push(Message { text: "Willkommen bei Freo.".into(), kind: MsgKind::Info });
+        self.messages.push(Message { text: "Willkommen bei Freo.".into(), kind: MsgKind::Info, failed: None });
     }
 
     pub fn leave_home(&mut self) {
@@ -1873,25 +1884,34 @@ impl App {
                     });
                 });
                 ui.add_space(4.0);
-                if let Some(p) = &d.selected {
-                    let modified = std::fs::metadata(p)
+                // the info line always takes its room, so selecting a file does not move the list
+                // (the second click of a double-click would land on another row)
+                let (name_shown, modified) = match &d.selected {
+                    Some(p) => (d.name.clone(), std::fs::metadata(p)
                         .and_then(|m| m.modified())
                         .ok()
                         .map(|t| {
-                            let secs = t.duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0) as i64;
+                            let utc = t.duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0) as i64;
+                            let secs = utc + local_offset_secs(utc);
                             let days = secs.div_euclid(86_400);
                             let (y, m, dd) = civil_from_days(days);
                             let rem = secs.rem_euclid(86_400);
                             format!("{:02}.{:02}.{} {:02}:{:02}", dd, m, y, rem / 3600, rem % 3600 / 60)
                         })
-                        .unwrap_or_default();
-                    ui.horizontal(|ui| {
+                        .unwrap_or_default()),
+                    None => (String::new(), String::new()),
+                };
+                ui.horizontal(|ui| {
+                    if d.selected.is_some() {
                         ui.label(RichText::new("Dateiname:").strong());
-                        ui.label(&d.name);
+                        ui.label(name_shown);
                         ui.label(RichText::new("Änderungsdatum:").strong());
                         ui.label(modified);
-                    });
-                }
+                    } else {
+                        // same height as the filled line
+                        ui.label(" ");
+                    }
+                });
                 ui.horizontal(|ui| {
                     ui.label("Dateiname:");
                     ui.add(egui::TextEdit::singleline(&mut d.name).desired_width(280.0));
@@ -2341,7 +2361,7 @@ impl App {
                     d.next_id += 1;
                 });
                 self.undo.clear();
-                self.dirty = false;
+                self.mark_saved();
                 self.fit_pending = true;
                 self.say(format!("{} importiert ({}).", path.display(), note), MsgKind::Success);
                 self.add_recent(&path.to_path_buf());
@@ -2725,6 +2745,21 @@ pub fn nav_header(ui: &mut egui::Ui, app: &mut App) {
 }
 
 /// Days since 1970-01-01 to (year, month, day) — Howard Hinnant's civil-from-days.
+/// Seconds to add to a UTC time to get local time (time zone and daylight saving) at `utc`.
+fn local_offset_secs(utc: i64) -> i64 {
+    #[cfg(unix)]
+    {
+        let t = utc as libc::time_t;
+        // SAFETY: localtime_r only writes into the tm we own
+        let mut tm: libc::tm = unsafe { std::mem::zeroed() };
+        if !unsafe { libc::localtime_r(&t, &mut tm) }.is_null() {
+            return tm.tm_gmtoff as i64;
+        }
+    }
+    let _ = utc;
+    0
+}
+
 fn civil_from_days(z: i64) -> (i64, u32, u32) {
     let z = z + 719_468;
     let era = z.div_euclid(146_097);

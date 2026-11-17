@@ -658,7 +658,7 @@ impl App {
                     ui.close_menu();
                 }
                 if menu_entry(ui, Icon::Delete, "Löschen", true, false).clicked() {
-                    self.delete_features(&[o]);
+                    self.ask_delete_features(&[o]);
                     ui.close_menu();
                 }
                 ui.separator();

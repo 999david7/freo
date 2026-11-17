@@ -1760,7 +1760,8 @@ impl App {
     fn has_unsaved(&self) -> bool {
         let unsaved_part_from_asm = self.editing_from_asm().map(|o| o.dirty).unwrap_or(false);
         let unsaved_drawing = self.drw.as_ref().map(|d| d.dirty).unwrap_or(false);
-        self.dirty || unsaved_part_from_asm || unsaved_drawing
+        // a sketch or feature still open with work in it counts too
+        self.dirty || unsaved_part_from_asm || unsaved_drawing || self.editor_has_work()
     }
 
     /// Asks what to do with unsaved work: Speichern / Nicht speichern / Abbrechen.

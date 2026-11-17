@@ -123,6 +123,9 @@ pub enum MsgKind {
 pub struct Message {
     pub text: String,
     pub kind: MsgKind,
+    /// "<feature> fehlgeschlagen": the feature it is about; the message goes away once that
+    /// feature regenerates again (after an Undo, say), so it does not stay up in red.
+    pub failed: Option<u64>,
 }
 
 #[derive(Clone)]
@@ -247,6 +250,8 @@ pub struct App {
     pub tab: Tab,
     pub windows: Windows,
     pub dirty: bool,
+    /// The part as last opened or saved: Undo/Redo back to it is not an unsaved change.
+    pub saved: Option<ModelData>,
     pub path: Option<PathBuf>,
     pub undo: Vec<ModelData>,
     pub redo: Vec<ModelData>,
@@ -312,7 +317,7 @@ impl App {
             sketch_dlg: None,
             resetup: None,
             reorient: None,
-            messages: vec![Message { text: "Willkommen bei Freo. Eine Bezugsebene wählen, dann mit Skizze oder Profil beginnen.".into(), kind: MsgKind::Info }],
+            messages: vec![Message { text: "Willkommen bei Freo. Eine Bezugsebene wählen, dann mit Skizze oder Profil beginnen.".into(), kind: MsgKind::Info, failed: None }],
             style: Style::ShadedEdges,
             show_planes: true,
             show_axes: true,
@@ -331,6 +336,7 @@ impl App {
             tab: Tab::Model,
             windows: Windows::default(),
             dirty: false,
+            saved: None,
             path: None,
             undo: vec![],
             redo: vec![],
@@ -402,7 +408,7 @@ impl App {
     }
 
     pub fn say(&mut self, text: impl Into<String>, kind: MsgKind) {
-        self.messages.push(Message { text: text.into(), kind });
+        self.messages.push(Message { text: text.into(), kind, failed: None });
         if self.messages.len() > 300 {
             self.messages.drain(0..100);
         }
@@ -468,6 +474,8 @@ impl App {
             return;
         }
         self.result = self.regen_cache.run(&self.data);
+        let failing: HashSet<u64> = self.result.errors.keys().copied().collect();
+        self.messages.retain(|m| m.failed.is_none_or(|id| failing.contains(&id)));
         if self.editor.is_some() {
             self.refresh_context();
         }
@@ -498,6 +506,12 @@ impl App {
         }
     }
 
+    /// The part on screen is now what is on disk.
+    pub fn mark_saved(&mut self) {
+        self.dirty = false;
+        self.saved = Some(self.data.clone());
+    }
+
     pub fn commit(&mut self, label: &str, f: impl FnOnce(&mut ModelData)) {
         // in an assembly, model-level edits apply to the assembly's own datums
         if self.in_asm() {
@@ -515,9 +529,12 @@ impl App {
         if !label.is_empty() {
             self.say(label, MsgKind::Success);
         }
-        let errs: Vec<(String, String)> = self.result.errors.iter().filter_map(|(id, e)| self.data.feature(*id).map(|f| (f.name.clone(), e.clone()))).collect();
-        for (n, e) in errs {
+        let errs: Vec<(u64, String, String)> = self.result.errors.iter().filter_map(|(id, e)| self.data.feature(*id).map(|f| (*id, f.name.clone(), e.clone()))).collect();
+        for (id, n, e) in errs {
             self.say(format!("{} fehlgeschlagen: {}", n, e), MsgKind::Error);
+            if let Some(m) = self.messages.last_mut() {
+                m.failed = Some(id);
+            }
         }
     }
 
@@ -527,14 +544,17 @@ impl App {
             return;
         }
         if self.busy() {
+            self.say("Rückgängig ist erst nach Abschluss oder Abbruch des aktiven KE möglich.", MsgKind::Warning);
             return;
         }
         if let Some(prev) = self.undo.pop() {
             self.redo.push(std::mem::replace(&mut self.data, prev));
             self.selection.clear();
-            self.dirty = true;
+            self.dirty = self.saved.as_ref() != Some(&self.data);
             self.regenerate(false);
             self.say("Rückgängig gemacht.", MsgKind::Info);
+        } else {
+            self.say("Nichts rückgängig zu machen.", MsgKind::Info);
         }
     }
 
@@ -544,12 +564,13 @@ impl App {
             return;
         }
         if self.busy() {
+            self.say("Wiederholen ist erst nach Abschluss oder Abbruch des aktiven KE möglich.", MsgKind::Warning);
             return;
         }
         if let Some(next) = self.redo.pop() {
             self.undo.push(std::mem::replace(&mut self.data, next));
             self.selection.clear();
-            self.dirty = true;
+            self.dirty = self.saved.as_ref() != Some(&self.data);
             self.regenerate(false);
             self.say("Wiederholt.", MsgKind::Info);
         }
@@ -569,8 +590,8 @@ impl App {
             self.say("KEs werden in Teilen erzeugt: eine Komponente öffnen (Rechtsklick ▸ Öffnen), um KEs hinzuzufügen.", MsgKind::Warning);
             return;
         }
-        if self.editor.is_some() {
-            self.cancel_feature();
+        if self.editor.is_some() && !self.ask_cancel_feature() {
+            return;
         }
         let sel = self.selection.clone();
         // the clicked face also counts when the KE filter selected its feature instead
@@ -924,6 +945,34 @@ impl App {
             self.fit_pending = true;
         }
         self.tree_selection = vec![ed.feature.id];
+    }
+
+    /// True when cancelling the open feature would throw away work: a sketch drawn in it,
+    /// or changes to an existing feature.
+    pub fn editor_has_work(&self) -> bool {
+        if self.sketch.as_ref().is_some_and(|s| s.has_changes()) {
+            return true;
+        }
+        let Some(ed) = &self.editor else { return false };
+        if ed.is_new {
+            // any sketch of the feature (profile, section, trajectory …) with geometry in it
+            serde_json::to_string(&ed.feature.kind).map(|s| s.contains("\"entities\":[{")).unwrap_or(false)
+        } else {
+            self.data.feature(ed.feature.id).is_some_and(|o| *o != ed.feature)
+        }
+    }
+
+    /// Abbrechen / Esc on a feature tab: asks first when there is work to lose.
+    /// Returns true when the feature was cancelled.
+    pub fn ask_cancel_feature(&mut self) -> bool {
+        if self.editor_has_work() {
+            let name = self.editor.as_ref().map(|e| e.feature.name.clone()).unwrap_or_default();
+            if !confirm_discard_work(&name, "Die Eingaben für dieses KE gehen verloren.") {
+                return false;
+            }
+        }
+        self.cancel_feature();
+        true
     }
 
     pub fn cancel_feature(&mut self) {
@@ -1563,6 +1612,15 @@ impl App {
         }
     }
 
+    /// Abbrechen in the sketcher: asks first when something was drawn, so one click next to
+    /// OK cannot throw a sketch away.
+    pub fn ask_cancel_sketch(&mut self) {
+        if self.sketch.as_ref().is_some_and(|s| s.has_changes()) && !confirm_discard_work("Skizze", "Die Änderungen an dieser Skizze gehen verloren.") {
+            return;
+        }
+        self.cancel_sketch();
+    }
+
     pub fn cancel_sketch(&mut self) {
         self.sketch = None;
         self.restore_camera();
@@ -1663,20 +1721,76 @@ impl App {
 
     // ---------- tree operations ----------
 
-    pub fn delete_features(&mut self, ids: &[u64]) {
+    /// The features `ids` and every feature that depends on them (and so would fail without
+    /// them): direct datum references, and also faces and edges they create, found by
+    /// regenerating without them.
+    pub fn delete_set(&mut self, ids: &[u64]) -> Vec<u64> {
         let mut all: Vec<u64> = ids.iter().copied().filter(|id| ![FRONT_ID, TOP_ID, RIGHT_ID, CSYS_ID].contains(id) || self.data.features.len() > 4).collect();
-        if all.is_empty() {
-            return;
+        if all.is_empty() || self.in_asm() {
+            return all;
         }
+        let failing_before: HashSet<u64> = self.result.errors.keys().copied().collect();
         loop {
-            let extra: Vec<u64> = self.data.features.iter().filter(|f| !all.contains(&f.id) && f.kind.references().iter().any(|r| all.contains(r))).map(|f| f.id).collect();
+            loop {
+                let extra: Vec<u64> = self.data.features.iter().filter(|f| !all.contains(&f.id) && f.kind.references().iter().any(|r| all.contains(r))).map(|f| f.id).collect();
+                if extra.is_empty() {
+                    break;
+                }
+                all.extend(extra);
+            }
+            // a sketch on a face of a deleted feature, a round on its edges …: they fail without it
+            let mut trial = self.data.clone();
+            trial.features.retain(|f| !all.contains(&f.id));
+            trial.insert_index = trial.insert_index.map(|i| i.min(trial.features.len()));
+            let res = regen::run(&trial);
+            let extra: Vec<u64> = trial.features.iter().filter(|f| !f.suppressed && res.errors.contains_key(&f.id) && !failing_before.contains(&f.id)).map(|f| f.id).collect();
             if extra.is_empty() {
                 break;
             }
             all.extend(extra);
         }
+        all
+    }
+
+    /// Delete from the UI: like Creo, asks first and names the child features that go too.
+    pub fn ask_delete_features(&mut self, ids: &[u64]) {
+        let all = self.delete_set(ids);
+        if all.is_empty() {
+            return;
+        }
+        let name = |id: &u64| self.data.feature(*id).map(|f| f.name.clone()).unwrap_or_default();
+        let picked: Vec<String> = all.iter().filter(|id| ids.contains(id)).map(name).collect();
+        let children: Vec<String> = all.iter().filter(|id| !ids.contains(id)).map(name).collect();
+        let mut text = format!("{} löschen?", picked.join(", "));
+        if !children.is_empty() {
+            let shown: Vec<String> = children.iter().take(12).cloned().collect();
+            let more = if children.len() > shown.len() { format!(" und {} weitere", children.len() - shown.len()) } else { String::new() };
+            text += &format!("\n\nDabei werden auch {} abhängige Kind-KE(s) gelöscht: {}{}.", children.len(), shown.join(", "), more);
+        }
+        let (del, cancel) = ("Löschen".to_string(), "Abbrechen".to_string());
+        let r = rfd::MessageDialog::new()
+            .set_title("Löschen")
+            .set_description(text)
+            .set_level(rfd::MessageLevel::Warning)
+            .set_buttons(rfd::MessageButtons::OkCancelCustom(del.clone(), cancel))
+            .show();
+        if matches!(r, rfd::MessageDialogResult::Custom(ref c) if *c == del) || r == rfd::MessageDialogResult::Ok {
+            self.delete_resolved(ids.len(), all);
+        }
+    }
+
+    pub fn delete_features(&mut self, ids: &[u64]) {
+        let all = self.delete_set(ids);
+        if all.is_empty() {
+            return;
+        }
+        self.delete_resolved(ids.len(), all);
+    }
+
+    fn delete_resolved(&mut self, picked: usize, all: Vec<u64>) {
+        let ids_len = picked;
         let n = all.len();
-        let children = n - ids.len().min(n);
+        let children = n - ids_len.min(n);
         let label = if children > 0 { format!("{} KE(s) gelöscht, einschließlich {} abhängiger Kind-KE(s).", n, children) } else { format!("{} KE(s) gelöscht.", n) };
         self.commit(&label, |d| {
             d.features.retain(|f| !all.contains(&f.id));
@@ -1764,7 +1878,7 @@ impl App {
         self.data = ModelData::new_part_template(name);
         self.tab = Tab::Model;
         self.path = None;
-        self.dirty = false;
+        self.mark_saved();
         self.regenerate(false);
         self.fit_pending = true;
         self.say("Neues Teil erzeugt.", MsgKind::Info);
@@ -1806,7 +1920,7 @@ impl App {
                     }
                 }
                 self.path = Some(p);
-                self.dirty = false;
+                self.mark_saved();
             }
             Err(e) => self.say(format!("Speichern fehlgeschlagen: {}", e), MsgKind::Error),
         }
@@ -1851,7 +1965,7 @@ impl App {
                 self.data = d;
                 self.path = Some(p.clone());
                 self.regenerate(false);
-                self.dirty = false;
+                self.mark_saved();
                 self.fit_pending = true;
                 self.say(format!("{} geöffnet ({} KEs).", p.display(), n), MsgKind::Success);
                 self.add_recent(&p);
@@ -1925,6 +2039,19 @@ impl App {
         self.browse(creo::BrowsePurpose::SaveAs(kind), dir, file_name.rsplit_once('.').map(|x| x.0).unwrap_or(file_name));
         None
     }
+}
+
+/// "Verwerfen" or "Weiter bearbeiten" for unfinished work; true to throw it away.
+/// Keeping the work is the default button, so Enter never throws a sketch away.
+pub fn confirm_discard_work(what: &str, detail: &str) -> bool {
+    let (keep, discard) = ("Weiter bearbeiten".to_string(), "Verwerfen".to_string());
+    let r = rfd::MessageDialog::new()
+        .set_title("Abbrechen")
+        .set_description(format!("{} abbrechen?\n\n{}", what, detail))
+        .set_level(rfd::MessageLevel::Warning)
+        .set_buttons(rfd::MessageButtons::OkCancelCustom(keep, discard.clone()))
+        .show();
+    matches!(r, rfd::MessageDialogResult::Custom(ref c) if *c == discard)
 }
 
 pub fn toggle(v: &mut Vec<u64>, id: u64) {

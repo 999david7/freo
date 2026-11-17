@@ -96,7 +96,7 @@ impl App {
                 } else if self.dash_panel.is_some() {
                     self.dash_panel = None;
                 } else {
-                    self.cancel_feature();
+                    self.ask_cancel_feature();
                 }
             } else {
                 self.selection.clear();
@@ -136,7 +136,7 @@ impl App {
         }
         if !cmd && (pressed(egui::Key::Delete) || pressed(egui::Key::Backspace)) && self.editor.is_none() && !self.tree_selection.is_empty() {
             let ids = self.tree_selection.clone();
-            self.delete_features(&ids);
+            self.ask_delete_features(&ids);
         }
         if cmd && pressed(egui::Key::G) {
             self.regenerate(true);
@@ -531,7 +531,7 @@ impl eframe::App for App {
         });
         if let Some(s) = &mut self.sketch {
             for (t, k) in std::mem::take(&mut s.messages) {
-                self.messages.push(Message { text: t, kind: k });
+                self.messages.push(Message { text: t, kind: k, failed: None });
             }
         }
         match outcome {
@@ -539,7 +539,7 @@ impl eframe::App for App {
                 let slot = self.sketch.as_ref().map(|s| s.slot).unwrap_or(Slot::Main);
                 self.finish_sketch(sk, slot);
             }
-            Outcome::Cancel => self.cancel_sketch(),
+            Outcome::Cancel => self.ask_cancel_sketch(),
             Outcome::None => {}
         }
         self.combo_bar(ctx, central);
@@ -572,6 +572,7 @@ impl eframe::App for App {
             storage.set_string("recent_files", s);
         }
         storage.set_string("browser_dir", self.browser_dir.display().to_string());
+        storage.set_string("background", self.creo.bg.key().to_string());
         storage.set_string("work_dir", if self.creo.keep_work_dir { self.work_dir.display().to_string() } else { String::new() });
     }
 }

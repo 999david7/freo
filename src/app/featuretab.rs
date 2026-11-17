@@ -1252,7 +1252,9 @@ impl App {
             Act::Sketch(s) => self.begin_sketch(s),
             Act::SketchDialog => self.open_sketch_dialog(),
             Act::Ok => self.finish_feature(),
-            Act::Cancel => self.cancel_feature(),
+            Act::Cancel => {
+                self.ask_cancel_feature();
+            }
         }
     }
 

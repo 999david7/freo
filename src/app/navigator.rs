@@ -500,7 +500,7 @@ impl App {
         }
         ui.separator();
         if item(ui, Icon::Delete, "Löschen") {
-            self.delete_features(&ids);
+            self.ask_delete_features(&ids);
             ui.close_menu();
         }
     }
