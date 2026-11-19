@@ -206,6 +206,16 @@ Copy the `freo-cad` folder into an agent's `<workspace>/skills/` (or `~/.opencla
 for all agents). It only shows up once `mcp.servers.freo` is configured. Check it with
 `openclaw skills info freo-cad --agent <id>`.
 
+## New in 1.2.0
+
+- **2D drawing to 3D part**: open a **DXF** (or **DWG** with LibreDWG or the ODA File Converter installed) and Freo builds the part from its views. Front, top and side views are found by their alignment (the isometric view, frame, title block, dimensions and centre lines are skipped), European or American projection from where the top view lies, the scale from the dimensions or the title block. The part is made of editable features: the top view's outline extruded, everything outside the front and side outlines cut away, holes and pockets cut over the depth their hidden lines show, round bosses shaped. Circles and arcs stay true circles and arcs with exact sizes; a single view becomes a plate (thickness from a "t=5" note). A dialog shows what was found and rebuilds with another projection, scale or thickness
+- **3D printing (Werkzeuge ▸ Manufacture ▸ Slicer)**: printer, filament and print profile, orient and arrange on the bed, supports, brim and skirt, slicing with a layer preview, G-code export
+- **CNC milling (Werkzeuge ▸ Manufacture ▸ CNC)**: machine, material, stock and zero point; facing, drilling, roughing, contour and 3D finishing; a simulation that removes the material move by move and checks every move for crashes, gouges, holder and table collisions; NC code for Haas/Fanuc-style controls and GRBL. Holes without a matching drill are bored with a helix, curves are cut as G2/G3 arcs, the cutter is clamped as long as tall walls need, and 3D finishing only runs over sloped and curved faces
+- **Round, chamfer and hole dashboards like Creo 10**: round sets with Kreisförmig / Konisch / C2 / D1×D2 sections and conic parameter, Vollrundung, Durch Kurve, Sehne, Flächen verlängern, rolling ball or normal to spine, spherical corner transitions, pieces and surface rounds; chamfers D×D, D1×D2, angle×D, 45×D, O×O and O1×O2 with offset-surface or tangent distances, value or reference, corner-chamfer transitions; holes with flat, drill-point or sketched profiles, Variabel / Symmetrisch / Bis zur nächsten / Durch alle / Bis zur ausgewählten, linear, radial, diameter, coaxial and on-point placement, orientation, hole note and lightweight holes; Pause, preview modes and verification in every dashboard
+- **Rounds look right**: smooth shading across rounds, no lines where a round runs tangentially into its faces, no stray chords, and concave rounds no longer stick out past the part
+- **Threads**: cosmetic threads show their turns on the cylinder; tapped standard holes show them too
+- **Sketcher**: circles drawn one after another snap to the first one's radius
+
 ## New in 1.1.0
 
 Small things that got in the way, found by using Freo like a student would:
@@ -243,7 +253,7 @@ Small things that got in the way, found by using Freo like a student would:
 - Blend: parallel blend of any number of sections with offsets, and **rotational blend**
 - Hole: simple / counterbore / countersink / **standard** (ISO metric coarse M2–M24 and UNC #4-40 – 1/2-13: tapped with tap drill and cosmetic thread, or clearance close/medium/free), blind with drill tip or through all
 - **Cosmetic thread** on a cylindrical surface, **rib** from an open sketch
-- Round with **multiple sets**, each with its own radius or a **variable radius**, circular or **curvature-continuous** ("Apple corner") in five shapes: one-piece G3, three-piece G3 and G2 (lead-in, arc, lead-out), and relief versions with longer lead-ins; **Auto Round**; chamfer (D×D, D1×D2, angle×D) on straight and curved edges, and corner chamfer
+- Round with **multiple sets**, each with its own radius or a **variable radius**, circular, conic, C2 or D1×D2 sections, or **curvature-continuous** ("Apple corner") in five shapes: one-piece G3, three-piece G3 and G2 (lead-in, arc, lead-out), and relief versions with longer lead-ins; full round, through curve, chord, spherical corners; **Auto Round**; chamfer (D×D, D1×D2, angle×D, 45×D, O×O, O1×O2) on straight and curved edges, corner chamfer and corner transitions
 - Shell with removed surfaces, draft about a hinge plane (also variable)
 - Pattern: direction (1 or 2 directions), axis, **fill** (square / diamond / triangle grid in a sketched region), **curve** (count or spacing along a sketched curve) and **table**; geometry pattern; mirror selected features or all geometry
 - **Surfaces (quilts)**: fill, offset, thicken, solidify, merge, trim, intersect, project, extend, split, copy, replace, boundary blend, style and freestyle
@@ -255,7 +265,7 @@ Small things that got in the way, found by using Freo like a student would:
 - Lines (chain, tangent to two circles), rectangles (corner, slanted, centre, parallelogram), circles (centre, concentric, 3-point, 3-tangent), arcs (3-point, centre, 3-tangent, concentric, conic), ellipses (centre, axis ends), interpolating splines
 - Fillets (circular, elliptical, with or without keeping the corner as construction lines, and the five curvature-continuous "Apple corner" shapes as one sketch entity), chamfers, centerlines (also tangent), points, coordinate systems, **text** along a line with the bundled or any installed font
 - **Skizzierer-Palette**: nine tabs of ready-made shapes: polygons (3 to 20 sides), stars, C/I/L/T profiles, slots, ovals, crosses, rounded rectangles, waves, bore half-sections, dovetail, and real-size steel sections (rectangular hollow sections, L angles, U channels). Click a shape, click in the sketch, then scale and rotate it
-- **Import** of DXF, IGES and Adobe Illustrator files into the sketch
+- **Import** of DXF, IGES and Adobe Illustrator files into the sketch; whole DXF/DWG drawings open as 3D parts built from their views
 - Offset, thicken, project model edges, delete segment (trims at intersections), divide, corner, mirror, rotate/resize, replace, cut / copy / paste, construction mode
 - Snapping to points, entities, projected model edges and sketch references, optional grid snap; a References dialog for edges, planes, axes and points
 - Automatic H/V constraints while drawing; constraints H, V, ⊥, ∥, =, tangent, coincident/point-on, midpoint, symmetric, fix
@@ -342,12 +352,15 @@ src/sketch   sketch model, profile/loop extraction, constraint solver, text outl
              DXF / IGES / Illustrator import, the sketcher palette shapes
 src/model    features & references, expression evaluator, regeneration engine, surfaces,
              thread and tolerance tables, STEP import, simulation studies, assemblies
-             (placement constraints, solver, merged display, BOM), drawings
+             (placement constraints, solver, merged display, BOM), drawings, 2D drawings to 3D
 src/sim      Live-Simulation solvers: voxel mesh, finite elements (statics, heat, modes),
              lattice Boltzmann flow, and the study runner
 src/app      controller, OpenGL renderer, camera, picking, sketcher UI, feature tabs,
              ribbon / tree / status bar, dialogs, 3D annotations, Live-Simulation UI,
              assembly and drawing modes, export & mass properties, demo scenes
+src/slicer   3D printing: mesh slicing, polygons, infill, supports, path planning, G-code, printers
+src/cam      CNC: tools, machines, materials, height-field stock, toolpaths, simulation and
+             crash check, NC code
 src/mcp.rs   MCP server for AI assistants (stdio JSON-RPC, tools over model/regen/export)
 ```
 
