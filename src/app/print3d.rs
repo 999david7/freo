@@ -691,6 +691,12 @@ impl App {
             {
                 self.cnc_open();
             }
+            if large(ui, Icon::PcbGroup, "Leiterplatte", free, self.pcb.open)
+                .on_hover_text("Leiterplatten-Entwurf: Schaltplan, Platine, DRC, Gerber und 3D-Modell (KiCad-kompatibel)")
+                .clicked()
+            {
+                self.pcb_open();
+            }
         });
     }
 

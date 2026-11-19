@@ -27,6 +27,14 @@ cp "$ICONSET/tmp_512.png" "$ICONSET/icon_512x512.png"
 cp "$ICONSET/tmp_1024.png" "$ICONSET/icon_512x512@2x.png"
 rm "$ICONSET"/tmp_*.png
 iconutil -c icns "$ICONSET" -o "$APP/Contents/Resources/Freo.icns"
+IDEASET=target/FreoIdee.iconset
+mkdir -p "$IDEASET"
+for size in 16 32 128 256 512; do
+  sips -s format png -z "$size" "$size" assets/freo-idee.svg --out "$IDEASET/icon_${size}x${size}.png" >/dev/null
+  retina=$((size * 2))
+  sips -s format png -z "$retina" "$retina" assets/freo-idee.svg --out "$IDEASET/icon_${size}x${size}@2x.png" >/dev/null
+done
+iconutil -c icns "$IDEASET" -o "$APP/Contents/Resources/FreoIdee.icns"
 cat > "$APP/Contents/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -42,6 +50,11 @@ cat > "$APP/Contents/Info.plist" <<PLIST
   <key>LSMinimumSystemVersion</key><string>11.0</string>
   <key>NSHighResolutionCapable</key><true/>
   <key>CFBundleDocumentTypes</key><array><dict>
+    <key>CFBundleTypeName</key><string>Freo Idee</string>
+    <key>CFBundleTypeIconFile</key><string>FreoIdee.icns</string>
+    <key>CFBundleTypeExtensions</key><array><string>prti</string></array>
+    <key>CFBundleTypeRole</key><string>Editor</string>
+  </dict><dict>
     <key>CFBundleTypeName</key><string>Freo Part</string>
     <key>CFBundleTypeExtensions</key><array><string>pfprt</string></array>
     <key>CFBundleTypeRole</key><string>Editor</string>

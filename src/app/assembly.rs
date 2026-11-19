@@ -76,6 +76,7 @@ impl AsmSession {
 
 /// State of the File ▸ New dialog.
 pub struct NewDialog {
+    pub idea: bool,
     pub assembly: bool,
     pub drawing: bool,
     pub name: String,
@@ -148,6 +149,7 @@ impl App {
     // ---------- lifecycle ----------
 
     pub fn new_assembly(&mut self, name: &str) {
+        self.idea = None;
         self.leave_home();
         self.editor = None;
         self.sketch = None;
@@ -274,6 +276,7 @@ impl App {
     pub fn asm_load(&mut self, p: PathBuf) {
         match std::fs::read_to_string(&p).map_err(|e| e.to_string()).and_then(|s| serde_json::from_str::<AssemblyData>(&s).map_err(|e| e.to_string())) {
             Ok(d) => {
+                self.idea = None;
                 self.editor = None;
                 self.sketch = None;
                 self.drw = None;
@@ -1587,7 +1590,9 @@ impl App {
                     });
                 };
                 ui.horizontal_top(|ui| {
-                    let cur = if d.drawing {
+                    let cur = if d.idea {
+                        3
+                    } else if d.drawing {
                         2
                     } else if d.assembly {
                         1
@@ -1603,6 +1608,7 @@ impl App {
                             ("Zeichnung", 2, true, Icon::Drawing),
                             ("Format", 9, false, Icon::TitleBlock),
                             ("Notizbuch", 9, false, Icon::Note3d),
+                            ("Idee", 3, true, Icon::Idea),
                         ] {
                             ui.horizontal(|ui| {
                                 let r = ui.add_enabled(en, egui::RadioButton::new(en && cur == kind, ""));
@@ -1610,11 +1616,13 @@ impl App {
                                 super::icons::paint(ui.painter(), ir, icon, en);
                                 let l = ui.add_enabled(en, egui::Label::new(n).sense(egui::Sense::click()));
                                 if (r.clicked() || l.clicked()) && cur != kind {
+                                    d.idea = kind == 3;
                                     d.assembly = kind == 1;
                                     d.drawing = kind == 2;
                                     d.name = match kind {
                                         1 => "asm0001",
                                         2 => "drw0001",
+                                        3 => "idee0001",
                                         _ => "prt0001",
                                     }
                                     .into();
@@ -1625,7 +1633,7 @@ impl App {
                     });
                     ui.add_space(8.0);
                     boxed(ui, "Untertyp", 205.0, &mut |ui| {
-                        let subs: &[&str] = if d.drawing {
+                        let subs: &[&str] = if d.idea || d.drawing {
                             &[]
                         } else if d.assembly {
                             &["Konstruktion", "Austausch", "Prozessplan", "NC-Baugruppe"]
@@ -1657,7 +1665,7 @@ impl App {
                     ui.end_row();
                 });
                 ui.add_space(6.0);
-                ui.checkbox(&mut d.template, "Standardschablone verwenden");
+                ui.add_enabled(!d.idea, egui::Checkbox::new(&mut d.template, "Standardschablone verwenden"));
                 ui.add_space(6.0);
                 ui.separator();
                 ui.horizontal(|ui| {
@@ -1682,7 +1690,9 @@ impl App {
                 keep = false;
                 let name = d.name.trim().to_uppercase();
                 if d.drawing {
-                    if !name.is_empty() {
+                    if self.idea.is_some() && !self.confirm_discard() {
+                        keep = true;
+                    } else if !name.is_empty() {
                         self.windows.new_drawing = Some(super::drawui::NewDrawing {
                             name,
                             size: crate::model::drawing::SheetSize::A3,
@@ -1692,7 +1702,9 @@ impl App {
                         });
                     }
                 } else if !name.is_empty() && self.confirm_discard() {
-                    if d.assembly {
+                    if d.idea {
+                        self.new_idea(&name);
+                    } else if d.assembly {
                         self.new_assembly(&name);
                     } else {
                         self.new_part_named(&name);
@@ -1759,6 +1771,7 @@ impl App {
 
     /// Asks before discarding unsaved changes; true when it is fine to continue.
     fn has_unsaved(&self) -> bool {
+        if let Some(idea) = &self.idea { return idea.dirty(); }
         let unsaved_part_from_asm = self.editing_from_asm().map(|o| o.dirty).unwrap_or(false);
         let unsaved_drawing = self.drw.as_ref().map(|d| d.dirty).unwrap_or(false);
         // a sketch or feature still open with work in it counts too
@@ -1771,10 +1784,10 @@ impl App {
         if !self.has_unsaved() {
             return true;
         }
-        let name = match &self.drw {
+        let name = if let Some(idea) = &self.idea { idea.data.name.clone() } else { match &self.drw {
             Some(d) if d.dirty => format!("{} und dessen Modell", d.data.name),
             _ => self.asm.as_ref().map(|a| a.data.name.clone()).unwrap_or_else(|| self.data.name.clone()),
-        };
+        }};
         let (save, discard, cancel) = ("Speichern".to_string(), "Nicht speichern".to_string(), "Abbrechen".to_string());
         let r = rfd::MessageDialog::new()
             .set_title("Nicht gespeicherte Änderungen")

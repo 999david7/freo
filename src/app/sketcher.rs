@@ -4075,26 +4075,8 @@ impl SketchSession {
             return;
         }
         const BG: Color32 = Color32::from_rgb(64, 92, 122);
-        const INK: Color32 = Color32::from_rgb(255, 255, 0);
         const SEL_ROW: Color32 = Color32::from_rgb(179, 224, 255);
         let border = Stroke::new(1.0_f32, Color32::from_rgb(190, 194, 200));
-        let thumb = |p: &egui::Painter, r: Rect, it: &crate::sketch::palette::PaletteItem| {
-            p.rect_filled(r, 0.0, BG);
-            let (mn, mx) = it.bounds(false);
-            let c = (mn + mx) * 0.5;
-            let k = ((r.width() - 12.0) as f64 / (mx.x - mn.x).max(1e-9)).min((r.height() - 12.0) as f64 / (mx.y - mn.y).max(1e-9));
-            let ts = |q: V2| r.center() + egui::vec2(((q.x - c.x) * k) as f32, (-(q.y - c.y) * k) as f32);
-            let p = p.with_clip_rect(r);
-            for e in &it.sketch.entities {
-                let pts: Vec<Pos2> = it.sketch.sample(e, 48).iter().map(|q| ts(*q)).collect();
-                if e.centerline || e.construction {
-                    p.extend(Shape::dashed_line(&pts, Stroke::new(1.0_f32, Color32::from_rgb(214, 222, 232)), 2.0, 2.0));
-                }
-            }
-            for e in it.sketch.entities.iter().filter(|e| !(e.centerline || e.construction)) {
-                p.add(Shape::line(it.sketch.sample(e, 48).iter().map(|q| ts(*q)).collect(), Stroke::new(1.5_f32, INK)));
-            }
-        };
         let tabs = crate::sketch::palette::tabs();
         let (mut open, mut close) = (true, false);
         let mut pick = None;
@@ -4111,7 +4093,7 @@ impl SketchSession {
                 let (pr, _) = ui.allocate_exact_size(egui::vec2(w, 96.0), egui::Sense::hover());
                 ui.painter().rect_filled(pr, 0.0, BG);
                 if let Some(it) = self.palette_item.and_then(|(t, i)| tabs.get(t)?.items.get(i)) {
-                    thumb(ui.painter(), pr, it);
+                    palette_thumbnail(ui.painter(), pr, it);
                 }
                 ui.add_space(6.0);
                 // three rows of tabs; the row of the active tab sits directly on the list, as in Creo
@@ -4162,7 +4144,7 @@ impl SketchSession {
                             } else if resp.hovered() {
                                 ui.painter().rect_filled(r, 0.0, Color32::from_rgb(226, 238, 250));
                             }
-                            thumb(ui.painter(), Rect::from_min_size(r.left_top() + egui::vec2(2.0, 2.0), egui::vec2(40.0, 40.0)), it);
+                            palette_thumbnail(ui.painter(), Rect::from_min_size(r.left_top() + egui::vec2(2.0, 2.0), egui::vec2(40.0, 40.0)), it);
                             ui.painter().text(r.left_center() + egui::vec2(54.0, 0.0), egui::Align2::LEFT_CENTER, &it.name, font.clone(), Color32::from_rgb(40, 44, 50));
                             if resp.clicked() || resp.double_clicked() {
                                 pick = Some((tab, i));
@@ -4380,4 +4362,25 @@ pub fn common_tangents(c1: V2, r1: f64, c2: V2, r2: f64) -> Vec<(V2, V2)> {
         }
     }
     out
+}
+
+/// Draw a preview of a library profile in the palette browser.
+pub(super) fn palette_thumbnail(p: &egui::Painter, r: Rect, it: &crate::sketch::palette::PaletteItem) {
+    const BG: Color32 = Color32::from_rgb(64, 92, 122);
+    const INK: Color32 = Color32::from_rgb(255, 255, 0);
+    p.rect_filled(r, 0.0, BG);
+    let (mn, mx) = it.bounds(false);
+    let c = (mn + mx) * 0.5;
+    let k = ((r.width() - 12.0) as f64 / (mx.x - mn.x).max(1e-9)).min((r.height() - 12.0) as f64 / (mx.y - mn.y).max(1e-9));
+    let ts = |q: V2| r.center() + egui::vec2(((q.x - c.x) * k) as f32, (-(q.y - c.y) * k) as f32);
+    let p = p.with_clip_rect(r);
+    for e in &it.sketch.entities {
+        let pts: Vec<Pos2> = it.sketch.sample(e, 48).iter().map(|q| ts(*q)).collect();
+        if e.centerline || e.construction {
+            p.extend(Shape::dashed_line(&pts, Stroke::new(1.0_f32, Color32::from_rgb(214, 222, 232)), 2.0, 2.0));
+        }
+    }
+    for e in it.sketch.entities.iter().filter(|e| !(e.centerline || e.construction)) {
+        p.add(Shape::line(it.sketch.sample(e, 48).iter().map(|q| ts(*q)).collect(), Stroke::new(1.5_f32, INK)));
+    }
 }

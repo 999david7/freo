@@ -392,7 +392,11 @@ fn palette_shapes_are_placed_at_the_click() {
             assert!(s.rot_resize.is_some(), "{}: opens Drehen-Größe ändern", item.name);
             assert_eq!(s.sketch.entities.len(), item.sketch.entities.len(), "{}", item.name);
             if !item.name.to_lowercase().starts_with("welle") {
-                assert_eq!(s.sketch.profile_regions().unwrap().len(), 1, "{} / {}", tab.name, item.name);
+                // ports may come with their fixing holes
+                let holes = item.sketch.entities.iter().filter(|e| e.kind == SkKind::Circle && !e.construction).count();
+                let outline = item.sketch.entities.iter().any(|e| e.kind != SkKind::Circle && !e.construction);
+                    let expect = if tab.name == "Ports" && holes > 1 { holes + outline as usize } else { 1 };
+                assert_eq!(s.sketch.profile_regions().unwrap().len(), expect, "{} / {}", tab.name, item.name);
             }
         }
     }

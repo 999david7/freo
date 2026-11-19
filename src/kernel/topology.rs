@@ -170,9 +170,60 @@ impl Topology {
             t.tags.push(p.tag);
         }
         t.repair_t_junctions(tol, &pos_body);
+        t.drop_degenerate(tol);
         t.close_open_seams(&pos_body);
         t.build_edges();
         t
+    }
+
+    /// Removes polygons without area (slivers whose corners lie on one line, which the
+    /// T-junction repair turns into spikes like A B C B). They carry no surface, and their
+    /// edges would otherwise count as extra uses and be drawn as stray model edges.
+    fn drop_degenerate(&mut self, tol: f64) {
+        let mut keep = vec![true; self.polys.len()];
+        for (pi, poly) in self.polys.iter().enumerate() {
+            let n = poly.len();
+            // Newell's normal: twice the polygon area
+            let mut nv = V3::ZERO;
+            let mut longest: f64 = 0.0;
+            for k in 0..n {
+                let (a, b) = (self.positions[poly[k]], self.positions[poly[(k + 1) % n]]);
+                nv += a.cross(b);
+                longest = longest.max((b - a).length());
+            }
+            let area = nv.length() / 2.0;
+            // thinner than the weld tolerance over its whole length
+            if area <= tol * longest {
+                keep[pi] = false;
+            }
+        }
+        if keep.iter().all(|k| *k) {
+            return;
+        }
+        let mut i = 0;
+        self.polys.retain(|_| {
+            let k = keep[i];
+            i += 1;
+            k
+        });
+        let mut i = 0;
+        self.vnormals.retain(|_| {
+            let k = keep[i];
+            i += 1;
+            k
+        });
+        let mut i = 0;
+        self.planes.retain(|_| {
+            let k = keep[i];
+            i += 1;
+            k
+        });
+        let mut i = 0;
+        self.tags.retain(|_| {
+            let k = keep[i];
+            i += 1;
+            k
+        });
     }
 
     fn repair_t_junctions(&mut self, tol: f64, pos_body: &[u32]) {

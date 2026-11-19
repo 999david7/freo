@@ -6,6 +6,7 @@ pub mod kernel;
 pub mod macos_open;
 pub mod mcp;
 pub mod model;
+pub mod pcb;
 pub mod sim;
 pub mod slicer;
 pub mod sketch;

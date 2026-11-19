@@ -23,6 +23,16 @@ impl Dim {
     pub fn value(&self, vars: &Vars, fallback: f64) -> f64 {
         self.eval(vars).unwrap_or(fallback)
     }
+
+    /// Commit a calculator expression as a number, keeping parameter-based formulas intact.
+    pub fn calculate(&mut self) -> bool {
+        if self.0.trim().parse::<f64>().is_ok() {
+            return false;
+        }
+        let Ok(value) = expr::eval(&self.0, &Vars::new()) else { return false };
+        self.0 = value.to_string();
+        true
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]

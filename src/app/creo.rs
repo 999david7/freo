@@ -95,7 +95,7 @@ impl OpenKind {
     pub fn accepts(self, name: &str) -> bool {
         let n = name.to_lowercase();
         match self {
-            OpenKind::All => n.ends_with(".pfprt") || n.ends_with(".pfasm") || n.ends_with(".pfdrw") || is_neutral_file(&n) || is_creo_file(&n),
+            OpenKind::All => n.ends_with(".prti") || n.ends_with(".pfprt") || n.ends_with(".pfasm") || n.ends_with(".pfdrw") || is_neutral_file(&n) || is_creo_file(&n),
             OpenKind::Part => n.ends_with(".pfprt") || is_creo_kind(&n, "prt"),
             OpenKind::Assembly => n.ends_with(".pfasm") || is_creo_kind(&n, "asm"),
             OpenKind::Drawing => n.ends_with(".pfdrw") || is_creo_kind(&n, "drw"),
@@ -253,7 +253,7 @@ pub fn spotlight(q: SpotQuery, kind: OpenKind) -> std::sync::mpsc::Receiver<Vec<
         let args: Vec<String> = match &q {
             SpotQuery::Name(t) => vec!["-name".into(), t.clone()],
             SpotQuery::Models => {
-                let pats = ["*.prt", "*.prt.*", "*.asm", "*.asm.*", "*.drw", "*.drw.*", "*.stp", "*.step", "*.pfprt", "*.pfasm", "*.pfdrw"];
+                let pats = ["*.prt", "*.prt.*", "*.asm", "*.asm.*", "*.drw", "*.drw.*", "*.stp", "*.step", "*.pfprt", "*.pfasm", "*.pfdrw", "*.prti"];
                 vec![pats.iter().map(|p| format!("kMDItemFSName == \"{}\"c", p)).collect::<Vec<_>>().join(" || ")]
             }
         };
@@ -974,6 +974,8 @@ impl App {
                                     let dim = d.purpose.folders_only() && !is_dir;
                                     let icon = if is_dir {
                                         Icon::FolderItem
+                                    } else if name.to_lowercase().ends_with(".prti") {
+                                        Icon::Idea
                                     } else if name.ends_with(".pfasm") {
                                         Icon::Assembly
                                     } else if name.ends_with(".pfdrw") {
@@ -1797,6 +1799,8 @@ impl App {
                                                 Icon::Assembly
                                             } else if is_creo_kind(&ln, "drw") || ln.ends_with(".pfdrw") {
                                                 Icon::Drawing
+                                            } else if ln.ends_with(".prti") {
+                                                Icon::Idea
                                             } else if is_neutral_file(&ln) {
                                                 Icon::GetData
                                             } else {
@@ -1857,6 +1861,8 @@ impl App {
                                             Icon::Assembly
                                         } else if ln.ends_with(".pfdrw") || (is_creo_file(&ln) && ln.contains(".drw")) {
                                             Icon::Drawing
+                                        } else if ln.ends_with(".prti") {
+                                            Icon::Idea
                                         } else if is_neutral_file(&ln) {
                                             Icon::GetData
                                         } else {
@@ -2110,7 +2116,7 @@ impl App {
                     }
                 } else {
                     let n = short(&p).to_lowercase();
-                    let ours = n.ends_with(".pfprt") || n.ends_with(".pfasm") || n.ends_with(".pfdrw") || is_neutral_file(&n) || is_creo_file(&n);
+                    let ours = n.ends_with(".prti") || n.ends_with(".pfprt") || n.ends_with(".pfasm") || n.ends_with(".pfdrw") || is_neutral_file(&n) || is_creo_file(&n);
                     if !ours {
                         open_path(&p);
                     } else if is_creo_file(&n) || self.confirm_discard() {

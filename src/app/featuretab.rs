@@ -25,7 +25,9 @@ fn dim_field(ui: &mut egui::Ui, d: &mut Dim, vars: &Vars, width: f32) -> bool {
     if !ok {
         te = te.text_color(Color32::from_rgb(200, 30, 30));
     }
-    ui.add(te).on_hover_text("Wert oder Beziehung (z. B. W/2 + 5)").changed()
+    let response = ui.add(te).on_hover_text("Wert, Rechnung (z. B. 10-7) oder Beziehung (z. B. W/2 + 5). Mit Enter bestätigen.");
+    let calculated = response.lost_focus() && d.calculate();
+    response.changed() || calculated
 }
 
 /// Creo's dimension box in a dashboard: the value with three decimals and a ▾ list of the values
@@ -46,12 +48,13 @@ fn dim_combo(ui: &mut egui::Ui, d: &mut Dim, vars: &Vars, width: f32, key: &str)
         if !ok {
             te = te.text_color(Color32::from_rgb(200, 30, 30));
         }
-        let r = ui.add(te).on_hover_text("Wert oder Beziehung (z. B. W/2 + 5)");
+        let r = ui.add(te).on_hover_text("Wert, Rechnung (z. B. 10-7) oder Beziehung (z. B. W/2 + 5). Mit Enter bestätigen.");
         if r.changed() {
             d.0 = text.clone();
             changed = true;
         }
         if r.lost_focus() {
+            changed |= d.calculate();
             remember_value(ui.ctx(), recent_id, &d.0);
         }
         let (rect, arrow) = ui.allocate_exact_size(vec2(22.0, r.rect.height().max(22.0)), Sense::click());
@@ -2972,3 +2975,51 @@ fn feature_help_more(k: &FeatureKind) -> Option<&'static str> {
 }
 
 const STRONG_DIM: Color32 = Color32::from_rgb(24, 46, 150);
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn dimension_boxes_calculate_when_committed() {
+        for combo in [false, true] {
+            for commit_key in [egui::Key::Enter, egui::Key::Tab] {
+                let ctx = egui::Context::default();
+                let mut dimension = Dim::v(10.0);
+                let mut field_rect = Rect::NOTHING;
+                let mut frame = |events| {
+                    let input = egui::RawInput { screen_rect: Some(Rect::from_min_size(egui::Pos2::ZERO, vec2(400.0, 200.0))), events, ..Default::default() };
+                    let _ = ctx.run(input, |ctx| {
+                        egui::CentralPanel::default().show(ctx, |ui| {
+                            field_rect = ui
+                                .scope(|ui| {
+                                    if combo {
+                                        dim_combo(ui, &mut dimension, &Vars::new(), 120.0, "test_depth");
+                                    } else {
+                                        dim_field(ui, &mut dimension, &Vars::new(), 120.0);
+                                    }
+                                })
+                                .response
+                                .rect;
+                            let _ = ui.button("Next field");
+                        });
+                    });
+                    (field_rect, dimension.0.clone())
+                };
+                let (rect, _) = frame(vec![]);
+                let pos = rect.left_center() + vec2(10.0, 0.0);
+                frame(vec![
+                    egui::Event::PointerMoved(pos),
+                    egui::Event::PointerButton { pos, button: egui::PointerButton::Primary, pressed: true, modifiers: egui::Modifiers::NONE },
+                    egui::Event::PointerButton { pos, button: egui::PointerButton::Primary, pressed: false, modifiers: egui::Modifiers::NONE },
+                ]);
+                frame(vec![
+                    egui::Event::Key { key: egui::Key::A, physical_key: None, pressed: true, repeat: false, modifiers: egui::Modifiers::COMMAND },
+                    egui::Event::Text("10-7".into()),
+                ]);
+                let (_, text) = frame(vec![egui::Event::Key { key: commit_key, physical_key: None, pressed: true, repeat: false, modifiers: egui::Modifiers::NONE }]);
+                assert_eq!(text, "3", "combo={combo}, key={commit_key:?}");
+            }
+        }
+    }
+}

@@ -685,6 +685,7 @@ impl App {
                 DimKey::Field(name) => {
                     if let Some(dm) = field_mut(k, name) {
                         *dm = Dim(t.clone());
+                        dm.calculate();
                     }
                 }
                 DimKey::Sketch(si, cid, ckey) => {

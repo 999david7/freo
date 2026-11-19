@@ -6,6 +6,8 @@ pub mod artarget;
 pub mod assembly;
 pub mod camera;
 pub mod cnc;
+pub mod pcb;
+pub mod pcb_editors;
 pub mod cnc_gl;
 pub mod combostates;
 pub mod creo;
@@ -22,6 +24,7 @@ pub mod featuretab;
 pub mod gdt;
 pub mod gfxbar;
 pub mod icons;
+pub mod idea;
 pub mod livesim;
 pub mod minibar;
 pub mod modelcmds;
@@ -193,6 +196,7 @@ pub enum Tab {
     LiveSim,
     Print,
     Cnc,
+    Pcb,
     Annot3d,
     Tools,
     View,
@@ -236,6 +240,7 @@ pub struct Windows {
 }
 
 pub struct App {
+    pub idea: Option<idea::IdeaSession>,
     pub data: ModelData,
     pub result: RegenResult,
     pub context: Option<RegenResult>,
@@ -328,6 +333,7 @@ pub struct App {
     pub print: print3d::PrintUi,
     /// CNC: machine, material, tools, toolpaths, simulation and crash check
     pub cnc: cnc::CncUi,
+    pub pcb: pcb::PcbUi,
 }
 
 impl App {
@@ -414,6 +420,8 @@ impl App {
             sim: Default::default(),
             print: Default::default(),
             cnc: Default::default(),
+            pcb: Default::default(),
+            idea: None,
             round_set: 0,
             asm: None,
             new_dialog: None,
@@ -1991,6 +1999,7 @@ impl App {
     }
 
     pub fn new_part_named(&mut self, name: &str) {
+        self.idea = None;
         self.leave_home();
         self.editor = None;
         self.sketch = None;
@@ -2010,6 +2019,10 @@ impl App {
     }
 
     pub fn save(&mut self, save_as: bool) {
+        if self.idea.is_some() {
+            self.save_idea(save_as);
+            return;
+        }
         if self.drawing_active() {
             self.save_drawing(save_as);
             return;
@@ -2057,6 +2070,10 @@ impl App {
     }
 
     pub fn load(&mut self, p: PathBuf) {
+        if p.extension().is_some_and(|ext| ext.eq_ignore_ascii_case("prti")) {
+            self.load_idea(p);
+            return;
+        }
         let name = p.file_name().map(|s| s.to_string_lossy().to_string()).unwrap_or_default();
         if creo::is_creo_file(&name) {
             self.show_creo_file(&p);
@@ -2081,6 +2098,7 @@ impl App {
         }
         match std::fs::read_to_string(&p).map_err(|e| e.to_string()).and_then(|s| serde_json::from_str::<ModelData>(&s).map_err(|e| e.to_string())) {
             Ok(d) => {
+                self.idea = None;
                 self.editor = None;
                 self.sketch = None;
                 self.asm = None;

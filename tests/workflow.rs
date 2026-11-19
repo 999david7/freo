@@ -32,6 +32,38 @@ fn finish_sketch(app: &mut App) {
 }
 
 #[test]
+fn profile_height_accepts_calculations_and_keeps_parameter_formulas() {
+    let mut app = App::new(None);
+    app.handle_pick(Some(Pick::Plane(TOP_ID)), false);
+    app.start_feature(FeatureKind::new_extrude());
+    let slot = app.sketch.as_ref().unwrap().slot;
+    app.finish_sketch(Sketch::rect(10.0, 10.0, 0.0, 0.0), slot);
+    for (text, height) in [("10-7", 3.0), ("(10+2)/3", 4.0), ("2*5", 10.0)] {
+        app.update_editor(|feature| {
+            let FeatureKind::Extrude(def) = &mut feature.kind else { unreachable!() };
+            def.depth = Dim(text.into());
+            assert!(def.depth.calculate());
+        });
+        assert!(app.editor_error().is_none(), "{:?}", app.editor_error());
+        let preview = app.preview.as_ref().unwrap();
+        assert!((preview.topo.bbox.max.y - preview.topo.bbox.min.y - height).abs() < 1e-6);
+    }
+    app.finish_feature();
+    assert!(app.editor.is_none());
+    let mut formula = Dim("HEIGHT-7".into());
+    assert!(!formula.calculate());
+    assert_eq!(formula.0, "HEIGHT-7");
+    let mut vars = freo::model::expr::Vars::new();
+    vars.insert("HEIGHT".into(), 10.0);
+    assert_eq!(formula.eval(&vars).unwrap(), 3.0);
+    for text in ["10-", "10/0"] {
+        let mut invalid = Dim(text.into());
+        assert!(!invalid.calculate());
+        assert_eq!(invalid.0, text);
+    }
+}
+
+#[test]
 fn extrude_hole_round_undo_redo() {
     let mut app = App::new(None);
     // object-action: select TOP, Extrude -> sketcher opens directly

@@ -135,6 +135,9 @@ fn main() -> eframe::Result<()> {
                 if let Some(s) = st.get_string("print3d") {
                     app.print.load_json(&s);
                 }
+                if let Some(s) = st.get_string("pcb") {
+                    app.pcb.load_json(&s);
+                }
                 if let Some(s) = st.get_string("cnc") {
                     app.cnc.load_json(&s);
                 }

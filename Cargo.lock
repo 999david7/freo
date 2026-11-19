@@ -994,6 +994,7 @@ name = "freo"
 version = "1.2.0"
 dependencies = [
  "ab_glyph",
+ "base64",
  "eframe",
  "egui",
  "epaint_default_fonts",
@@ -1461,6 +1462,8 @@ dependencies = [
  "num-traits",
  "png",
  "tiff",
+ "zune-core",
+ "zune-jpeg",
 ]
 
 [[package]]

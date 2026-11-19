@@ -207,6 +207,84 @@ impl App {
             self.cnc.report_open = which.contains("report");
             return;
         }
+        // FREO_DEMO=pcb:<view> opens the Leiterplatte application on the sample LED blinker
+        if let Some(which) = scene.strip_prefix("pcb:") {
+            self.data = bracket();
+            self.regenerate(false);
+            let routed = which.contains("routed") || which.contains("drc") || which.contains("3d");
+            let mut pr = super::pcb::demo_project(routed);
+            if which.contains("erc") {
+                pr.schematic.symbols.retain(|x| !x.lib.ends_with("PWR_FLAG"));
+            }
+            if which.contains("drc") {
+                // a track squeezed past a pad of another net
+                let u1 = &pr.board.footprints[pr.board.find_fp("U1").unwrap()];
+                let (lo, hi) = u1.pad_hull(0).bbox();
+                let y = lo.y - 0.1 - 0.125;
+                pr.board.tracks.push(crate::pcb::board::Track { a: crate::pcb::geom::p(lo.x - 3.0, y), b: crate::pcb::geom::p(hi.x + 1.5, y), width: 0.25, layer: crate::pcb::board::F_CU, net: "CV".into() });
+            }
+            if which.contains("hier") {
+                crate::pcb::demo::add_extension(&mut pr.schematic);
+            }
+            self.pcb_open();
+            self.pcb.set_project(pr);
+            if which.contains("insheet") {
+                self.pcb.path = vec![0];
+            }
+            if which.contains("symed") {
+                self.pcb.lib_sel = Some("Timer:NE555P".into());
+                self.pcb_open_symbol_editor();
+            }
+            if which.contains("fped") {
+                let mut ed = super::pcb_editors::FpEditor::new();
+                ed.gen = 2;
+                ed.name = "QFN-32_5x5mm_P0.5mm".into();
+                ed.gens[2] = crate::pcb::footprints::Gen::Quad { per_side: 8, pitch: 0.5, span: 4.9, pw: 0.8, ph: 0.25, ep: 3.1 };
+                self.pcb.fp_ed = Some(ed);
+            }
+            if which.starts_with("sch") || which.starts_with("lib") || which.starts_with("erc") {
+                self.pcb.view = super::pcb::PcbView::Schematic;
+            } else {
+                self.pcb.view = super::pcb::PcbView::Board;
+            }
+            if which.contains("lib") {
+                self.pcb.lib_filter = "USB".into();
+                self.pcb.lib_sel = Some("Connector:USB_C_Receptacle_PowerOnly_6P".into());
+            }
+            if which.contains("erc") {
+                self.pcb_run_erc();
+            }
+            if which.contains("drc") {
+                self.pcb_run_drc();
+            }
+            if which.contains("sel") {
+                self.pcb.sel = Some(super::pcb::PSel::Fp(self.pcb.project.board.find_fp("J1").unwrap()));
+            }
+            if which.contains("route") && !routed {
+                // a track being laid from R3 towards D1
+                let b = &self.pcb.project.board;
+                let r3 = &b.footprints[b.find_fp("R3").unwrap()];
+                let k = r3.fp.pads.iter().position(|q| q.num == "1").unwrap();
+                let start = r3.pad_pos(k);
+                let net = r3.nets[k].clone();
+                self.pcb.tool = super::pcb::PTool::Route;
+                self.pcb.hl_net = Some(net.clone());
+                self.pcb.route = Some(super::pcb::Route { net, layer: crate::pcb::board::F_CU, pts: vec![start], width: 0.25, pair: None });
+                self.pcb.mouse = start + crate::pcb::geom::p(3.0, -5.0);
+            }
+            if which.contains("showcase") {
+                self.pcb.project.board = crate::pcb::demo::showcase();
+                self.pcb.project.name = "BAUTEILE".into();
+            }
+            if which.contains("3d") {
+                self.pcb_make_3d();
+                if which.contains("close") {
+                    // closer, from the front-left
+                    self.camera.rot = glam::DQuat::from_axis_angle(glam::DVec3::Y, 25f64.to_radians()) * glam::DQuat::from_axis_angle(glam::DVec3::X, -(38f64.to_radians()));
+                }
+            }
+            return;
+        }
         // FREO_DEMO=print:<view> slices the bracket and shows the 3D-Druck preview
         if let Some(which) = scene.strip_prefix("print:") {
             self.data = bracket();
@@ -415,7 +493,7 @@ impl App {
                     // FREO_DEMO_POPUP=palette:<tab> opens the Skizzierer-Palette on that tab
                     if let Some(t) = std::env::var("FREO_DEMO_POPUP").ok().and_then(|v| v.strip_prefix("palette:").and_then(|t| t.parse::<usize>().ok())) {
                         s.palette_open = true;
-                        s.pick_palette(t.min(8), 1);
+                        s.pick_palette(t.min(crate::sketch::palette::tabs().len() - 1), 1);
                     }
                 }
             }
@@ -912,10 +990,13 @@ impl App {
                     d.sel.clear();
                 }
             }
+            "idea" => {
+                self.new_idea("IDEE0001");
+            }
             "newdialog" => {
                 self.data = bracket();
                 self.regenerate(false);
-                self.new_dialog = Some(super::assembly::NewDialog { assembly: true, drawing: false, name: "asm0001".into(), common: String::new(), template: true, focus: true });
+                self.new_dialog = Some(super::assembly::NewDialog { idea: false, assembly: true, drawing: false, name: "asm0001".into(), common: String::new(), template: true, focus: true });
             }
             "assemble" => {
                 let mut data = sample_assembly();

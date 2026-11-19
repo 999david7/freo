@@ -11,6 +11,9 @@ use eframe::egui::{self, pos2, vec2, Align2, Color32, FontId, Rect, RichText, St
 
 impl App {
     fn shortcuts(&mut self, ctx: &egui::Context) {
+        if self.tab == Tab::Pcb {
+            return self.pcb_shortcuts(ctx);
+        }
         let typing = ctx.wants_keyboard_input();
         let (cmd, shift) = ctx.input(|i| (i.modifiers.command, i.modifiers.shift));
         let pressed = |k: egui::Key| ctx.input(|i| i.key_pressed(k));
@@ -462,6 +465,17 @@ impl eframe::App for App {
             }
         }
         ctx.request_repaint_after(std::time::Duration::from_millis(500));
+        if self.idea.is_some() {
+            if let Some(path) = ctx.input(|input| input.raw.dropped_files.first().and_then(|file| file.path.clone())) {
+                let ext = path.extension().and_then(|s| s.to_str()).unwrap_or_default().to_ascii_lowercase();
+                if matches!(ext.as_str(), "png" | "jpeg" | "jpg") {
+                    self.idea.as_mut().unwrap().import_picture(ctx, &path);
+                } else if self.confirm_discard() { self.load(path); }
+            }
+            if self.idea.is_some() { self.idea_frame(ctx); }
+            self.demo_tick(ctx);
+            return;
+        }
         if self.creo.home {
             self.home_frame(ctx);
             hand_cursor(ctx);
@@ -499,6 +513,7 @@ impl eframe::App for App {
         self.sim_tick(ctx);
         self.print_tick(ctx);
         self.cnc_tick(ctx);
+        self.pcb_tick();
         self.title_bar(ctx);
         self.tab_strip(ctx);
         let mut outcome = Outcome::None;
@@ -527,6 +542,8 @@ impl eframe::App for App {
                 .show(ctx, |ui| {
                     if self.tab == Tab::Print {
                         self.print_panel(ui)
+                    } else if self.tab == Tab::Pcb {
+                        self.pcb_panel(ui)
                     } else if self.tab == Tab::Cnc {
                         self.cnc_panel(ui)
                     } else {
@@ -572,6 +589,7 @@ impl eframe::App for App {
         self.sim_windows(ctx);
         self.print_windows(ctx);
         self.cnc_windows(ctx);
+        self.pcb_windows(ctx);
         self.open_dialog_ui(ctx);
         self.export_dialog_ui(ctx);
         self.creo_file_ui(ctx);
@@ -592,6 +610,7 @@ impl eframe::App for App {
         storage.set_string("background", self.creo.bg.key().to_string());
         storage.set_string("print3d", self.print.to_json());
         storage.set_string("cnc", self.cnc.to_json());
+        storage.set_string("pcb", self.pcb.to_json());
         storage.set_string("work_dir", if self.creo.keep_work_dir { self.work_dir.display().to_string() } else { String::new() });
     }
 }

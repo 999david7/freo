@@ -354,6 +354,118 @@ fn hollow(name: &str, h: f64, w: f64, t: f64) -> PaletteItem {
     b.done(name, true)
 }
 
+// ---------------------------------------------------------------- Ports
+// Real-size openings for connectors (the outline the plug or socket needs, centred on the
+// placement point); leave a little play (0.1–0.3 mm) for printed or milled housings.
+
+/// Closed polygon of the given corners.
+fn outline(name: &str, pts: &[V2]) -> PaletteItem {
+    let mut b = B::new();
+    b.chain(pts, true);
+    b.done(name, true)
+}
+
+/// Slot with fully round ends (USB-C, Lightning), width × height.
+fn stadium(name: &str, w: f64, h: f64) -> PaletteItem {
+    let mut b = B::new();
+    let (x, r) = (w / 2.0 - h / 2.0, h / 2.0);
+    b.line(v(-x, -r), v(x, -r));
+    b.arc(v(x, 0.0), r, 270.0, 450.0);
+    b.line(v(x, r), v(-x, r));
+    b.arc(v(-x, 0.0), r, 90.0, 270.0);
+    b.done(name, true)
+}
+
+/// Rectangle w × h with 45° corner cuts: `top` and `bottom` are (dx, dy) of the cuts at the
+/// upper and lower corners (0 = square corner).
+fn cut_rect(name: &str, w: f64, h: f64, top: (f64, f64), bottom: (f64, f64)) -> PaletteItem {
+    let (x, y) = (w / 2.0, h / 2.0);
+    let mut p = vec![];
+    if bottom.0 > 0.0 {
+        p.extend([v(-x + bottom.0, -y), v(x - bottom.0, -y), v(x, -y + bottom.1)]);
+    } else {
+        p.extend([v(-x, -y), v(x, -y)]);
+    }
+    if top.0 > 0.0 {
+        p.extend([v(x, y - top.1), v(x - top.0, y), v(-x + top.0, y), v(-x, y - top.1)]);
+    } else {
+        p.extend([v(x, y), v(-x, y)]);
+    }
+    if bottom.0 > 0.0 {
+        p.push(v(-x, -y + bottom.1));
+    }
+    outline(name, &p)
+}
+
+/// Round hole of diameter `d`.
+fn round_hole(name: &str, d: f64) -> PaletteItem {
+    let mut b = B::new();
+    b.circle(v(0.0, 0.0), d / 2.0, false);
+    b.axes(d * 0.7, d * 0.7);
+    b.done(name, true)
+}
+
+/// D-sub opening: trapezoid `top` wide and `h` high, sides at 10°, with the two Ø3.1 fixing
+/// holes `pitch` apart.
+fn dsub(name: &str, top: f64, h: f64, pitch: f64) -> PaletteItem {
+    let mut b = B::new();
+    let (x, y) = (top / 2.0, h / 2.0);
+    let xb = x - h * 10f64.to_radians().tan();
+    b.chain(&[v(-xb, -y), v(xb, -y), v(x, y), v(-x, y)], true);
+    for s in [-1.0, 1.0] {
+        b.circle(v(s * pitch / 2.0, 0.0), 1.55, false);
+    }
+    b.done(name, true)
+}
+
+/// Modular jack (RJ45, RJ11): body `w` × `h` with the latch slot `nw` × `nh` above it.
+fn modular(name: &str, w: f64, h: f64, nw: f64, nh: f64) -> PaletteItem {
+    let (x, y, n) = (w / 2.0, (h + nh) / 2.0, nw / 2.0);
+    let yb = -y + h;
+    outline(name, &[v(-x, -y), v(x, -y), v(x, yb), v(n, yb), v(n, y), v(-n, y), v(-n, yb), v(-x, yb)])
+}
+
+/// XLR panel socket (D series): Ø24 opening and two Ø3.2 holes on a 19 × 24 mm diagonal.
+fn xlr(name: &str) -> PaletteItem {
+    let mut b = B::new();
+    b.circle(v(0.0, 0.0), 12.0, false);
+    b.circle(v(9.5, 12.0), 1.6, false);
+    b.circle(v(-9.5, -12.0), 1.6, false);
+    b.axes(16.0, 16.0);
+    b.done(name, true)
+}
+
+fn ports() -> Vec<PaletteItem> {
+    vec![
+        stadium("USB-C / Thunderbolt", 8.34, 2.56),
+        cut_rect("USB-A", 12.5, 5.12, (0.0, 0.0), (0.0, 0.0)),
+        cut_rect("USB-B", 12.04, 10.97, (1.7, 1.7), (0.0, 0.0)),
+        cut_rect("Mini-USB", 6.9, 3.1, (0.0, 0.0), (0.8, 0.8)),
+        cut_rect("Micro-USB", 6.85, 1.8, (0.0, 0.0), (0.75, 0.75)),
+        stadium("Lightning", 7.6, 2.0),
+        cut_rect("HDMI", 14.0, 4.55, (0.0, 0.0), (1.8, 1.65)),
+        cut_rect("Mini-HDMI", 10.5, 2.5, (0.0, 0.0), (1.0, 0.9)),
+        cut_rect("Micro-HDMI", 6.5, 2.9, (0.0, 0.0), (0.8, 0.8)),
+        // DisplayPort: one corner cut off
+        outline("DisplayPort", &[v(-8.05 + 2.4, -2.4), v(8.05, -2.4), v(8.05, 2.4), v(-8.05, 2.4), v(-8.05, -2.4 + 2.4)]),
+        cut_rect("Mini-DisplayPort", 7.5, 4.6, (0.0, 0.0), (1.1, 1.1)),
+        modular("RJ45 (Ethernet)", 11.7, 6.1, 6.0, 2.0),
+        modular("RJ11 (Telefon)", 9.65, 4.6, 5.0, 2.0),
+        round_hole("Klinke 3,5 mm", 6.0),
+        round_hole("Klinke 6,35 mm", 9.5),
+        round_hole("DC-Buchse 5,5×2,1", 8.0),
+        dsub("VGA (DE-15)", 16.9, 8.4, 25.0),
+        dsub("Seriell RS-232 (DE-9)", 16.9, 8.4, 25.0),
+        dsub("Parallel (DB-25)", 38.4, 8.4, 47.04),
+        cut_rect("SD-Karte", 24.5, 2.6, (0.0, 0.0), (0.0, 0.0)),
+        cut_rect("microSD", 11.5, 1.5, (0.0, 0.0), (0.0, 0.0)),
+        xlr("XLR"),
+        round_hole("BNC", 9.7),
+        round_hole("SMA", 6.5),
+        round_hole("PS/2 (Mini-DIN)", 10.0),
+    ]
+}
+
 fn build() -> Vec<PaletteTab> {
     const NS: [usize; 11] = [3, 4, 5, 6, 7, 8, 9, 10, 12, 16, 20];
     let german = ["Dreieck", "Viereck", "Fünfeck", "Sechseck", "Siebeneck", "Achteck", "Neuneck", "Zehneck", "Zwölfeck", "Sechzehneck", "Zwanzigeck"];
@@ -451,6 +563,7 @@ fn build() -> Vec<PaletteTab> {
         },
         PaletteTab { name: "HTL", items: vec![hexagon_axes("6_eck"), racetrack("langloch")] },
         PaletteTab { name: "Polygone", items: NS.iter().zip(german).map(|(n, name)| polygon(name, *n)).collect() },
+        PaletteTab { name: "Ports", items: ports() },
     ]
 }
 
@@ -461,19 +574,43 @@ mod tests {
     #[test]
     fn every_shape_is_a_valid_sketch() {
         let tabs = tabs();
-        assert_eq!(tabs.len(), 9);
-        assert_eq!(tabs.iter().map(|t| t.items.len()).collect::<Vec<_>>(), vec![4, 7, 11, 27, 11, 11, 10, 2, 11]);
+        assert_eq!(tabs.len(), 10);
+        assert_eq!(tabs.iter().map(|t| t.items.len()).collect::<Vec<_>>(), vec![4, 7, 11, 27, 11, 11, 10, 2, 11, 25]);
         for t in tabs {
             for it in &t.items {
                 let open = it.name.to_lowercase().starts_with("welle");
                 assert_eq!(it.sketch.open_ends().len(), if open { 2 } else { 0 }, "{} / {}", t.name, it.name);
                 if !open {
                     let regions = it.sketch.profile_regions().unwrap_or_else(|e| panic!("{} / {}: {}", t.name, it.name, e));
-                    assert_eq!(regions.len(), 1, "{} / {}", t.name, it.name);
+                    // ports may come with their fixing holes
+                    let holes = it.sketch.entities.iter().filter(|e| e.kind == SkKind::Circle && !e.construction).count();
+                    let outline = it.sketch.entities.iter().any(|e| e.kind != SkKind::Circle && !e.construction);
+                    let expect = if t.name == "Ports" && holes > 1 { holes + outline as usize } else { 1 };
+                    assert_eq!(regions.len(), expect, "{} / {}", t.name, it.name);
                 }
                 assert!(it.extent() > 1.0);
             }
         }
+    }
+
+    #[test]
+    fn ports_have_their_real_size() {
+        let ports = tabs().iter().find(|t| t.name == "Ports").unwrap();
+        let size = |n: &str| {
+            let it = ports.items.iter().find(|i| i.name == n).unwrap();
+            assert!(it.real, "{}", n);
+            let (mn, mx) = it.bounds(false);
+            (mx.x - mn.x, mx.y - mn.y)
+        };
+        let close = |a: (f64, f64), b: (f64, f64)| (a.0 - b.0).abs() < 1e-6 && (a.1 - b.1).abs() < 1e-6;
+        assert!(close(size("USB-C / Thunderbolt"), (8.34, 2.56)));
+        assert!(close(size("USB-A"), (12.5, 5.12)));
+        assert!(close(size("HDMI"), (14.0, 4.55)));
+        assert!(close(size("RJ45 (Ethernet)"), (11.7, 8.1)));
+        assert!(close(size("Klinke 3,5 mm"), (6.0, 6.0)));
+        // the D-sub holes are 25 mm apart, the opening between them
+        let (w, _) = size("VGA (DE-15)");
+        assert!((w - (25.0 + 3.1)).abs() < 1e-6, "{}", w);
     }
 
     #[test]

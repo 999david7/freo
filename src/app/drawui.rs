@@ -118,6 +118,7 @@ impl App {
                 return;
             }
         }
+        self.idea = None;
         let (assembly, model) = self.model_kind_name();
         let mut data = DrawingData::new(&nd.name.to_uppercase(), &model, nd.size, nd.orient);
         data.projection = nd.projection;
@@ -2047,6 +2048,7 @@ impl App {
     /// Creo's New Drawing dialog: default model, template, orientation, size, projection.
     pub fn new_drawing_dialog(&mut self, ctx: &egui::Context) {
         let Some(mut nd) = self.windows.new_drawing.take() else { return };
+        self.idea = None;
         let (assembly, model) = self.model_kind_name();
         let has_geometry = !self.result.topo.polys.is_empty();
         let (mut keep, mut ok, mut browse) = (true, false, false);

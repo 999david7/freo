@@ -134,6 +134,9 @@ impl App {
         if self.tab == Tab::Cnc {
             return self.cnc_viewport(ui);
         }
+        if self.tab == Tab::Pcb {
+            return self.pcb_viewport(ui);
+        }
         let (rect, resp) = ui.allocate_exact_size(ui.available_size(), Sense::click_and_drag());
         super::ui::no_hand(ui.ctx(), resp.id);
         self.viewport_size = (rect.width().max(1.0), rect.height().max(1.0));
