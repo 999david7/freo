@@ -4,7 +4,8 @@ Freo is a native, history-based parametric 3D modeller for macOS, Linux and Wind
 Parametric 10 workflow and look, with Creo's German user interface: ribbon → feature tab →
 sketcher → regenerate. It has a model tree, datum features, parameters and relations,
 assemblies built from placement constraints, associative 2D drawings, 3D annotations, a
-Live-Simulation tab and an MCP server for AI assistants.
+Live-Simulation tab, 3D printing and CNC milling, a KiCad-compatible printed circuit board
+designer and an MCP server for AI assistants.
 
 It is written entirely in Rust: its own geometry kernel, constraint solvers, hidden-line
 removal, simulation solvers, STEP reader and OpenGL viewport on egui/eframe.
@@ -28,6 +29,14 @@ removal, simulation solvers, STEP reader and OpenGL viewport on egui/eframe.
 | Structural (von Mises stress) | Flow around the part | Thermal |
 |---|---|---|
 | ![](docs/screens/sim_structural.png) | ![](docs/screens/sim_fluid.png) | ![](docs/screens/sim_thermal.png) |
+
+### Leiterplatte (printed circuit boards)
+
+| Schematic with symbol library | Routed board with GND pour | Board as a 3D assembly |
+|---|---|---|
+| ![](docs/screens/pcb_sch.png) | ![](docs/screens/pcb_routed.png) | ![](docs/screens/pcb_showcase_3d_close.png) |
+| **Hierarchical sheet, multi-unit op-amp, bus** | **Footprint editor (QFN generator)** | **Design rules check** |
+| ![](docs/screens/pcb_sch_hier_insheet.png) | ![](docs/screens/pcb_brd_fped.png) | ![](docs/screens/pcb_drc.png) |
 
 ### Assemblies
 
@@ -206,6 +215,19 @@ Copy the `freo-cad` folder into an agent's `<workspace>/skills/` (or `~/.opencla
 for all agents). It only shows up once `mcp.servers.freo` is configured. Check it with
 `openclaw skills info freo-cad --agent <id>`.
 
+## New in 1.3.0
+
+- **Leiterplatte (Werkzeuge ▸ Manufacture ▸ Leiterplatte)**: printed circuit boards the KiCad way, with Creo's ribbon, dialogs and German interface
+  - **Schematic**: symbol library (passives, diodes, LEDs, transistors, ICs, connectors, switches, power symbols), wires, net labels, global and hierarchical labels, no-connect flags, buses with bus entries, hierarchical sheets with sheet pins, parts with several units (U1A, U1B …), annotation and an electrical rules check
+  - **Board**: outline as a rectangle or from a closed sketch of the open part, update from the schematic, placement on both sides, ratsnest, manual routing with 45° bends, vias and three modes for obstacles (show, walk around, shove), differential pairs, length tuning with meanders, copper zones with thermal reliefs, an autorouter for 2 and 4 layers, net classes, and a design rules check (clearances, shorts, widths, drills, annular rings, hole spacing, board edge, courtyards, unrouted nets, pair skew, schematic parity)
+  - **Libraries and editors**: about 60 footprints with KiCad names (the USB, RJ45, DC and audio jacks match the sketch palette's "Ports" openings for the enclosure), KiCad symbol (`.kicad_sym`) and footprint (`.pretty`) libraries can be loaded, a symbol editor (pin table → IC box) and a footprint editor (chip, SOIC, QFP/QFN and through-hole generators or a pad table), export of the project libraries
+  - **Outputs**: Gerber RS-274X with X2 attributes for all layers and a stroke-font silkscreen, Excellon drill files with routed slots, Gerber job file, pick-and-place files, IPC-2581, BOM (CSV)
+  - **KiCad files**: `.kicad_sch` (with sub-sheets), `.kicad_pcb` and `.kicad_pro` are read and written; KiCad's own demo projects load with every pad on the same net as in KiCad
+  - **3D**: the board becomes a Freo assembly (laminate with all drills, copper, components) ready for enclosure design. Components get detailed generated models (gull-wing leads, terminations, leads through the board, resistor colour bands from the value, LED domes, electrolytic cans, pin headers, connector shells) in their real colours, or the KiCad STEP model when it is installed
+- **Idee**: freehand idea pages (`.prti`) with pencil strokes and placed PNG/JPEG images, from Datei ▸ Neu ▸ Idee
+- **Calculations in value boxes**: dashboards accept arithmetic such as `10-7` or `(10+2)/3` and calculate it on Enter, while relations like `HEIGHT-7` stay formulas
+- **Kernel**: faces with many holes no longer show stray edges between the holes, and the face triangulation is more robust (cleans up, cures self-touching bridges and splits along a diagonal instead of guessing)
+
 ## New in 1.2.0
 
 - **2D drawing to 3D part**: open a **DXF** (or **DWG** with LibreDWG or the ODA File Converter installed) and Freo builds the part from its views. Front, top and side views are found by their alignment (the isometric view, frame, title block, dimensions and centre lines are skipped), European or American projection from where the top view lies, the scale from the dimensions or the title block. The part is made of editable features: the top view's outline extruded, everything outside the front and side outlines cut away, holes and pockets cut over the depth their hidden lines show, round bosses shaped. Circles and arcs stay true circles and arcs with exact sizes; a single view becomes a plate (thickness from a "t=5" note). A dialog shows what was found and rebuilds with another projection, scale or thickness
@@ -361,6 +383,9 @@ src/app      controller, OpenGL renderer, camera, picking, sketcher UI, feature 
 src/slicer   3D printing: mesh slicing, polygons, infill, supports, path planning, G-code, printers
 src/cam      CNC: tools, machines, materials, height-field stock, toolpaths, simulation and
              crash check, NC code
+src/pcb      printed circuit boards: symbols, footprints, schematic (netlist, ERC, hierarchy),
+             board (ratsnest, zones), DRC, autorouter and interactive routing helpers, Gerber /
+             Excellon / IPC-2581 / pick-and-place, KiCad s-expression files, 3D part models
 src/mcp.rs   MCP server for AI assistants (stdio JSON-RPC, tools over model/regen/export)
 ```
 
@@ -373,6 +398,8 @@ regeneration, so downstream features follow upstream dimension changes.
 cargo test                                   # unit + end-to-end workflow tests
 cargo test --test mcp_server                 # MCP server driven over stdin/stdout
 cargo test --test simulation                 # solvers against textbook results
+cargo test --test pcb                        # schematic, board, DRC, Gerber, KiCad files
+FREO_KICAD_DEMOS=<kicad>/demos cargo test --test kicad_real   # KiCad's own demo projects
 cargo run --release --bin kernel_demo -- out # regenerate sample parts and render PNGs
 cargo run --release --example stepcheck -- <folder>   # import every STEP file in a folder
 ```
