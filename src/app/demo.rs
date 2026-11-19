@@ -170,6 +170,7 @@ impl App {
             "model" => Some(Tab::Model),
             "analysis" => Some(Tab::Analysis),
             "livesim" => Some(Tab::LiveSim),
+            "print" => Some(Tab::Print),
             "annot" => Some(Tab::Annot3d),
             "tools" => Some(Tab::Tools),
             "view" => Some(Tab::View),
@@ -178,6 +179,52 @@ impl App {
             "htl" => Some(Tab::Htl),
             _ => None,
         };
+        // FREO_DEMO=cnc:<view> computes the bracket on a mill and shows the CNC simulation
+        if let Some(which) = scene.strip_prefix("cnc:") {
+            // FREO_DEMO_KEEP: machine the part that was opened instead of the bracket
+            if std::env::var_os("FREO_DEMO_KEEP").is_none() {
+                self.data = bracket();
+                self.add_vertical_rounds(15);
+            }
+            self.regenerate(false);
+            self.cnc_open();
+            self.fit_pending = true;
+            if let Some(m) = crate::cam::machines::all_machines().into_iter().find(|m| m.name() == "Haas Mini Mill") {
+                self.cnc.setup.machine = m;
+            }
+            if which.contains("wood") {
+                self.cnc.setup.material = crate::cam::materials::MATERIALS.iter().position(|m| m.name.starts_with("Nussbaum")).unwrap_or(0);
+            }
+            if which.contains("prepare") {
+                return;
+            }
+            self.cnc_sync_part();
+            self.cnc_compute_blocking();
+            if which.contains("half") {
+                self.cnc.t = self.cnc.total() * 0.45;
+            }
+            self.cnc.deviation = which.contains("dev");
+            self.cnc.report_open = which.contains("report");
+            return;
+        }
+        // FREO_DEMO=print:<view> slices the bracket and shows the 3D-Druck preview
+        if let Some(which) = scene.strip_prefix("print:") {
+            self.data = bracket();
+            self.add_vertical_rounds(15);
+            self.regenerate(false);
+            self.print_open();
+            self.fit_pending = true;
+            self.print.settings.process.support = which.contains("support");
+            if which.contains("prepare") {
+                return;
+            }
+            self.print_slice_blocking();
+            self.print.mode = if which.contains("feature") { super::print3d::ColorMode::Feature } else if which.contains("speed") { super::print3d::ColorMode::Speed } else { super::print3d::ColorMode::Realistic };
+            if let Some(l) = which.split_once("layer").and_then(|(_, s)| s.split(|c: char| !c.is_ascii_digit()).next()).and_then(|s| s.parse::<usize>().ok()) {
+                self.print.layer_hi = l;
+            }
+            return;
+        }
         if let Some(which) = scene.strip_prefix("sim:") {
             self.data = bracket();
             self.add_vertical_rounds(15);
@@ -196,6 +243,9 @@ impl App {
                     self.new_part_named("PRT0001");
                 }
                 self.tab = tab;
+                if tab == Tab::Print {
+                    self.print.open = true;
+                }
                 self.fit_pending = true;
                 return;
             }
@@ -614,6 +664,46 @@ impl App {
                 self.set_pick_target(None);
                 self.loop_offer = None;
                 self.dash_panel = Some("Sätze");
+                self.dash_panel_anchor = egui::pos2(8.0, 166.0);
+            }
+            // Creo-style dashboards: FREO_DEMO=creo_chamfer | creo_round | creo_hole
+            // (FREO_DEMO_POPUP names the panel to open, e.g. "Übergänge")
+            "creo_chamfer" | "creo_round" | "creo_hole" => {
+                self.data = bracket();
+                self.regenerate(false);
+                let t = self.result.topo.clone();
+                let panel: &'static str = match std::env::var("FREO_DEMO_POPUP").as_deref() {
+                    Ok("Übergänge") => "Übergänge",
+                    Ok("Stücke") => "Stücke",
+                    Ok("Optionen") => "Optionen",
+                    Ok("Form") => "Form",
+                    Ok("Notiz") => "Notiz",
+                    _ => if scene == "creo_hole" { "Platzierung" } else { "Sätze" },
+                };
+                if scene == "creo_hole" {
+                    self.start_feature(FeatureKind::new_hole());
+                    self.update_editor(|f| {
+                        if let FeatureKind::Hole(d) = &mut f.kind {
+                            d.diameter = Dim::v(12.0);
+                            d.depth = Dim::v(30.13);
+                            d.drill_tip = false;
+                        }
+                    });
+                } else {
+                    let top = (0..t.chains.len()).filter(|&i| t.chains[i].is_straight() && t.chains[i].convex && t.chains[i].points.iter().all(|p| (p.y - 20.0).abs() < 1e-6)).max_by(|&a, &b| t.chains[a].points[0].z.partial_cmp(&t.chains[b].points[0].z).unwrap());
+                    self.start_feature(if scene == "creo_round" { FeatureKind::new_round() } else { FeatureKind::new_chamfer() });
+                    if let Some(e) = top {
+                        self.route_pick(Pick::Edge(e), PickTarget::Edges);
+                    }
+                    self.update_editor(|f| match &mut f.kind {
+                        FeatureKind::Round(d) => d.sets[0].radius = Dim::v(1.45),
+                        FeatureKind::Chamfer(d) => d.d1 = Dim::v(1.45),
+                        _ => {}
+                    });
+                    self.set_pick_target(None);
+                    self.loop_offer = None;
+                }
+                self.dash_panel = Some(panel);
                 self.dash_panel_anchor = egui::pos2(8.0, 166.0);
             }
             "stdhole" => {
@@ -1117,6 +1207,21 @@ pub fn icon_sheet(ctx: &egui::Context) {
         DatumFeature,
         SurfFinish,
         DimTol,
+        PrPrinter,
+        PrSlice,
+        PrLayFlat,
+        PrArrange,
+        PrCenter,
+        PrRotate,
+        PrScale,
+        PrGcode,
+        PrFilament,
+        PrProcess,
+        PrPlate,
+        PrPreview,
+        PrSupport,
+        PrTravel,
+        PrStats,
     ];
     egui::CentralPanel::default().show(ctx, |ui| {
         let p = ui.painter();

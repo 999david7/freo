@@ -84,3 +84,137 @@ pub fn callout(s: ThreadStd, spec: &ThreadSpec) -> String {
         ThreadStd::Unc => format!("{} UNC", spec.name),
     }
 }
+
+/// Display mesh of a cosmetic thread: the helical turns (60° flanks, flat crest and root) on
+/// the cylinder `wall` the solid has there. Triangles as (position, normal) triples, wound so
+/// the side facing out of the material is the front face.
+pub fn thread_mesh(c: &super::regen::Cosmetic) -> Vec<[(crate::kernel::math::V3, crate::kernel::math::V3); 3]> {
+    use crate::kernel::math::{safe_norm, V3};
+    let p = c.pitch;
+    let len = c.length;
+    if !(p > 1e-6 && len > 1e-6 && c.wall > 1e-6) {
+        return vec![];
+    }
+    // ISO basic profile: thread depth 0.54 p between the crest and root flats
+    let depth = 0.5413 * p;
+    let (crest, root) = if c.internal {
+        (c.wall, c.wall.max(c.radius).max(c.wall + depth * 0.6))
+    } else {
+        (c.radius.max(c.wall), (c.radius.max(c.wall) - depth).max(c.wall * 0.2))
+    };
+    // knots across one pitch: crest flat, flank, root flat, flank, crest flat
+    let knots = [(0.0, crest), (0.0625, crest), (0.3750, root), (0.6250, root), (0.9375, crest), (1.0, crest)];
+    let dir = safe_norm(c.dir, V3::Y);
+    let w = safe_norm(dir.cross(if dir.x.abs() < 0.9 { V3::X } else { V3::Y }), V3::X);
+    let v = dir.cross(w);
+    let n = ((crest.max(root) * 6.0) as usize).clamp(24, 72);
+    let turns = (len / p).min(600.0);
+    let (k0, k1) = (-(n as i64) - 1, ((turns + 1.0) * n as f64).ceil() as i64);
+    // the visible side looks out of the material: toward the axis in a hole, away from it on a shaft
+    let out = if c.internal { -1.0 } else { 1.0 };
+    let pos = |k: i64, j: usize| -> (V3, bool) {
+        let t = k as f64 / n as f64;
+        let a = p * (t + knots[j].0);
+        // the end rings sit just inside the threaded length, so the face they end at covers them
+        let eps = (p * 0.03).min(len * 0.25);
+        let ac = a.clamp(eps, len - eps);
+        let th = std::f64::consts::TAU * t;
+        (c.base + dir * ac + (w * th.cos() + v * th.sin()) * knots[j].1, a < eps || a > len - eps)
+    };
+    let mut tris = Vec::with_capacity(((k1 - k0) as usize) * 10);
+    let mut push = |q: [(V3, bool); 3], smooth: [V3; 3]| {
+        let (a, b, d) = (q[0].0, q[1].0, q[2].0);
+        let geo = (b - a).cross(d - a);
+        if geo.length_squared() < 1e-18 {
+            return;
+        }
+        let cen = (a + b + d) / 3.0;
+        let rel = cen - c.base;
+        let ax = rel.dot(dir);
+        let radial = safe_norm(rel - dir * ax, w);
+        let mut want = radial * out;
+        let gn = geo.normalize();
+        if gn.dot(radial).abs() < 0.2 {
+            // end ring: in a hole it faces the opening the hole was drilled from, on a shaft
+            // it faces out of the nearer shaft end
+            want = if c.internal {
+                -dir
+            } else if ax > len * 0.5 {
+                dir
+            } else {
+                -dir
+            };
+        }
+        let flip = gn.dot(want) < 0.0;
+        // squashed triangles at the ends are lit flat, the turns themselves smooth
+        let face = if flip { -gn } else { gn };
+        let nr = |i: usize| if q.iter().any(|x| x.1) { face } else if smooth[i].dot(face) < 0.0 { -smooth[i] } else { smooth[i] };
+        let (na, nb, nd) = (nr(0), nr(1), nr(2));
+        tris.push(if flip { [(a, na), (d, nd), (b, nb)] } else { [(a, na), (b, nb), (d, nd)] });
+    };
+    for k in k0..k1 {
+        for j in 0..knots.len() - 1 {
+            let (q00, q10, q11, q01) = (pos(k, j), pos(k + 1, j), pos(k + 1, j + 1), pos(k, j + 1));
+            if q00.1 && q10.1 && q11.1 && q01.1 && ((q00.0 - q11.0).dot(dir)).abs() < 1e-12 && (knots[j].1 - knots[j + 1].1).abs() < 1e-12 {
+                continue; // fully outside, collapsed onto a circle
+            }
+            // smooth normal of this strip at both columns of the quad
+            let sn = |kk: i64| {
+                let th = std::f64::consts::TAU * kk as f64 / n as f64;
+                let er = w * th.cos() + v * th.sin();
+                let et = -w * th.sin() + v * th.cos();
+                let r = (knots[j].1 + knots[j + 1].1) * 0.5;
+                let d_th = et * r + dir * (p / std::f64::consts::TAU);
+                let d_u = dir * (p * (knots[j + 1].0 - knots[j].0)) + er * (knots[j + 1].1 - knots[j].1);
+                safe_norm(d_th.cross(d_u), er)
+            };
+            let (s0, s1) = (sn(k), sn(k + 1));
+            push([q00, q10, q11], [s0, s1, s1]);
+            push([q00, q11, q01], [s0, s1, s0]);
+        }
+    }
+    tris
+}
+
+/// The smooth wall triangle `tri` (positions and normals) with the threaded length of `c` cut
+/// out: `None` when it is not part of that wall, otherwise the pieces that stay visible.
+pub fn clip_wall(c: &super::regen::Cosmetic, tri: &[(crate::kernel::math::V3, crate::kernel::math::V3); 3]) -> Option<Vec<[(crate::kernel::math::V3, crate::kernel::math::V3); 3]>> {
+    use crate::kernel::math::V3;
+    let dir = c.dir.normalize_or_zero();
+    let tol = (c.wall * 0.03).max(0.02);
+    let ax = |q: V3| (q - c.base).dot(dir);
+    for &(q, n) in tri {
+        let a = ax(q);
+        let r = (q - c.base - dir * a).length();
+        if (r - c.wall).abs() > tol || n.dot(dir).abs() > 0.35 {
+            return None;
+        }
+    }
+    let (lo, hi) = (tri.iter().map(|t| ax(t.0)).fold(f64::INFINITY, f64::min), tri.iter().map(|t| ax(t.0)).fold(f64::NEG_INFINITY, f64::max));
+    if hi <= -tol || lo >= c.length + tol {
+        return None;
+    }
+    // keep the parts before 0 and beyond the thread length
+    let clip = |poly: &[(V3, V3)], keep: &dyn Fn(f64) -> f64| -> Vec<(V3, V3)> {
+        let mut out = vec![];
+        for i in 0..poly.len() {
+            let (a, b) = (poly[i], poly[(i + 1) % poly.len()]);
+            let (da, db) = (keep(ax(a.0)), keep(ax(b.0)));
+            if da >= 0.0 {
+                out.push(a);
+            }
+            if (da >= 0.0) != (db >= 0.0) {
+                let t = da / (da - db);
+                out.push((a.0 + (b.0 - a.0) * t, (a.1 + (b.1 - a.1) * t).normalize_or_zero()));
+            }
+        }
+        out
+    };
+    let mut pieces = vec![];
+    for poly in [clip(tri, &|a| -a), clip(tri, &|a| a - c.length)] {
+        for k in 1..poly.len().saturating_sub(1) {
+            pieces.push([poly[0], poly[k], poly[k + 1]]);
+        }
+    }
+    Some(pieces)
+}

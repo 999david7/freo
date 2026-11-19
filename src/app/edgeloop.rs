@@ -147,7 +147,10 @@ impl App {
                     let i = rs.min(d.sets.len() - 1);
                     Some(&mut d.sets[i].edges)
                 }
-                FeatureKind::Chamfer(d) => Some(&mut d.edges),
+                FeatureKind::Chamfer(d) => {
+                    let i = rs.min(d.additional_sets.len());
+                    Some(&mut d.set_mut(i).edges)
+                }
                 _ => None,
             };
             if let Some(l) = list {

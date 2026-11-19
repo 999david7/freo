@@ -1,5 +1,6 @@
 pub mod assembly;
 pub mod drawing;
+pub mod drawing3d;
 pub mod expr;
 pub mod features;
 pub mod regen;

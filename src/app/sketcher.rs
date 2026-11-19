@@ -314,6 +314,7 @@ pub struct SketchSession {
     pub palette_item: Option<(usize, usize)>,
     clipboard: Option<Sketch>,
     clicks: Vec<Snap>,
+    first_circle: Option<i64>,
     chain: Option<(i64, i64)>,
     picks: Vec<SkSel>,
     pub selection: Vec<SkSel>,
@@ -559,6 +560,7 @@ impl SketchSession {
             palette_item: None,
             clipboard: None,
             clicks: vec![],
+            first_circle: None,
             chain: None,
             picks: vec![],
             selection: vec![],
@@ -676,6 +678,7 @@ impl SketchSession {
         self.refresh_weak();
         self.dof = solver::dof(&self.sketch);
         let sk = &self.sketch;
+        self.first_circle = self.first_circle.filter(|id| sk.entity(*id).is_some_and(|e| e.kind == SkKind::Circle));
         let valid = |s: &SkSel| match s {
             SkSel::Point(id) => sk.points.iter().any(|p| p.id == *id),
             SkSel::Ent(id) => *id < 0 || sk.entity(*id).is_some(),
@@ -694,6 +697,7 @@ impl SketchSession {
     pub fn set_tool(&mut self, t: Tool) {
         self.tool = t;
         self.clicks.clear();
+        self.first_circle = None;
         self.chain = None;
         self.picks.clear();
         self.say(t.hint(), MsgKind::Prompt);
@@ -932,6 +936,23 @@ impl SketchSession {
 
     // ---------- tool clicks ----------
 
+    fn circle_radius(&self, center: V2, rim: V2) -> f64 {
+        let radial = rim - center;
+        let radius = radial.length();
+        if radius < 1e-9 {
+            return radius;
+        }
+        if let Some(first) = self.first_circle.and_then(|id| self.sketch.entity(id)) {
+            let target = self.to_screen(center + radial * (first.r / radius));
+            // Leave room to choose a smaller radius even when the first circle is tiny on screen.
+            let tolerance = PICK.min(target.distance(self.to_screen(center)) * 0.25);
+            if self.to_screen(rim).distance(target) < tolerance {
+                return first.r;
+            }
+        }
+        radius
+    }
+
     fn finish_spline(&mut self) {
         let clicks = std::mem::take(&mut self.clicks);
         if clicks.len() < 2 {
@@ -959,6 +980,7 @@ impl SketchSession {
                 self.finish_spline();
             }
             self.clicks.clear();
+            self.first_circle = None;
             self.chain = None;
             self.picks.clear();
             return;
@@ -1068,16 +1090,17 @@ impl SketchSession {
                 if self.clicks.len() < 2 {
                     return;
                 }
-                self.push_undo();
                 let (c0, c1) = (self.clicks[0], self.clicks[1]);
                 self.clicks.clear();
-                let r = (c1.pos - c0.pos).length();
+                let r = self.circle_radius(c0.pos, c1.pos);
                 if r < 1e-9 {
                     return;
                 }
+                self.push_undo();
                 let c = self.resolve(&c0);
                 let cons = self.construction;
-                self.sketch.add_entity(SkKind::Circle, vec![c], r, cons, false);
+                let id = self.sketch.add_entity(SkKind::Circle, vec![c], r, cons, false);
+                self.first_circle.get_or_insert(id);
                 self.solve();
             }
             Tool::Circle3 => {
@@ -2832,6 +2855,7 @@ impl SketchSession {
                 }
                 if !self.clicks.is_empty() || self.chain.is_some() || !self.picks.is_empty() {
                     self.clicks.clear();
+                    self.first_circle = None;
                     self.chain = None;
                     self.picks.clear();
                 } else if self.tool != Tool::Select {
@@ -3302,7 +3326,8 @@ impl SketchSession {
                 painter.add(Shape::line(pts.to_vec(), rb));
             }
             Tool::Circle if self.clicks.len() == 1 => {
-                painter.add(Shape::line(circle(self.clicks[0].pos, (sn.pos - self.clicks[0].pos).length()), rb));
+                let center = self.clicks[0].pos;
+                painter.add(Shape::line(circle(center, self.circle_radius(center, sn.pos)), rb));
             }
             Tool::Circle3 if self.clicks.len() == 2 => {
                 if let Some(c) = circumcenter(self.clicks[0].pos, self.clicks[1].pos, sn.pos) {

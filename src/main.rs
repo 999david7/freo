@@ -132,6 +132,12 @@ fn main() -> eframe::Result<()> {
                 if let Some(bg) = st.get_string("background").and_then(|k| freo::app::creo::Background::from_key(&k)) {
                     app.creo.bg = bg;
                 }
+                if let Some(s) = st.get_string("print3d") {
+                    app.print.load_json(&s);
+                }
+                if let Some(s) = st.get_string("cnc") {
+                    app.cnc.load_json(&s);
+                }
                 if let Some(list) = st.get_string("recent_files").and_then(|s| serde_json::from_str::<Vec<String>>(&s).ok()) {
                     app.recent = list.into_iter().map(std::path::PathBuf::from).filter(|p| p.exists()).collect();
                 }

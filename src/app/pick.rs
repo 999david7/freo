@@ -74,11 +74,13 @@ impl App {
         let r = self.displayed();
         let target = self.editor.as_ref().and_then(|e| e.pick);
         let (want_face, want_edge, want_plane, want_axis, want_point) = match target {
-            Some(PickTarget::SketchPlane) | Some(PickTarget::Plane) | Some(PickTarget::DepthRef) => (true, false, true, false, false),
+            Some(PickTarget::SketchPlane) | Some(PickTarget::Plane) | Some(PickTarget::DepthRef) | Some(PickTarget::HoleOffsetX) | Some(PickTarget::HoleOffsetY) | Some(PickTarget::HoleAngleRef) | Some(PickTarget::HoleOrient) => {
+                (true, false, true, false, false)
+            }
             Some(PickTarget::Plane2) => (true, false, true, true, false),
-            Some(PickTarget::Edges) => (false, true, false, false, false),
+            Some(PickTarget::Edges) | Some(PickTarget::RoundCurve) => (false, true, false, false, false),
             Some(PickTarget::Faces) | Some(PickTarget::Surface) => (true, false, false, false, false),
-            Some(PickTarget::Points) => (false, false, false, false, true),
+            Some(PickTarget::Points) | Some(PickTarget::HolePoint) | Some(PickTarget::ChamferRef) => (false, false, false, false, true),
             Some(PickTarget::Axis) => (false, false, false, true, false),
             Some(PickTarget::Direction) => (false, false, true, true, false),
             Some(PickTarget::Features) => (true, true, false, false, false),

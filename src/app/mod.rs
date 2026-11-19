@@ -5,12 +5,15 @@ pub mod annot3d;
 pub mod artarget;
 pub mod assembly;
 pub mod camera;
+pub mod cnc;
+pub mod cnc_gl;
 pub mod combostates;
 pub mod creo;
 pub mod demo;
 pub mod dialogs;
 pub mod dims3d;
 pub mod dlgkit;
+pub mod drawimport;
 pub mod drawing;
 pub mod drawui;
 pub mod edgeloop;
@@ -25,6 +28,8 @@ pub mod modelcmds;
 pub mod modelgrid;
 pub mod navigator;
 pub mod pick;
+pub mod print3d;
+pub mod print_gl;
 pub mod publish;
 pub mod render;
 pub mod ribbon;
@@ -66,8 +71,20 @@ pub enum PickTarget {
     Direction,
     Features,
     DepthRef,
+    HoleOffsetX,
+    HoleOffsetY,
     Points,
     Surface,
+    /// Rundung "Durch Kurve": the driving curve (an edge on one of the surfaces)
+    RoundCurve,
+    /// Bohrung, radial / diameter placement: the plane the angle is measured from
+    HoleAngleRef,
+    /// Bohrung "Auf Punkt": a datum point
+    HolePoint,
+    /// Bohrungsorientierung
+    HoleOrient,
+    /// Kantenfase, Wert "Referenz": the datum point the distance runs to
+    ChamferRef,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -135,6 +152,12 @@ pub struct Editor {
     pub index: usize,
     pub pick: Option<PickTarget>,
     pub preview: bool,
+    /// Separate preview: the old model with the feature's geometry shown on its own
+    pub separate: bool,
+    /// Verification mode (glasses): the result as it will look, without previews and handles
+    pub verify: bool,
+    /// Pause: the tool is suspended; the dashboard waits until it is resumed
+    pub paused: bool,
 }
 
 /// Creo's "Skizze" dialog (Platzierung ▸ Definieren...): the sketch plane is picked first and
@@ -168,6 +191,8 @@ pub enum Tab {
     Model,
     Analysis,
     LiveSim,
+    Print,
+    Cnc,
     Annot3d,
     Tools,
     View,
@@ -224,6 +249,8 @@ pub struct App {
     pub editor: Option<Editor>,
     pub sketch: Option<SketchSession>,
     pub sketch_dlg: Option<SketchDlg>,
+    /// the dialog after opening a 2D drawing (DXF, DWG) as a part
+    pub d2_import: Option<drawimport::D2Import>,
     /// Setup ▸ Skizzen-Setup while sketching: the plane chosen so far and the view flip
     pub resetup: Option<(PlaneRef, bool)>,
     pub reorient: Option<Reorient>,
@@ -284,7 +311,7 @@ pub struct App {
     pub dialog_tab: u8,
     pub insert_drag: Option<f32>,
     pub show_suppressed: bool,
-    /// active set in the Round dashboard
+    /// Active set in the round or chamfer dashboard.
     pub round_set: usize,
     /// assembly session (also kept while one of its parts is open for editing)
     pub asm: Option<assembly::AsmSession>,
@@ -297,6 +324,10 @@ pub struct App {
     pub creo_thumb_pending: Option<eframe::egui::ColorImage>,
     /// Live-Simulation: solver job, results and display options
     pub sim: livesim::SimUi,
+    /// 3D-Druck: printer, filament, quality, placement on the plate, slicing and preview
+    pub print: print3d::PrintUi,
+    /// CNC: machine, material, tools, toolpaths, simulation and crash check
+    pub cnc: cnc::CncUi,
 }
 
 impl App {
@@ -315,6 +346,7 @@ impl App {
             editor: None,
             sketch: None,
             sketch_dlg: None,
+            d2_import: None,
             resetup: None,
             reorient: None,
             messages: vec![Message { text: "Willkommen bei Freo. Eine Bezugsebene wählen, dann mit Skizze oder Profil beginnen.".into(), kind: MsgKind::Info, failed: None }],
@@ -380,6 +412,8 @@ impl App {
             creo: Default::default(),
             creo_thumb_pending: None,
             sim: Default::default(),
+            print: Default::default(),
+            cnc: Default::default(),
             round_set: 0,
             asm: None,
             new_dialog: None,
@@ -399,7 +433,7 @@ impl App {
             return self.context.as_ref().unwrap_or(&self.result);
         }
         if let Some(ed) = &self.editor {
-            if ed.pick.is_some() || !ed.preview {
+            if ed.pick.is_some() || !ed.preview || ed.separate {
                 return self.context.as_ref().unwrap_or(&self.result);
             }
             return self.preview.as_ref().or(self.context.as_ref()).unwrap_or(&self.result);
@@ -431,10 +465,23 @@ impl App {
             let body = (t.tags[pi] >> crate::kernel::topology::BODY_SHIFT) as usize;
             let c = body.checked_sub(1).and_then(|b| colors.get(b)).copied().unwrap_or([1.0; 3]);
             for k in 1..p.len() - 1 {
-                for &j in &[0, k, k + 1] {
-                    let v = t.positions[p[j]];
-                    let n = t.vnormals[pi][j];
-                    solid.extend_from_slice(&[v.x as f32, v.y as f32, v.z as f32, n.x as f32, n.y as f32, n.z as f32, c[0], c[1], c[2]]);
+                let tri = [0, k, k + 1].map(|j| (t.positions[p[j]], t.vnormals[pi][j]));
+                // a threaded stretch of a hole or shaft shows its turns instead of the smooth wall
+                let mut pieces = vec![tri];
+                for co in &r.cosmetics {
+                    pieces = pieces.iter().flat_map(|q| crate::model::threads::clip_wall(co, q).unwrap_or_else(|| vec![*q])).collect();
+                }
+                for q in pieces {
+                    for (v, n) in q {
+                        solid.extend_from_slice(&[v.x as f32, v.y as f32, v.z as f32, n.x as f32, n.y as f32, n.z as f32, c[0], c[1], c[2]]);
+                    }
+                }
+            }
+        }
+        for co in &r.cosmetics {
+            for q in crate::model::threads::thread_mesh(co) {
+                for (v, n) in q {
+                    solid.extend_from_slice(&[v.x as f32, v.y as f32, v.z as f32, n.x as f32, n.y as f32, n.z as f32, 1.0, 1.0, 1.0]);
                 }
             }
         }
@@ -695,7 +742,7 @@ impl App {
             _ => {}
         }
         let f = Feature { id: self.data.next_id, name: self.data.next_name(&kind), suppressed: false, hidden: false, kind };
-        self.editor = Some(Editor { feature: f, is_new: true, index: self.insert_position(), pick: None, preview: true });
+        self.editor = Some(Editor { feature: f, is_new: true, index: self.insert_position(), pick: None, preview: true, separate: false, verify: false, paused: false });
         self.tab = Tab::Context;
         self.dash_panel = None;
         self.edit_dims = None;
@@ -738,7 +785,7 @@ impl App {
             _ => {}
         }
         let name = f.name.clone();
-        self.editor = Some(Editor { feature: f, is_new: false, index: idx, pick: None, preview: true });
+        self.editor = Some(Editor { feature: f, is_new: false, index: idx, pick: None, preview: true, separate: false, verify: false, paused: false });
         self.tab = Tab::Context;
         self.dash_panel = None;
         self.edit_dims = None;
@@ -882,7 +929,7 @@ impl App {
             k if k.has_sketch() && k.sketch_plane().is_none() => Some(PickTarget::SketchPlane),
             FeatureKind::Hole(d) if d.plane.is_none() => Some(PickTarget::Plane),
             FeatureKind::Round(d) if d.edge_count() == 0 => Some(PickTarget::Edges),
-            FeatureKind::Chamfer(d) if d.edges.is_empty() => Some(PickTarget::Edges),
+            FeatureKind::Chamfer(d) if d.edge_count() == 0 => Some(PickTarget::Edges),
             FeatureKind::Shell(_) => Some(PickTarget::Faces),
             FeatureKind::Draft(d) if d.faces.is_empty() => Some(PickTarget::Faces),
             FeatureKind::Draft(d) if d.hinge.is_none() => Some(PickTarget::Plane),
@@ -1144,7 +1191,7 @@ impl App {
         // Fase / Rundung: the loop around the picked edge, found before the model changes
         let have: Vec<EdgeRef> = match self.editor.as_ref().map(|e| &e.feature.kind) {
             Some(FeatureKind::Round(d)) => d.sets.iter().flat_map(|s| s.edges.iter().copied()).collect(),
-            Some(FeatureKind::Chamfer(d)) if !d.corner => d.edges.clone(),
+            Some(FeatureKind::Chamfer(d)) if !d.corner => d.sets().flat_map(|s| s.edges.iter().copied()).collect(),
             _ => vec![],
         };
         let mut offer = if target == PickTarget::Edges
@@ -1225,9 +1272,24 @@ impl App {
                 }
                 _ => warn = Some("Eine Bezugsebene oder eine ebene Fläche wählen."),
             },
+            PickTarget::HoleOffsetX | PickTarget::HoleOffsetY => match (plane, &mut ed.feature.kind) {
+                (Some(reference), FeatureKind::Hole(d)) => {
+                    if target == PickTarget::HoleOffsetX {
+                        d.offset_x = Some(reference);
+                    } else {
+                        d.offset_y = Some(reference);
+                    }
+                    done = true;
+                }
+                _ => warn = Some("Eine Bezugsebene oder eine ebene Fläche als Versatzreferenz wählen."),
+            },
             PickTarget::DepthRef => match (plane, &mut ed.feature.kind) {
                 (Some(p), FeatureKind::Extrude(d)) => {
                     d.to_ref = Some(p);
+                    done = true;
+                }
+                (Some(p), FeatureKind::Hole(d)) => {
+                    d.depth_ref = Some(p);
                     done = true;
                 }
                 _ => warn = Some("Eine Bezugsebene oder eine ebene Fläche wählen."),
@@ -1240,7 +1302,10 @@ impl App {
                             let i = rs.min(d.sets.len() - 1);
                             Some(&mut d.sets[i].edges)
                         }
-                        FeatureKind::Chamfer(d) => Some(&mut d.edges),
+                        FeatureKind::Chamfer(d) => {
+                            let i = rs.min(d.additional_sets.len());
+                            Some(&mut d.set_mut(i).edges)
+                        }
                         _ => None,
                     };
                     if let Some(l) = list {
@@ -1283,7 +1348,47 @@ impl App {
                     d.axis = Some(AxisRef::Axis(id));
                     done = true;
                 }
+                (Pick::Axis(id), FeatureKind::Hole(d)) => {
+                    d.axis_ref = Some(AxisRef::Axis(id));
+                    done = true;
+                }
                 _ => warn = Some("Eine Achse wählen."),
+            },
+            PickTarget::RoundCurve => match (edge, &mut ed.feature.kind) {
+                (Some(er), FeatureKind::Round(d)) => {
+                    let i = self.round_set.min(d.sets.len() - 1);
+                    d.sets[i].curve = Some(er);
+                    done = true;
+                }
+                _ => warn = Some("Eine Kante oder Kurve auf einer der Flächen als Steuerkurve wählen."),
+            },
+            PickTarget::HoleAngleRef | PickTarget::HoleOrient => match (plane, &mut ed.feature.kind) {
+                (Some(p), FeatureKind::Hole(d)) => {
+                    if target == PickTarget::HoleAngleRef {
+                        d.angle_ref = Some(p);
+                    } else {
+                        d.orient_ref = Some(p);
+                    }
+                    done = true;
+                }
+                _ => warn = Some("Eine Bezugsebene oder eine ebene Fläche wählen."),
+            },
+            PickTarget::ChamferRef => match (item, &mut ed.feature.kind) {
+                (Pick::Point(id), FeatureKind::Chamfer(d)) => {
+                    let i = self.round_set.min(d.additional_sets.len());
+                    let set = d.set_mut(i);
+                    set.d_ref = Some(id);
+                    set.by_reference = true;
+                    done = true;
+                }
+                _ => warn = Some("Einen Bezugspunkt als Referenz für den Fasenabstand wählen."),
+            },
+            PickTarget::HolePoint => match (item, &mut ed.feature.kind) {
+                (Pick::Point(id), FeatureKind::Hole(d)) => {
+                    d.point_ref = Some(id);
+                    done = true;
+                }
+                _ => warn = Some("Einen Bezugspunkt wählen."),
             },
             PickTarget::Direction => {
                 let dir = match item {
@@ -1404,7 +1509,7 @@ impl App {
                     self.route_pick(Pick::Point(id), t);
                     return;
                 }
-                PickTarget::Plane | PickTarget::Plane2 | PickTarget::SketchPlane | PickTarget::Direction | PickTarget::DepthRef if is_plane => {
+                PickTarget::Plane | PickTarget::Plane2 | PickTarget::SketchPlane | PickTarget::Direction | PickTarget::DepthRef | PickTarget::HoleOffsetX | PickTarget::HoleOffsetY if is_plane => {
                     self.route_pick(Pick::Plane(id), t);
                     return;
                 }
@@ -1441,6 +1546,7 @@ impl App {
         match (k, slot) {
             (FeatureKind::Extrude(d), _) => Some(d.sketch.clone()),
             (FeatureKind::Revolve(d), _) => Some(d.sketch.clone()),
+            (FeatureKind::Hole(d), _) => Some(d.sketch.clone()),
             (FeatureKind::Sketch(d), _) => Some(d.sketch.clone()),
             (FeatureKind::Sweep(d), Slot::Section) => Some(d.section.clone()),
             (FeatureKind::Sweep(d), Slot::Blend(_)) => Some(d.section2.clone()),
@@ -1472,11 +1578,26 @@ impl App {
             slot = Slot::Pattern;
         }
         let ctx = self.context.clone().unwrap_or_else(|| self.result.clone());
-        let Some(pr) = ed.feature.kind.sketch_plane() else {
+        // Bohrung, Profil Skizziert: the half profile is sketched in a plane through the hole
+        // axis (sketch y up, out of the hole); regeneration puts its centreline on the axis
+        let hole_frame = match &ed.feature.kind {
+            FeatureKind::Hole(d) => Some(
+                d.plane
+                    .and_then(|p| ctx.frame_for(&p))
+                    .map(|pf| {
+                        let up = if d.flip { -pf.z() } else { pf.z() };
+                        let c = ctx.axes.iter().find(|a| a.feature == ed.feature.id).map(|a| a.point).unwrap_or_else(|| pf.to_world(V2::new(d.x.value(&ctx.vars, 0.0), d.y.value(&ctx.vars, 0.0))));
+                        Frame { origin: c, x: pf.x, y: up }
+                    })
+                    .unwrap_or(Frame::WORLD),
+            ),
+            _ => None,
+        };
+        let Some(pr) = ed.feature.kind.sketch_plane().or(hole_frame.map(|_| PlaneRef::Datum(FRONT_ID))) else {
             self.set_pick_target(Some(PickTarget::SketchPlane));
             return;
         };
-        let Some(mut frame) = ctx.frame_for(&pr) else {
+        let Some(mut frame) = hole_frame.or_else(|| ctx.frame_for(&pr)) else {
             self.say("Die Referenz der Skizzierebene kann nicht aufgelöst werden.", MsgKind::Error);
             return;
         };
@@ -1563,7 +1684,7 @@ impl App {
         }
         let refs: Vec<[V2; 2]> = named.iter().map(|r| r.1).collect();
         let requirement = match (&ed.feature.kind, slot) {
-            (FeatureKind::Revolve(_), _) => sketcher::Requirement::Revolve,
+            (FeatureKind::Revolve(_), _) | (FeatureKind::Hole(_), _) => sketcher::Requirement::Revolve,
             (FeatureKind::Sweep(_), Slot::Trajectory) => sketcher::Requirement::Trajectory,
             (FeatureKind::Rib(_), _) => sketcher::Requirement::Trajectory,
             (FeatureKind::Helix(_), Slot::Trajectory) => sketcher::Requirement::Helix,
@@ -1645,6 +1766,10 @@ impl App {
         self.update_editor(|f| match (&mut f.kind, slot) {
             (FeatureKind::Extrude(d), _) => d.sketch = s,
             (FeatureKind::Revolve(d), _) => d.sketch = s,
+            (FeatureKind::Hole(d), _) => {
+                d.sketch = s;
+                d.sketched = true;
+            }
             (FeatureKind::Sketch(d), _) => d.sketch = s,
             (FeatureKind::Sweep(d), Slot::Section) => d.section = s,
             (FeatureKind::Sweep(d), Slot::Blend(_)) => d.section2 = s,
@@ -1938,6 +2063,10 @@ impl App {
             return;
         }
         self.leave_home();
+        if drawimport::is_drawing2d(&name) {
+            self.open_drawing2d(&p);
+            return;
+        }
         if creo::is_neutral_file(&name) {
             self.open_neutral(&p);
             return;
@@ -2078,8 +2207,15 @@ pub fn prompt_for(t: PickTarget) -> &'static str {
         PickTarget::Direction => "Eine Achse wählen oder eine Standardbezugsebene für deren Normale.",
         PickTarget::Features => "Volumen-KEs im Modellbaum oder am Modell wählen.",
         PickTarget::DepthRef => "Eine Ebene oder ebene Fläche als Profilende wählen.",
+        PickTarget::HoleOffsetX => "Eine Bezugsebene oder ebene Fläche für den ersten Bohrungsversatz wählen.",
+        PickTarget::HoleOffsetY => "Eine Bezugsebene oder ebene Fläche für den zweiten Bohrungsversatz wählen.",
         PickTarget::Points => "Bezugspunkte in der Reihenfolge der Kurve wählen (Klicken zum Hinzufügen/Entfernen).",
         PickTarget::Surface => "Eine zylindrische Fläche (Bohrung oder Welle) für das Gewinde wählen.",
+        PickTarget::RoundCurve => "Eine Kante oder Kurve als Steuerkurve der Rundung wählen.",
+        PickTarget::HoleAngleRef => "Eine Ebene wählen, von der aus der Winkel der Bohrung gemessen wird.",
+        PickTarget::HolePoint => "Einen Bezugspunkt für die Bohrung wählen.",
+        PickTarget::HoleOrient => "Eine Ebene für die Bohrungsorientierung wählen.",
+        PickTarget::ChamferRef => "Einen Bezugspunkt wählen, bis zu dem der Fasenabstand reicht.",
     }
 }
 

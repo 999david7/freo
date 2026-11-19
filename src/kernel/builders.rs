@@ -381,19 +381,38 @@ pub fn hole_tool(prof: &[V2], center: V3, dir: V3, frame_x: V3, tags: &mut TagAl
     revolve(&[region], &pf, V2::ZERO, V2::Y, 0.0, std::f64::consts::TAU, tags, owner)
 }
 
-/// Section builder: (point, nA, nB, fA, fB, fraction along the edge 0..1) -> ring.
-pub type Section = Box<dyn Fn(V3, V3, V3, V3, V3, f64) -> Vec<V3>>;
+/// Section builder: (point, nA, nB, fA, fB, fraction along the edge 0..1) -> ring of
+/// (point, surface normal). A zero normal marks a sharp ring vertex: the walls next to it are
+/// flat. Between two vertices with normals the wall is shaded smoothly; the normals' sign does
+/// not matter (they are turned to the wall's outside).
+pub type Section = Box<dyn Fn(V3, V3, V3, V3, V3, f64) -> Vec<(V3, V3)>>;
 
 /// Swept cutter/filler along an edge chain built from per-vertex sections (point, nA, nB, fA, fB).
 pub fn edge_tool(chain: &EdgeChain, section: &Section, extend: f64, tags: &mut TagAllocator, owner: u64) -> Vec<CPolygon> {
+    edge_tool_ends(chain, section, [extend, extend], tags, owner)
+}
+
+/// As `edge_tool`, with its own overshoot past each end of an open chain (first, last point):
+/// see `Topology::tool_end_reach`.
+pub fn edge_tool_ends(chain: &EdgeChain, section: &Section, extend: [f64; 2], tags: &mut TagAllocator, owner: u64) -> Vec<CPolygon> {
+    edge_sweep(chain, section, extend, tags, owner, false)
+}
+
+/// Only the swept surface of a round or chamfer (the ring without its corner point), as an open
+/// quilt: Optionen ▸ Anhängen ▸ Fläche.
+pub fn edge_surface(chain: &EdgeChain, section: &Section, tags: &mut TagAllocator, owner: u64) -> Vec<CPolygon> {
+    edge_sweep(chain, section, [0.0, 0.0], tags, owner, true)
+}
+
+fn edge_sweep(chain: &EdgeChain, section: &Section, extend: [f64; 2], tags: &mut TagAllocator, owner: u64, surface_only: bool) -> Vec<CPolygon> {
     let mut pts = chain.points.clone();
     let (mut na, mut nb, mut fa, mut fb) = (chain.n_a.clone(), chain.n_b.clone(), chain.f_a.clone(), chain.f_b.clone());
     if !chain.closed && pts.len() >= 2 {
         let l = pts.len();
         let d0 = safe_norm(pts[0] - pts[1], V3::X);
         let d1 = safe_norm(pts[l - 1] - pts[l - 2], V3::X);
-        pts[0] += d0 * extend;
-        pts[l - 1] += d1 * extend;
+        pts[0] += d0 * extend[0];
+        pts[l - 1] += d1 * extend[1];
     }
     if chain.closed {
         pts.push(pts[0]);
@@ -408,18 +427,29 @@ pub fn edge_tool(chain: &EdgeChain, section: &Section, extend: f64, tags: &mut T
         acc.push(l);
     }
     let total = acc.last().copied().unwrap_or(1.0).max(1e-12);
-    let rings: Vec<Vec<V3>> = (0..pts.len()).map(|i| section(pts[i], na[i], nb[i], fa[i], fb[i], acc[i] / total)).collect();
+    let sections: Vec<Vec<(V3, V3)>> = (0..pts.len()).map(|i| section(pts[i], na[i], nb[i], fa[i], fb[i], acc[i] / total)).collect();
+    let rings: Vec<Vec<V3>> = sections.iter().map(|r| r.iter().map(|q| q.0).collect()).collect();
     let tag = tags.next(owner);
     let m = rings[0].len();
     let mut polys = Vec::new();
     for k in 0..rings.len() - 1 {
         for i in 0..m {
             let i2 = (i + 1) % m;
+            // the surface alone runs from the first to the last point after the corner
+            if surface_only && (i == 0 || i2 == 0) {
+                continue;
+            }
             let (a, b, c, d) = (rings[k][i], rings[k][i2], rings[k + 1][i2], rings[k + 1][i]);
-            let nrm = safe_norm((b - a).cross(d - a), V3::Z);
-            let v = |p: V3| CVertex { p, n: nrm };
-            polys.extend(csg::quad(v(a), v(b), v(c), v(d), tag));
+            let nrm = safe_norm((b - a).cross(d - a), safe_norm((c - a).cross(d - b), V3::Z));
+            let hints = [sections[k][i].1, sections[k][i2].1, sections[k + 1][i2].1, sections[k + 1][i].1];
+            let smooth = hints.iter().all(|h| h.length() > 0.5);
+            let n_at = |j: usize| if smooth { if hints[j].dot(nrm) < 0.0 { -hints[j] } else { hints[j] } } else { nrm };
+            let v = |p: V3, j: usize| CVertex { p, n: n_at(j) };
+            polys.extend(csg::quad(v(a, 0), v(b, 1), v(c, 2), v(d, 3), tag));
         }
+    }
+    if surface_only {
+        return polys;
     }
     if !chain.closed {
         let last = rings.len() - 1;
@@ -446,7 +476,13 @@ fn slerp_arc(c: V3, u1: V3, u2: V3, r: f64, segments: usize) -> Vec<V3> {
         .collect()
 }
 
+/// Arc steps of a round section: about 6° each on a right-angled edge, so the outline of the
+/// round stays smooth. Fixed, as every ring of one swept tool needs the same vertex count.
+const ROUND_SEGMENTS: usize = 15;
+
 /// Round cutter/filler section; the radius varies linearly from `r0` to `r1` along the edge.
+/// The arc carries its exact surface normals, so the round shades smoothly and runs into both
+/// faces without a visible seam.
 pub fn round_section(r0: f64, r1: f64, convex: bool) -> Section {
     Box::new(move |p, n1, n2, _, _, frac| {
         let r = r0 + (r1 - r0) * frac;
@@ -455,10 +491,66 @@ pub fn round_section(r0: f64, r1: f64, convex: bool) -> Section {
         let c = p + (n1 + n2) * (s * r / (1.0 + k));
         let (t1, t2) = (c - s * n1 * r, c - s * n2 * r);
         let corner = p - s * safe_norm(n1 + n2, n1) * r * 0.05;
-        let mut ring = vec![corner, t1];
-        ring.extend(slerp_arc(c, -s * n1, -s * n2, r, 10));
-        ring.push(t2);
+        let mut ring = vec![(corner, V3::ZERO), (t1, n1)];
+        ring.extend(slerp_arc(c, -s * n1, -s * n2, r, ROUND_SEGMENTS).into_iter().map(|q| (q, (c - q) / r * s)));
+        ring.push((t2, n2));
         ring
+    })
+}
+
+/// Variable round made by a rolling ball (Abrollkugel): the ball's radius changes along the
+/// edge, so each section of the envelope is the ball's characteristic circle, tilted against
+/// the plane normal to the edge by the radius slope and slightly smaller. `path` is the edge,
+/// first to last point, along which the radius runs from `r0` to `r1`.
+pub fn round_section_rolling(r0: f64, r1: f64, convex: bool, path: Vec<V3>) -> Section {
+    let length: f64 = path.windows(2).map(|w| (w[1] - w[0]).length()).sum::<f64>().max(1e-9);
+    let slope = (r1 - r0) / length;
+    Box::new(move |p, n1, n2, f1, f2, frac| {
+        let r = r0 + (r1 - r0) * frac;
+        let mut ring = round_section(r, r, convex)(p, n1, n2, f1, f2, frac);
+        let s = if convex { -1.0 } else { 1.0 };
+        let kk = n1.dot(n2).clamp(-0.999, 0.999);
+        let c = p + (n1 + n2) * (s * r / (1.0 + kk));
+        // how the ball centre moves (in this section's plane) as the radius grows
+        let g = (n1 + n2) * (s / (1.0 + kk));
+        let m = ring.len();
+        // the kept side is the union of all balls along the edge: in this plane, each
+        // direction u from the centre reaches as far as the farthest ball covers it
+        for q in ring.iter_mut().take(m - 1).skip(2) {
+            let u = safe_norm(q.0 - c, q.0 - c);
+            let ug = u.dot(g);
+            let mut rho = r;
+            for k in -40..=40 {
+                let delta = r * 1.5 * k as f64 / 40.0;
+                let dr = slope * delta;
+                let rr = r + dr;
+                if rr <= 0.0 {
+                    continue;
+                }
+                let disc = (ug * dr).powi(2) - g.length_squared() * dr * dr - delta * delta + rr * rr;
+                if disc >= 0.0 {
+                    rho = rho.max(ug * dr + disc.sqrt());
+                }
+            }
+            q.0 = c + u * rho;
+            q.1 = -u * s;
+        }
+        ring
+    })
+}
+
+/// A chord is the distance between tangent points, 2 r sin(half the normal angle).
+/// Recompute the radius at each section so a changing dihedral angle keeps the chosen chord.
+pub fn round_section_chord(c0: f64, c1: f64, convex: bool, shape: super::corner::CornerShape) -> Section {
+    Box::new(move |p, n1, n2, f1, f2, frac| {
+        let chord = c0 + (c1 - c0) * frac;
+        let radius = chord / (2.0 * (0.5 * n1.dot(n2).clamp(-0.999, 0.999).acos()).sin()).max(1e-6);
+        let section = if shape == super::corner::CornerShape::Circular {
+            round_section(radius, radius, convex)
+        } else {
+            round_section_shape(radius, radius, convex, shape)
+        };
+        section(p, n1, n2, f1, f2, frac)
     })
 }
 
@@ -473,17 +565,174 @@ pub fn round_section_shape(r0: f64, r1: f64, convex: bool, shape: super::corner:
         let (v1, v2) = (c - s * n1 * r - p, c - s * n2 * r - p);
         let half = safe_norm(v1, n1).dot(safe_norm(v2, n2)).clamp(-1.0, 1.0).acos() / 2.0;
         let corner = p - s * safe_norm(n1 + n2, n1) * r * 0.05;
-        let mut ring = vec![corner];
-        ring.extend(shape.points(half, 24).into_iter().map(|(a, b)| p + v1 * a + v2 * b));
+        let curve: Vec<V3> = shape.points(half, 24).into_iter().map(|(a, b)| p + v1 * a + v2 * b).collect();
+        // normals: the faces' own at both ends (the curve leaves them tangentially), across the
+        // curve's chord in between; edge_tool turns them to the outside
+        let along = safe_norm(n1.cross(n2), V3::Z);
+        let l = curve.len();
+        let mut ring = vec![(corner, V3::ZERO)];
+        for i in 0..l {
+            let n = if i == 0 {
+                n1
+            } else if i == l - 1 {
+                n2
+            } else {
+                safe_norm(along.cross(curve[i + 1] - curve[i - 1]), n1)
+            };
+            ring.push((curve[i], n));
+        }
         ring
     })
+}
+
+/// Shape of a Creo round section between its two tangent points: a conic (rational quadratic
+/// through the edge's corner, rho 0.5 = parabola) or a curvature-continuous (C2) quintic.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum SectionCurve {
+    Conic(f64),
+    C2(f64),
+}
+
+/// Tangent distance of a circular round of radius `r` from the edge: r tan(θ/2), θ the angle
+/// between the face normals.
+pub fn round_tangent_distance(r: f64, n1: V3, n2: V3) -> f64 {
+    r * (0.5 * n1.dot(n2).clamp(-0.999, 0.999).acos()).tan()
+}
+
+/// Round section whose ends lie `dist(p, n1, n2, frac)` = (d1, d2) from the edge on the two
+/// surfaces, joined by `curve` (tangent to both surfaces at its ends).
+pub fn round_section_curve(dist: Box<dyn Fn(V3, V3, V3, f64) -> (f64, f64)>, convex: bool, curve: SectionCurve) -> Section {
+    Box::new(move |p, n1, n2, f1, f2, frac| {
+        let (d1, d2) = dist(p, n1, n2, frac);
+        let (t1, t2) = (p + f1 * d1, p + f2 * d2);
+        let s = if convex { -1.0 } else { 1.0 };
+        let corner = p - s * safe_norm(n1 + n2, n1) * d1.max(d2) * 0.05;
+        let n = ROUND_SEGMENTS + 1;
+        let (pts, ders): (Vec<V3>, Vec<V3>) = (0..=n)
+            .map(|i| {
+                let u = i as f64 / n as f64;
+                match curve {
+                    SectionCurve::Conic(rho) => {
+                        let rho = rho.clamp(0.05, 0.95);
+                        let w = rho / (1.0 - rho);
+                        let (b0, b1, b2) = ((1.0 - u) * (1.0 - u), 2.0 * u * (1.0 - u), u * u);
+                        let den = b0 + w * b1 + b2;
+                        let num = t1 * b0 + p * (w * b1) + t2 * b2;
+                        // derivative of num/den
+                        let (db0, db1, db2) = (-2.0 * (1.0 - u), 2.0 - 4.0 * u, 2.0 * u);
+                        let dnum = t1 * db0 + p * (w * db1) + t2 * db2;
+                        let dden = db0 + w * db1 + db2;
+                        (num / den, (dnum * den - num * dden) / (den * den))
+                    }
+                    SectionCurve::C2(rho) => {
+                        let rho = rho.clamp(0.05, 0.95);
+                        let cp = [t1, t1 + (p - t1) * (rho * 0.5), t1 + (p - t1) * rho, t2 + (p - t2) * rho, t2 + (p - t2) * (rho * 0.5), t2];
+                        bezier(&cp, u)
+                    }
+                }
+            })
+            .unzip();
+        let along = safe_norm(n1.cross(n2), safe_norm(f1.cross(f2), V3::Z));
+        let mut ring = vec![(corner, V3::ZERO)];
+        for i in 0..pts.len() {
+            let nrm = if i == 0 {
+                n1
+            } else if i == pts.len() - 1 {
+                n2
+            } else {
+                safe_norm(along.cross(ders[i]), n1)
+            };
+            ring.push((pts[i], nrm));
+        }
+        ring
+    })
+}
+
+/// Point and derivative of a Bézier curve at `u`.
+fn bezier(cp: &[V3], u: f64) -> (V3, V3) {
+    let mut pts = cp.to_vec();
+    let n = pts.len() - 1;
+    let mut der = V3::ZERO;
+    for level in (1..=n).rev() {
+        if level == 1 {
+            der = (pts[1] - pts[0]) * n as f64;
+        }
+        for i in 0..level {
+            pts[i] = pts[i] * (1.0 - u) + pts[i + 1] * u;
+        }
+    }
+    (pts[0], der)
+}
+
+/// Circular round whose radius is computed per section: `radius(p, n1, n2, frac)`.
+pub fn round_section_by(radius: Box<dyn Fn(V3, V3, V3, f64) -> f64>, convex: bool) -> Section {
+    Box::new(move |p, n1, n2, f1, f2, frac| {
+        let r = radius(p, n1, n2, frac).max(1e-6);
+        round_section(r, r, convex)(p, n1, n2, f1, f2, frac)
+    })
+}
+
+/// Chamfer with distances computed per section: `dist(n1, n2, f1, f2)` = (d1, d2).
+pub fn chamfer_section_by(dist: Box<dyn Fn(V3, V3, V3, V3) -> (f64, f64)>, convex: bool) -> Section {
+    Box::new(move |p, n1, n2, f1, f2, frac| {
+        let (d1, d2) = dist(n1, n2, f1, f2);
+        chamfer_section(d1, d2, convex)(p, n1, n2, f1, f2, frac)
+    })
+}
+
+/// Material to take off a convex corner where three rounds of radius `r` meet, so that it
+/// becomes a sphere patch: the corner's parallelepiped (within r of all three faces) minus the
+/// ball touching all three. `normals` are the outward normals of the three faces.
+pub fn sphere_corner_tool(corner: V3, normals: [V3; 3], r: f64, tags: &mut TagAllocator, owner: u64) -> Option<Vec<CPolygon>> {
+    let solve = |d: [f64; 3]| -> Option<V3> {
+        // n_i . x = n_i . corner - d_i
+        let [a, b, c] = normals;
+        let det = a.dot(b.cross(c));
+        if det.abs() < 1e-6 {
+            return None;
+        }
+        let rhs = [a.dot(corner) - d[0], b.dot(corner) - d[1], c.dot(corner) - d[2]];
+        Some((b.cross(c) * rhs[0] + c.cross(a) * rhs[1] + a.cross(b) * rhs[2]) / det)
+    };
+    let centre = solve([r, r, r])?;
+    let m = r * 0.05;
+    let lo_hi = [-m, r];
+    let mut v = [V3::ZERO; 8];
+    for i in 0..8 {
+        v[i] = solve([lo_hi[i & 1], lo_hi[(i >> 1) & 1], lo_hi[(i >> 2) & 1]])?;
+    }
+    let tag = tags.next(owner);
+    let mut boxp = vec![];
+    for q in [[0, 1, 3, 2], [4, 6, 7, 5], [0, 4, 5, 1], [2, 3, 7, 6], [0, 2, 6, 4], [1, 5, 7, 3]] {
+        if let Some(p) = CPolygon::flat(&[v[q[0]], v[q[1]], v[q[2]], v[q[3]]], tag) {
+            boxp.push(p);
+        }
+    }
+    let boxp = orient_outward(boxp);
+    let tag2 = tags.next(owner);
+    let (nu, nv) = (48usize, 24usize);
+    let at = |i: usize, j: usize| {
+        let th = std::f64::consts::PI * j as f64 / nv as f64;
+        let ph = std::f64::consts::TAU * i as f64 / nu as f64;
+        let d = V3::new(th.sin() * ph.cos(), th.cos(), th.sin() * ph.sin());
+        CVertex { p: centre + d * r, n: d }
+    };
+    let mut ball = vec![];
+    for j in 0..nv {
+        for i in 0..nu {
+            let (a, b, c, d) = (at(i, j), at(i + 1, j), at(i + 1, j + 1), at(i, j + 1));
+            ball.extend(csg::quad(a, b, c, d, tag2));
+        }
+    }
+    let ball = orient_outward(ball);
+    Some(csg::subtract(&boxp, &ball))
 }
 
 pub fn chamfer_section(d1: f64, d2: f64, convex: bool) -> Section {
     Box::new(move |p, n1, n2, f1, f2, _| {
         let s = if convex { 1.0 } else { -1.0 };
         let corner = p + s * safe_norm(n1 + n2, n1) * d1.max(d2) * 0.05;
-        vec![corner, p + f1 * d1, p + f2 * d2]
+        vec![(corner, V3::ZERO), (p + f1 * d1, V3::ZERO), (p + f2 * d2, V3::ZERO)]
     })
 }
 

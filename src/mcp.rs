@@ -236,6 +236,20 @@ impl Session {
         }
     }
 
+    /// One transition of `kind` at every corner where the edges meet, when asked for by `key`.
+    fn corner_transitions(&self, edges: &[EdgeRef], wanted: Option<&str>, key: &str, kind: TransitionKind) -> Result<Vec<Transition>, String> {
+        match wanted {
+            None | Some("standard") => Ok(vec![]),
+            Some(k) if k == key => {
+                let t = &self.result.topo;
+                let chains: Vec<_> = edges.iter().filter_map(|e| t.match_chain(e).map(|ci| t.chains[ci].clone())).collect();
+                let tol = (t.bbox.diagonal() * 1e-5).max(1e-6);
+                Ok(regen::edge_corners(&chains, tol).into_iter().map(|(p, _)| Transition { point: p, kind }).collect())
+            }
+            Some(k) => Err(format!("Unknown corner_transition {}", k)),
+        }
+    }
+
     fn axis_ref(&self, v: &Value) -> Result<AxisRef, String> {
         if let Value::String(s) = v {
             match s.trim().trim_start_matches('+').to_uppercase().as_str() {
@@ -317,10 +331,10 @@ impl Session {
             }
             FeatureKind::Revolve(e) => json!({ "plane": self.plane_desc(&e.plane), "angle": d(&e.angle), "remove": e.remove }),
             FeatureKind::Hole(h) => {
-                json!({ "plane": self.plane_desc(&h.plane), "type": format!("{:?}", h.ty), "x": d(&h.x), "y": d(&h.y), "diameter": d(&h.diameter), "through_all": h.through_all, "depth": d(&h.depth) })
+                json!({ "plane": self.plane_desc(&h.plane), "type": format!("{:?}", h.ty), "x": d(&h.x), "y": d(&h.y), "offset_x": self.plane_desc(&h.offset_x), "offset_y": self.plane_desc(&h.offset_y), "diameter": d(&h.diameter), "through_all": h.through_all, "depth": d(&h.depth) })
             }
-            FeatureKind::Round(rd) => json!({ "sets": rd.sets.iter().map(|s| json!({ "radius": d(&s.radius), "edges": s.edges.len() })).collect::<Vec<_>>() }),
-            FeatureKind::Chamfer(c) => json!({ "kind": format!("{:?}", c.kind), "d1": d(&c.d1), "edges": c.edges.len() }),
+            FeatureKind::Round(rd) => json!({ "sets": rd.sets.iter().map(|s| json!({ "radius": d(&s.radius), "chord": s.chord, "edges": s.edges.len() })).collect::<Vec<_>>() }),
+            FeatureKind::Chamfer(c) => json!({ "kind": format!("{:?}", c.kind), "d1": d(&c.d1), "edges": c.edge_count(), "sets": c.sets().map(|s| json!({ "kind": format!("{:?}", s.kind), "d1": d(&s.d1), "d2": d(&s.d2), "angle": d(&s.angle), "edges": s.edges.len() })).collect::<Vec<_>>() }),
             FeatureKind::Shell(s) => json!({ "thickness": d(&s.thickness), "faces": s.faces.len() }),
             FeatureKind::Pattern(p) => json!({ "kind": format!("{:?}", p.kind), "features": p.features, "count1": d(&p.count1), "spacing1": d(&p.spacing1) }),
             FeatureKind::Mirror(m) => json!({ "plane": self.plane_desc(&m.plane), "features": m.features }),
@@ -664,14 +678,37 @@ pub fn tool_list() -> Vec<Value> {
                 "diameter": dim_schema("Drill diameter (mm, default 10)"), "depth": dim_schema("Depth (mm, default 20)"), "through_all": { "type": "boolean", "description": "Drill through the whole part" },
                 "type": { "type": "string", "enum": ["simple", "counterbore", "countersink", "standard"] }, "cb_diameter": dim_schema("Counterbore diameter"), "cb_depth": dim_schema("Counterbore depth"),
                 "cs_diameter": dim_schema("Countersink diameter"), "cs_angle": dim_schema("Countersink angle (°)"), "size": { "type": "string", "description": "Standard hole thread size, e.g. M6" },
-                "tapped": { "type": "boolean", "description": "Standard hole: tapped (default true)" }, "flip": { "type": "boolean" }, "name": name }), &["plane"]),
+                "tapped": { "type": "boolean", "description": "Standard hole: tapped (default true)" }, "flip": { "type": "boolean" },
+                "depth_type": { "type": "string", "enum": ["blind", "symmetric", "to_next", "through_all", "to_selected"], "description": "Tiefe (default blind; through_all also via through_all: true)" },
+                "depth_ref": plane_schema("Plane or face the hole ends at (depth_type to_selected)"),
+                "profile": { "type": "string", "enum": ["flat", "drill", "sketched"], "description": "Simple hole profile: flat bottom, drill point (default), or a sketched half profile (shapes with a centerline; the top of the profile sits on the placement plane)" },
+                "shapes": shapes_schema(),
+                "lightweight": { "type": "boolean", "description": "Geometrielos: show the hole without removing material" },
+                "placement": { "type": "string", "enum": ["linear", "radial", "diameter", "coaxial", "on_point"], "description": "Platzierungstyp (default linear). radial/diameter: x is the radius/diameter around axis, angle from angle_ref" },
+                "axis": { "type": ["string", "integer"], "description": "Axis for radial, diameter and coaxial placement: a datum axis or a hole" },
+                "angle_ref": plane_schema("Plane the angle of a radial/diameter hole is measured from"), "angle": dim_schema("Angle (°) for radial/diameter placement"),
+                "point": { "type": ["string", "integer"], "description": "Datum point for on_point placement" },
+                "note": { "type": "boolean", "description": "Show the hole note (default true)" }, "name": name }), &["plane"]),
         tool("add_round", "Add a round (Rundung) of constant radius on edges. shape picks the cross-section: a circular arc (default) or a curvature-continuous \"Apple corner\". The smooth shapes pass through the middle of the arc and start about 1.3 to 1.7 times earlier on both faces.",
             json!({ "edges": edges_schema(), "radius": dim_schema("Radius in mm"),
                 "shape": { "type": "string", "enum": ["circular", "g2_three_piece", "g3_three_piece", "g3_three_piece_relief", "g3_one_piece", "g3_one_piece_relief"], "description": "Cross-section; g3_one_piece is the usual Apple corner" },
-                "continuous": { "type": "boolean", "description": "Shortcut for shape g3_one_piece" }, "name": name }), &["edges", "radius"]),
+                "continuous": { "type": "boolean", "description": "Shortcut for shape g3_one_piece" },
+                "section": { "type": "string", "enum": ["circular", "conic", "c2", "d1xd2_conic", "d1xd2_c2"], "description": "Creo Querschnittsform (default circular)" },
+                "rho": dim_schema("Conic parameter 0.05..0.95 for conic and C2 sections (default 0.5)"), "distance2": dim_schema("D2 of the D1 x D2 sections"),
+                "chord": { "type": "boolean", "description": "radius is the chord between the tangent points" },
+                "full_round": { "type": "boolean", "description": "Vollrundung: replace the face between exactly two parallel edges (radius is then ignored)" },
+                "through_curve": edges_schema(), "extend_surfaces": { "type": "boolean" },
+                "corner_transition": { "type": "string", "enum": ["standard", "sphere"], "description": "Transition used at every corner where rounded edges meet" },
+                "method": { "type": "string", "enum": ["rolling_ball", "normal_to_spine"], "description": "Erstellungsmethode for variable rounds (default rolling_ball)" },
+                "surface": { "type": "boolean", "description": "Anhängen: Fläche – make the round as a new surface and leave the solid" },
+                "name": name }), &["edges", "radius"]),
         tool("add_chamfer", "Add an edge chamfer (Fase).",
             json!({ "edges": edges_schema(), "distance": dim_schema("D (mm)"), "distance2": dim_schema("D2 for kind D1xD2"), "angle": dim_schema("Angle for kind AnglexD"),
-                "kind": { "type": "string", "enum": ["DxD", "D1xD2", "AnglexD"] }, "name": name }), &["edges", "distance"]),
+                "kind": { "type": "string", "enum": ["DxD", "D1xD2", "AnglexD", "45xD", "OxO", "O1xO2"] },
+                "corner_transition": { "type": "string", "enum": ["standard", "corner_chamfer"], "description": "Transition used at every corner where chamfered edges meet" },
+                "method": { "type": "string", "enum": ["offset_surfaces", "tangent_distance"], "description": "Versatzflächen (default: a distance is the offset of the other surface) or Tangentialer Abstand (along the surfaces)" },
+                "reference_point": { "type": ["string", "integer"], "description": "Wert Referenz: D is the distance of this datum point from the edge (distance is then ignored)" },
+                "surface": { "type": "boolean", "description": "Anhängen: Fläche – make the chamfer as a new surface" }, "name": name }), &["edges"]),
         tool("add_shell", "Add a shell (Schale): hollow the part with the given wall thickness, removing the chosen faces.",
             json!({ "faces": { "type": "array", "items": { "type": ["integer", "string", "object"] }, "description": "Faces to remove: indices or directions like \"+Y\"" }, "thickness": dim_schema("Wall thickness"), "name": name }), &["faces", "thickness"]),
         tool("add_pattern", "Add a pattern (Muster) of features: linear along one or two directions, or around an axis.",
@@ -893,6 +930,50 @@ impl Session {
                 if let Some(s) = a.str("size") {
                     h.size = s.trim().to_string();
                 }
+                if let Some(t) = a.str("depth_type") {
+                    h.set_depth_kind(match t {
+                        "blind" => DepthType::Blind,
+                        "symmetric" => DepthType::Symmetric,
+                        "to_next" => DepthType::ToNext,
+                        "through_all" => DepthType::ThroughAll,
+                        "to_selected" => DepthType::ToSelected,
+                        t => return Err(format!("Unknown depth_type {}", t)),
+                    });
+                }
+                if let Some(v) = a.0.get("depth_ref") {
+                    h.depth_ref = Some(self.plane_ref(v)?);
+                }
+                match a.str("profile") {
+                    None | Some("drill") => {}
+                    Some("flat") => h.drill_tip = false,
+                    Some("sketched") => {
+                        h.sketched = true;
+                        h.sketch = build_sketch(a.req("shapes")?)?;
+                    }
+                    Some(p) => return Err(format!("Unknown profile {}", p)),
+                }
+                h.lightweight = a.bool("lightweight", false);
+                h.note = a.bool("note", true);
+                h.placement = match a.str("placement").unwrap_or("linear") {
+                    "linear" => HolePlacement::Linear,
+                    "radial" => HolePlacement::Radial,
+                    "diameter" => HolePlacement::Diameter,
+                    "coaxial" => HolePlacement::Coaxial,
+                    "on_point" => HolePlacement::OnPoint,
+                    p => return Err(format!("Unknown placement {}", p)),
+                };
+                if let Some(v) = a.0.get("axis") {
+                    h.axis_ref = Some(self.axis_ref(v)?);
+                }
+                if let Some(v) = a.0.get("angle_ref") {
+                    h.angle_ref = Some(self.plane_ref(v)?);
+                }
+                if let Some(d) = a.dim("angle")? {
+                    h.angle = d;
+                }
+                if let Some(v) = a.0.get("point") {
+                    h.point_ref = Some(self.feature_id(v)?);
+                }
                 self.add_feature(FeatureKind::Hole(h), a.str("name"))?
             }
             "add_round" => {
@@ -905,12 +986,49 @@ impl Session {
                 if let Some(k) = a.str("shape") {
                     set.shape = crate::kernel::corner::CornerShape::from_key(k).ok_or(format!("Unknown round shape {:?}.", k))?;
                 }
-                self.add_feature(FeatureKind::Round(RoundDef { sets: vec![set] }), a.str("name"))?
+                set.section = match a.str("section").unwrap_or("circular") {
+                    "circular" => RoundSection::Circular,
+                    "conic" => RoundSection::Conic,
+                    "c2" => RoundSection::C2,
+                    "d1xd2_conic" => RoundSection::D1xD2Conic,
+                    "d1xd2_c2" => RoundSection::D1xD2C2,
+                    k => return Err(format!("Unknown round section {}", k)),
+                };
+                if let Some(d) = a.dim("rho")? {
+                    set.rho = d;
+                }
+                set.d2 = a.dim("distance2")?.unwrap_or_else(|| set.radius.clone());
+                set.chord = a.bool("chord", false);
+                set.full = a.bool("full_round", false);
+                set.extend_surfaces = a.bool("extend_surfaces", false);
+                set.method = match a.str("method").unwrap_or("rolling_ball") {
+                    "rolling_ball" => RoundMethod::RollingBall,
+                    "normal_to_spine" => RoundMethod::NormalToSpine,
+                    m => return Err(format!("Unknown round method {}", m)),
+                };
+                if let Some(v) = a.0.get("through_curve") {
+                    set.curve = self.edge_refs(v)?.into_iter().next();
+                }
+                let transitions = self.corner_transitions(&set.edges, a.str("corner_transition"), "sphere", TransitionKind::Sphere)?;
+                self.add_feature(FeatureKind::Round(RoundDef { sets: vec![set], transitions, surface: a.bool("surface", false) }), a.str("name"))?
             }
             "add_chamfer" => {
                 let FeatureKind::Chamfer(mut c) = FeatureKind::new_chamfer() else { unreachable!() };
                 c.edges = self.edge_refs(a.req("edges")?)?;
-                c.d1 = a.req_dim("distance")?;
+                c.d1 = a.dim("distance")?.unwrap_or(Dim::v(1.0));
+                if a.0.get("distance").is_none() && a.0.get("reference_point").is_none() {
+                    return Err("distance or reference_point is required".into());
+                }
+                if let Some(v) = a.0.get("reference_point") {
+                    c.primary.by_reference = true;
+                    c.primary.d_ref = Some(self.feature_id(v)?);
+                }
+                c.primary.method = match a.str("method").unwrap_or("offset_surfaces") {
+                    "offset_surfaces" => ChamferMethod::OffsetSurfaces,
+                    "tangent_distance" => ChamferMethod::TangentDistance,
+                    m => return Err(format!("Unknown chamfer method {}", m)),
+                };
+                c.surface = a.bool("surface", false);
                 c.d2 = a.dim("distance2")?.unwrap_or_else(|| c.d1.clone());
                 if let Some(d) = a.dim("angle")? {
                     c.angle = d;
@@ -919,8 +1037,12 @@ impl Session {
                     "DxD" => ChamferKind::DxD,
                     "D1xD2" => ChamferKind::D1xD2,
                     "AnglexD" => ChamferKind::AnglexD,
+                    "45xD" => ChamferKind::Deg45xD,
+                    "OxO" => ChamferKind::OxO,
+                    "O1xO2" => ChamferKind::O1xO2,
                     k => return Err(format!("Unknown chamfer kind {}", k)),
                 };
+                c.transitions = self.corner_transitions(&c.primary.edges, a.str("corner_transition"), "corner_chamfer", TransitionKind::CornerChamfer)?;
                 self.add_feature(FeatureKind::Chamfer(c), a.str("name"))?
             }
             "add_shell" => {

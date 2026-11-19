@@ -74,7 +74,8 @@ pub fn is_creo_kind(name: &str, kind: &str) -> bool {
 
 pub fn is_neutral_file(name: &str) -> bool {
     let n = name.to_lowercase();
-    [".stp", ".step", ".p21", ".stl", ".obj"].iter().any(|e| n.ends_with(e))
+    // 2D drawings (DXF, DWG) open as a part built from their views
+    [".stp", ".step", ".p21", ".stl", ".obj", ".dxf", ".dwg"].iter().any(|e| n.ends_with(e))
 }
 
 impl OpenKind {
@@ -85,7 +86,7 @@ impl OpenKind {
             OpenKind::Part => "Teil (.pfprt, Creo .prt)",
             OpenKind::Assembly => "Baugruppe (.pfasm, Creo .asm)",
             OpenKind::Drawing => "Zeichnung (.pfdrw, Creo .drw)",
-            OpenKind::Import => "Importierbar (.stp, .step, .stl, .obj, .prt)",
+            OpenKind::Import => "Importierbar (.stp, .step, .stl, .obj, .prt, .dxf, .dwg)",
             OpenKind::Step => "STEP (.stp, .step)",
             OpenKind::Mesh => "Netz (.stl, .obj)",
             OpenKind::Creo => "Creo-Dateien (.prt, .asm, .drw)",

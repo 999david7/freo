@@ -533,7 +533,7 @@ impl App {
             }
             FeatureKind::Shell(d) => faces.extend(d.faces.iter().copied()),
             FeatureKind::Round(d) => edges.extend(d.sets.iter().flat_map(|s| s.edges.iter().copied())),
-            FeatureKind::Chamfer(d) => edges.extend(d.edges.iter().copied()),
+            FeatureKind::Chamfer(d) => edges.extend(d.sets().flat_map(|s| s.edges.iter().copied())),
             FeatureKind::Surface(d) => faces.extend(d.faces.iter().copied()),
             _ => {}
         }

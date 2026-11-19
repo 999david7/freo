@@ -13,7 +13,7 @@ pub static DIM_NAMES: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicB
 #[derive(Clone, PartialEq, Debug)]
 pub enum DimKey {
     Sketch(usize, i64, (crate::sketch::sketch::SkCType, Vec<i64>, Vec<i64>)),
-    Field(&'static str),
+    Field(String),
 }
 
 pub struct EditDims {
@@ -25,7 +25,7 @@ pub struct EditDims {
 }
 
 struct FieldDim {
-    key: &'static str,
+    key: String,
     text: String,
     edit: String,
     line: Option<(V3, V3)>,
@@ -52,6 +52,20 @@ fn field_mut<'a>(k: &'a mut FeatureKind, key: &str) -> Option<&'a mut Dim> {
             }
         }
         (FeatureKind::Chamfer(d), "d1") => &mut d.d1,
+        (FeatureKind::Chamfer(d), key) if key.starts_with("chamfer_") => {
+            let (field, index) = key.strip_prefix("chamfer_")?.rsplit_once('_')?;
+            let index = index.parse::<usize>().ok()?;
+            if index > d.additional_sets.len() {
+                return None;
+            }
+            let set = d.set_mut(index);
+            match field {
+                "d1" => &mut set.d1,
+                "d2" => &mut set.d2,
+                "angle" => &mut set.angle,
+                _ => return None,
+            }
+        }
         (FeatureKind::Shell(d), "thickness") => &mut d.thickness,
         (FeatureKind::Draft(d), "angle") => &mut d.angle,
         (FeatureKind::Pattern(d), "count1") => &mut d.count1,
@@ -270,7 +284,7 @@ impl App {
                     DepthType::Blind => {
                         let e = base + n * v(&d.depth);
                         out.push(FieldDim {
-                            key: "depth",
+                            key: "depth".into(),
                             text: shown(&d.depth, ""),
                             edit: d.depth.0.clone(),
                             line: Some((base, e)),
@@ -279,14 +293,14 @@ impl App {
                     }
                     DepthType::Symmetric => {
                         let (a, e) = (base - n * (v(&d.depth) / 2.0), base + n * (v(&d.depth) / 2.0));
-                        out.push(FieldDim { key: "depth", text: shown(&d.depth, ""), edit: d.depth.0.clone(), line: Some((a, e)), label: base + fr.x * (size * 0.04) });
+                        out.push(FieldDim { key: "depth".into(), text: shown(&d.depth, ""), edit: d.depth.0.clone(), line: Some((a, e)), label: base + fr.x * (size * 0.04) });
                     }
                     _ => {}
                 }
                 if d.side2 == Side2::Blind && d.depth_type != DepthType::Symmetric {
                     let e = base - n * v(&d.depth2);
                     out.push(FieldDim {
-                        key: "depth2",
+                        key: "depth2".into(),
                         text: shown(&d.depth2, ""),
                         edit: d.depth2.0.clone(),
                         line: Some((base, e)),
@@ -295,7 +309,7 @@ impl App {
                 }
                 if d.thin {
                     out.push(FieldDim {
-                        key: "thickness",
+                        key: "thickness".into(),
                         text: shown(&d.thickness, "T "),
                         edit: d.thickness.0.clone(),
                         line: None,
@@ -306,15 +320,22 @@ impl App {
             FeatureKind::Revolve(d) => {
                 if let (Some(fr), Some((ap, au))) = (d.plane.and_then(|p| ctx.frame_for(&p)), d.sketch.centerline_axis()) {
                     let p = fr.to_world(ap + au * 10.0) + fr.z() * (size * 0.08);
-                    out.push(FieldDim { key: "angle", text: shown(&d.angle, "") + "°", edit: d.angle.0.clone(), line: None, label: p });
+                    out.push(FieldDim { key: "angle".into(), text: shown(&d.angle, "") + "°", edit: d.angle.0.clone(), line: None, label: p });
                 }
             }
             FeatureKind::Hole(d) => {
                 if let Some(fr) = d.plane.and_then(|p| ctx.frame_for(&p)) {
-                    let c = fr.to_world(V2::new(v(&d.x), v(&d.y)));
+                    let references = [d.offset_x.and_then(|p| ctx.frame_for(&p)), d.offset_y.and_then(|p| ctx.frame_for(&p))];
+                    let c = if d.placement == HolePlacement::Linear {
+                        let Ok(position) = crate::model::regen::hole_position(&fr, v(&d.x), v(&d.y), references) else { return out };
+                        fr.to_world(position)
+                    } else {
+                        let Some(axis) = self.preview.as_ref().unwrap_or(&self.result).axes.iter().find(|a| a.feature == f.id) else { return out };
+                        axis.point
+                    };
                     let r = v(&d.diameter) / 2.0;
                     out.push(FieldDim {
-                        key: "diameter",
+                        key: "diameter".into(),
                         text: shown(&d.diameter, "⌀"),
                         edit: d.diameter.0.clone(),
                         line: Some((c - fr.x * r, c + fr.x * r)),
@@ -324,33 +345,40 @@ impl App {
                         let dir = if d.flip { fr.z() } else { -fr.z() };
                         let a = c - fr.x * (r + size * 0.03);
                         out.push(FieldDim {
-                            key: "depth",
+                            key: "depth".into(),
                             text: shown(&d.depth, ""),
                             edit: d.depth.0.clone(),
                             line: Some((a, a + dir * v(&d.depth))),
                             label: a + dir * (v(&d.depth) * 0.5) - fr.x * (size * 0.04),
                         });
                     }
-                    if v(&d.x).abs() > 1e-9 {
-                        let o = fr.to_world(V2::new(0.0, v(&d.y)));
-                        out.push(FieldDim { key: "x", text: shown(&d.x, ""), edit: d.x.0.clone(), line: Some((o, c)), label: (o + c) * 0.5 + fr.y * (size * 0.03) });
+                    if d.placement == HolePlacement::Linear && v(&d.x).abs() > 1e-9 {
+                        let o = c - references[0].map(|reference| reference.z()).unwrap_or(fr.x) * v(&d.x);
+                        out.push(FieldDim { key: "x".into(), text: shown(&d.x, ""), edit: d.x.0.clone(), line: Some((o, c)), label: (o + c) * 0.5 + fr.y * (size * 0.03) });
                     }
-                    if v(&d.y).abs() > 1e-9 {
-                        let o = fr.to_world(V2::new(v(&d.x), 0.0));
-                        out.push(FieldDim { key: "y", text: shown(&d.y, ""), edit: d.y.0.clone(), line: Some((o, c)), label: (o + c) * 0.5 + fr.x * (size * 0.03) });
+                    if d.placement == HolePlacement::Linear && v(&d.y).abs() > 1e-9 {
+                        let o = c - references[1].map(|reference| reference.z()).unwrap_or(fr.y) * v(&d.y);
+                        out.push(FieldDim { key: "y".into(), text: shown(&d.y, ""), edit: d.y.0.clone(), line: Some((o, c)), label: (o + c) * 0.5 + fr.x * (size * 0.03) });
                     }
                 }
             }
             FeatureKind::Round(d) => {
-                const KEYS: [&str; 8] = ["radius0", "radius1", "radius2", "radius3", "radius4", "radius5", "radius6", "radius7"];
-                const ENDS: [&str; 8] = ["radius_end0", "radius_end1", "radius_end2", "radius_end3", "radius_end4", "radius_end5", "radius_end6", "radius_end7"];
-                for (i, set) in d.sets.iter().enumerate().take(8) {
+                for (i, set) in d.sets.iter().enumerate() {
                     let Some(e) = set.edges.first() else { continue };
-                    out.push(FieldDim { key: KEYS[i], text: shown(&set.radius, "R"), edit: set.radius.0.clone(), line: None, label: e.a + (e.n1 + e.n2) * (size * 0.05) });
+                    if set.full || set.curve.is_some() {
+                        continue;
+                    }
+                    out.push(FieldDim {
+                        key: format!("radius{}", i),
+                        text: shown(&set.radius, if set.chord { "Sehne " } else { "R" }),
+                        edit: set.radius.0.clone(),
+                        line: None,
+                        label: e.a + (e.n1 + e.n2) * (size * 0.05),
+                    });
                     if set.variable {
                         out.push(FieldDim {
-                            key: ENDS[i],
-                            text: shown(&set.radius_end, "R"),
+                            key: format!("radius_end{}", i),
+                            text: shown(&set.radius_end, if set.chord { "Sehne " } else { "R" }),
                             edit: set.radius_end.0.clone(),
                             line: None,
                             label: e.b + (e.n1 + e.n2) * (size * 0.05),
@@ -359,17 +387,35 @@ impl App {
                 }
             }
             FeatureKind::Chamfer(d) => {
-                if let Some(e) = d.edges.first() {
-                    out.push(FieldDim { key: "d1", text: shown(&d.d1, "D "), edit: d.d1.0.clone(), line: None, label: e.m + (e.n1 + e.n2) * (size * 0.05) });
+                for (i, set) in d.sets().enumerate() {
+                    let Some(edge) = set.edges.first() else { continue };
+                    let label = edge.m + (edge.n1 + edge.n2) * (size * 0.05);
+                    let first = if matches!(set.kind, ChamferKind::OxO | ChamferKind::O1xO2) { "O " } else { "D " };
+                    out.push(FieldDim { key: format!("chamfer_d1_{}", i), text: shown(&set.d1, first), edit: set.d1.0.clone(), line: None, label });
+                    let second = match set.kind {
+                        ChamferKind::DxD | ChamferKind::Deg45xD | ChamferKind::OxO => None,
+                        ChamferKind::D1xD2 => Some(("d2", &set.d2, "D2 ")),
+                        ChamferKind::O1xO2 => Some(("d2", &set.d2, "O2 ")),
+                        ChamferKind::AnglexD => Some(("angle", &set.angle, "∠ ")),
+                    };
+                    if let Some((name, dim, prefix)) = second {
+                        out.push(FieldDim {
+                            key: format!("chamfer_{}_{}", name, i),
+                            text: shown(dim, prefix),
+                            edit: dim.0.clone(),
+                            line: None,
+                            label: label + edge.n2 * (size * 0.08),
+                        });
+                    }
                 }
             }
             FeatureKind::Shell(d) => {
                 let p = d.faces.first().map(|f| f.point).unwrap_or(b.max);
-                out.push(FieldDim { key: "thickness", text: shown(&d.thickness, "T "), edit: d.thickness.0.clone(), line: None, label: p });
+                out.push(FieldDim { key: "thickness".into(), text: shown(&d.thickness, "T "), edit: d.thickness.0.clone(), line: None, label: p });
             }
             FeatureKind::Draft(d) => {
                 if let Some(fc) = d.faces.first() {
-                    out.push(FieldDim { key: "angle", text: shown(&d.angle, "") + "°", edit: d.angle.0.clone(), line: None, label: fc.point + fc.normal * (size * 0.05) });
+                    out.push(FieldDim { key: "angle".into(), text: shown(&d.angle, "") + "°", edit: d.angle.0.clone(), line: None, label: fc.point + fc.normal * (size * 0.05) });
                 }
             }
             FeatureKind::Pattern(d) => {
@@ -385,14 +431,14 @@ impl App {
                         };
                         let e = src + dir * v(&d.spacing1);
                         out.push(FieldDim {
-                            key: "spacing1",
+                            key: "spacing1".into(),
                             text: shown(&d.spacing1, ""),
                             edit: d.spacing1.0.clone(),
                             line: Some((src, e)),
                             label: (src + e) * 0.5 + V3::Y * (size * 0.04),
                         });
                         out.push(FieldDim {
-                            key: "count1",
+                            key: "count1".into(),
                             text: shown(&d.count1, ""),
                             edit: d.count1.0.clone(),
                             line: None,
@@ -401,9 +447,15 @@ impl App {
                     }
                     PatternKind::Fill | PatternKind::Curve => {}
                     PatternKind::Axis => {
-                        out.push(FieldDim { key: "axis_count", text: shown(&d.axis_count, ""), edit: d.axis_count.0.clone(), line: None, label: src + V3::Y * (size * 0.06) });
                         out.push(FieldDim {
-                            key: "axis_angle",
+                            key: "axis_count".into(),
+                            text: shown(&d.axis_count, ""),
+                            edit: d.axis_count.0.clone(),
+                            line: None,
+                            label: src + V3::Y * (size * 0.06),
+                        });
+                        out.push(FieldDim {
+                            key: "axis_angle".into(),
                             text: shown(&d.axis_angle, "") + "°",
                             edit: d.axis_angle.0.clone(),
                             line: None,
@@ -417,13 +469,19 @@ impl App {
                     let c = if b.is_empty() { V3::ZERO } else { b.center() };
                     let a = base.to_world(base.to_local(c)) + base.x * (size * 0.3);
                     let e = a + base.z() * me.frame.z().dot(me.frame.origin - a);
-                    out.push(FieldDim { key: "offset", text: shown(&d.offset, ""), edit: d.offset.0.clone(), line: Some((a, e)), label: (a + e) * 0.5 + base.x * (size * 0.04) });
+                    out.push(FieldDim {
+                        key: "offset".into(),
+                        text: shown(&d.offset, ""),
+                        edit: d.offset.0.clone(),
+                        line: Some((a, e)),
+                        label: (a + e) * 0.5 + base.x * (size * 0.04),
+                    });
                 }
             }
             FeatureKind::Rib(d) => {
                 if let (Some(fr), Some((mn, mx))) = (d.plane.and_then(|p| ctx.frame_for(&p)), d.sketch.bounds()) {
                     out.push(FieldDim {
-                        key: "thickness",
+                        key: "thickness".into(),
                         text: shown(&d.thickness, "T "),
                         edit: d.thickness.0.clone(),
                         line: None,
@@ -433,15 +491,15 @@ impl App {
             }
             FeatureKind::Helix(d) => {
                 if let (Some(fr), Some((mn, _))) = (d.plane.and_then(|p| ctx.frame_for(&p)), d.profile.bounds()) {
-                    out.push(FieldDim { key: "pitch", text: shown(&d.pitch, "P "), edit: d.pitch.0.clone(), line: None, label: fr.to_world(mn) - fr.x * (size * 0.05) });
+                    out.push(FieldDim { key: "pitch".into(), text: shown(&d.pitch, "P "), edit: d.pitch.0.clone(), line: None, label: fr.to_world(mn) - fr.x * (size * 0.05) });
                 }
             }
             FeatureKind::Thread(d) => {
                 if let Some(c) = self.result.cosmetics.iter().find(|c| c.feature == f.id) {
                     let side = safe_norm(c.dir.cross(if c.dir.x.abs() < 0.9 { V3::X } else { V3::Y }), V3::X) * (c.radius + size * 0.05);
                     let (a, e) = (c.base + side, c.base + side + c.dir * c.length);
-                    out.push(FieldDim { key: "length", text: shown(&d.length, ""), edit: d.length.0.clone(), line: Some((a, e)), label: (a + e) * 0.5 + side * 0.3 });
-                    out.push(FieldDim { key: "diameter", text: shown(&d.diameter, "M"), edit: d.diameter.0.clone(), line: None, label: c.base - side });
+                    out.push(FieldDim { key: "length".into(), text: shown(&d.length, ""), edit: d.length.0.clone(), line: Some((a, e)), label: (a + e) * 0.5 + side * 0.3 });
+                    out.push(FieldDim { key: "diameter".into(), text: shown(&d.diameter, "M"), edit: d.diameter.0.clone(), line: None, label: c.base - side });
                 }
             }
             FeatureKind::Blend(d) if d.rotational => {
@@ -452,7 +510,7 @@ impl App {
                     for (i, o) in d.offsets.iter().enumerate().take(d.sections.len().saturating_sub(1)).take(6) {
                         let c = d.sections.get(i + 1).and_then(|s| s.bounds()).map(|(a, b)| (a + b) * 0.5).unwrap_or(V2::ZERO);
                         out.push(FieldDim {
-                            key: keys[i],
+                            key: keys[i].into(),
                             text: shown(o, "") + "°",
                             edit: o.0.clone(),
                             line: None,
@@ -470,7 +528,7 @@ impl App {
                         let a = fr.origin + fr.x * (size * 0.4) + fr.z() * (acc * sg);
                         acc += v(o);
                         let e = fr.origin + fr.x * (size * 0.4) + fr.z() * (acc * sg);
-                        out.push(FieldDim { key: offs[i], text: shown(o, ""), edit: o.0.clone(), line: Some((a, e)), label: (a + e) * 0.5 + fr.x * (size * 0.04) });
+                        out.push(FieldDim { key: offs[i].into(), text: shown(o, ""), edit: o.0.clone(), line: Some((a, e)), label: (a + e) * 0.5 + fr.x * (size * 0.04) });
                     }
                 }
             }
@@ -480,6 +538,44 @@ impl App {
     }
 
     /// Draws the dimensions of the feature in Edit Dimensions mode and handles in-place edits.
+/// Creo's hole notes ("Notiz hinzufügen"): the callout on a leader from the hole's top, shown
+    /// for the hole being edited and for selected holes.
+    pub fn hole_notes_overlay(&self, painter: &egui::Painter, rect: Rect) {
+        let r = self.displayed();
+        let size = self.viewport_size;
+        let cam = self.camera;
+        let to_screen = |p: V3| cam.project(p, size).map(|s| Pos2::new(rect.min.x + s.0, rect.min.y + s.1));
+        let editing = self.editor.as_ref().map(|e| e.feature.clone());
+        let mut holes: Vec<Feature> = vec![];
+        if let Some(f) = &editing {
+            holes.push(f.clone());
+        }
+        for p in &self.selection {
+            if let Pick::Feature(id) = p {
+                if let Some(f) = self.data.feature(*id) {
+                    if editing.as_ref().map_or(true, |e| e.id != f.id) && !f.suppressed {
+                        holes.push(f.clone());
+                    }
+                }
+            }
+        }
+        for f in holes {
+            let FeatureKind::Hole(d) = &f.kind else { continue };
+            if !d.note {
+                continue;
+            }
+            let Some(axis) = r.axes.iter().find(|a| a.feature == f.id) else { continue };
+            let Some(at) = to_screen(axis.point) else { continue };
+            let text = crate::model::regen::hole_note_text(d, &r.vars);
+            let col = Color32::from_rgb(24, 46, 150);
+            let g = painter.layout_no_wrap(text, FontId::proportional(13.0), col);
+            let label = at + vec2(48.0, -46.0);
+            painter.line_segment([at, label + vec2(0.0, g.size().y * 0.5)], Stroke::new(1.0_f32, col));
+            painter.add(Shape::convex_polygon(vec![at, at + vec2(7.0, -3.0), at + vec2(3.0, -7.0)], col, Stroke::NONE));
+            painter.galley(label + vec2(3.0, 0.0), g, col);
+        }
+    }
+
     pub fn dims_overlay(&mut self, ctx: &egui::Context, painter: &egui::Painter, rect: Rect) {
         let Some(ed) = &self.edit_dims else { return };
         let Some(f) = self.data.feature(ed.feature).cloned() else {

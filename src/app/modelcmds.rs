@@ -119,7 +119,7 @@ impl App {
         }
         let n = sharp.len();
         self.selection.clear();
-        self.start_feature(FeatureKind::Round(crate::model::features::RoundDef { sets: vec![RoundSet::new(1.0)] }));
+        self.start_feature(FeatureKind::Round(crate::model::features::RoundDef { sets: vec![RoundSet::new(1.0)], transitions: vec![], surface: false }));
         if let Some(ed) = &mut self.editor {
             if let FeatureKind::Round(d) = &mut ed.feature.kind {
                 d.sets[0].edges = sharp;

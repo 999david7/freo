@@ -95,13 +95,13 @@ impl App {
             let mut refs: Vec<Option<PlaneRef>> = vec![];
             match &ed.feature.kind {
                 FeatureKind::Round(d) => edges.extend(d.sets.iter().flat_map(|s| s.edges.iter()).filter_map(|e| t.match_chain(e))),
-                FeatureKind::Chamfer(d) => edges.extend(d.edges.iter().filter_map(|e| t.match_chain(e))),
+                FeatureKind::Chamfer(d) => edges.extend(d.sets().flat_map(|s| s.edges.iter()).filter_map(|e| t.match_chain(e))),
                 FeatureKind::Shell(d) => faces.extend(d.faces.iter().filter_map(|f| t.match_face(f.point, f.normal))),
                 FeatureKind::Draft(d) => {
                     faces.extend(d.faces.iter().filter_map(|f| t.match_face(f.point, f.normal)));
                     refs.push(d.hinge);
                 }
-                FeatureKind::Hole(d) => refs.push(d.plane),
+                FeatureKind::Hole(d) => refs.extend([d.plane, d.offset_x, d.offset_y]),
                 FeatureKind::Mirror(d) => refs.push(d.plane),
                 FeatureKind::DatumPlane(d) => refs.push(d.reference),
                 FeatureKind::DatumAxis(d) => {
@@ -128,6 +128,12 @@ impl App {
     }
 
     pub fn viewport_ui(&mut self, ui: &mut egui::Ui) {
+        if self.tab == Tab::Print {
+            return self.print_viewport(ui);
+        }
+        if self.tab == Tab::Cnc {
+            return self.cnc_viewport(ui);
+        }
         let (rect, resp) = ui.allocate_exact_size(ui.available_size(), Sense::click_and_drag());
         super::ui::no_hand(ui.ctx(), resp.id);
         self.viewport_size = (rect.width().max(1.0), rect.height().max(1.0));
@@ -354,7 +360,9 @@ impl App {
                 }
             }
         }
-        for c in &r.cosmetics {
+        // shaded views show the thread turns themselves; the line styles mark the threaded length
+        let line_style = matches!(self.style, Style::Wireframe | Style::HiddenLine | Style::NoHidden);
+        for c in r.cosmetics.iter().filter(|_| line_style) {
             let w = safe_norm(c.dir.cross(if c.dir.x.abs() < 0.9 { V3::X } else { V3::Y }), V3::X);
             let v2 = c.dir.cross(w);
             let ring = |off: f64| -> Vec<V3> {
@@ -370,8 +378,6 @@ impl App {
             for k in 0..48 {
                 push_line(&mut lines, r0[k], r0[k + 1], col);
                 push_line(&mut lines, r1[k], r1[k + 1], col);
-                push_tri(&mut glass, [r0[k], r0[k + 1], r1[k + 1]], [1.0, 0.62, 0.2, 0.16]);
-                push_tri(&mut glass, [r0[k], r1[k + 1], r1[k]], [1.0, 0.62, 0.2, 0.16]);
             }
         }
         if self.show_curves {
@@ -398,9 +404,11 @@ impl App {
                         }
                     }
                 }
-                if ed.pick.is_none() && ed.preview {
+                if ed.pick.is_none() && ed.preview && !ed.verify {
                     if let Some(tool) = self.preview.as_ref().and_then(|p| p.tools.get(&ed.feature.id)) {
-                        let col = if tool.op == crate::model::regen::Op::Cut { [0.95, 0.35, 0.2, 0.10] } else { [1.0, 0.85, 0.1, 0.10] };
+                        // Separat shows the feature's geometry on its own, more strongly
+                        let alpha = if ed.separate { 0.38 } else { 0.10 };
+                        let col = if tool.op == crate::model::regen::Op::Cut { [0.95, 0.35, 0.2, alpha] } else { [1.0, 0.85, 0.1, alpha] };
                         for p in tool.polys.iter().take(20000) {
                             for k in 1..p.v.len() - 1 {
                                 push_tri(&mut glass, [p.v[0].p, p.v[k].p, p.v[k + 1].p], col);
@@ -554,8 +562,12 @@ impl App {
         if let Some(s) = &mut self.sketch {
             s.overlays(ui.ctx());
         }
-        if self.edit_dims.is_some() && self.creo.gfx.annotations {
+        let verifying = self.editor.as_ref().is_some_and(|e| e.verify);
+        if self.edit_dims.is_some() && self.creo.gfx.annotations && !verifying {
             self.dims_overlay(ui.ctx(), &painter, rect);
+        }
+        if self.creo.gfx.annotations && self.sketch.is_none() {
+            self.hole_notes_overlay(&painter, rect);
         }
         if self.hover.is_some() && self.sketch.is_none() {
             ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);

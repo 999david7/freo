@@ -497,6 +497,8 @@ impl eframe::App for App {
         }
 
         self.sim_tick(ctx);
+        self.print_tick(ctx);
+        self.cnc_tick(ctx);
         self.title_bar(ctx);
         self.tab_strip(ctx);
         let mut outcome = Outcome::None;
@@ -522,7 +524,15 @@ impl eframe::App for App {
                 .default_width(380.0)
                 .width_range(220.0..=620.0)
                 .frame(egui::Frame::NONE.fill(PANEL_BG).inner_margin(egui::Margin { left: 4, right: 4, top: 0, bottom: 4 }))
-                .show(ctx, |ui| self.navigator(ui));
+                .show(ctx, |ui| {
+                    if self.tab == Tab::Print {
+                        self.print_panel(ui)
+                    } else if self.tab == Tab::Cnc {
+                        self.cnc_panel(ui)
+                    } else {
+                        self.navigator(ui)
+                    }
+                });
         }
         let mut central = Rect::NOTHING;
         egui::CentralPanel::default().frame(egui::Frame::NONE).show(ctx, |ui| {
@@ -545,16 +555,23 @@ impl eframe::App for App {
         self.combo_bar(ctx, central);
         self.graphics_toolbar(ctx, central);
         self.file_menu_ui(ctx);
+        if self.editor.as_ref().is_some_and(|editor| matches!(editor.feature.kind, FeatureKind::Hole(_) | FeatureKind::Round(_) | FeatureKind::Chamfer(_))) {
+            self.dash_panel_anchor = central.left_top();
+            ctx.data_mut(|data| data.insert_temp(egui::Id::new("feature_dashboard_left"), central.left()));
+        }
         self.feature_panel_ui(ctx);
         self.placement_panel_ui(ctx);
         self.datum_dialog(ctx);
         self.sketch_setup_dialog(ctx);
+        self.drawing2d_dialog(ctx);
         self.sketch_resetup_dialog(ctx);
         self.dialogs(ctx);
         self.asm_windows(ctx);
         self.new_dialogs(ctx);
         self.tool_windows(ctx);
         self.sim_windows(ctx);
+        self.print_windows(ctx);
+        self.cnc_windows(ctx);
         self.open_dialog_ui(ctx);
         self.export_dialog_ui(ctx);
         self.creo_file_ui(ctx);
@@ -573,6 +590,8 @@ impl eframe::App for App {
         }
         storage.set_string("browser_dir", self.browser_dir.display().to_string());
         storage.set_string("background", self.creo.bg.key().to_string());
+        storage.set_string("print3d", self.print.to_json());
+        storage.set_string("cnc", self.cnc.to_json());
         storage.set_string("work_dir", if self.creo.keep_work_dir { self.work_dir.display().to_string() } else { String::new() });
     }
 }

@@ -45,15 +45,22 @@ pub struct CurveInfo {
     pub polylines: Vec<Vec<V3>>,
 }
 
-/// Cosmetic thread: a display-only cylinder at the thread major diameter.
+/// Cosmetic thread: display-only thread turns on a modelled cylinder (the solid keeps the
+/// drill / shaft diameter).
 #[derive(Clone, Debug)]
 pub struct Cosmetic {
     pub feature: u64,
     pub base: V3,
     pub dir: V3,
+    /// major (nominal) radius
     pub radius: f64,
     pub length: f64,
     pub label: String,
+    pub pitch: f64,
+    /// radius of the modelled cylinder the thread sits on (drill or shaft)
+    pub wall: f64,
+    /// inside a hole (nut thread) rather than on a shaft
+    pub internal: bool,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -788,6 +795,50 @@ pub fn hole_drill(d: &HoleDef, vars: &Vars) -> Result<f64, String> {
     d.diameter.eval(vars)
 }
 
+/// Solve signed offsets to two reference planes in the placement plane.
+/// A missing reference keeps the original local X or Y coordinate.
+pub fn hole_position(frame: &Frame, x: f64, y: f64, references: [Option<Frame>; 2]) -> Result<V2, String> {
+    let mut rows = [(1.0, 0.0, x), (0.0, 1.0, y)];
+    for (i, reference) in references.into_iter().enumerate() {
+        if let Some(reference) = reference {
+            let normal = reference.z();
+            rows[i] = (normal.dot(frame.x), normal.dot(frame.y), [x, y][i] + normal.dot(reference.origin - frame.origin));
+        }
+    }
+    let [(a, b, c), (d, e, f)] = rows;
+    let determinant = a * e - b * d;
+    if determinant.abs() < 1e-8 {
+        return Err("Die Versatzreferenzen müssen die Platzierungsebene in zwei unabhängigen Richtungen schneiden.".into());
+    }
+    Ok(V2::new((c * e - b * f) / determinant, (a * f - c * d) / determinant))
+}
+
+/// Creo's hole note ("Notiz"): size and depth of the hole, e.g. "⌀12.000 ↧ 30.130".
+pub fn hole_note_text(d: &HoleDef, vars: &Vars) -> String {
+    let num = |x: &Dim| format!("{:.3}", x.value(vars, 0.0));
+    let depth = match d.depth_kind() {
+        DepthType::ThroughAll => " DURCH ALLE".to_string(),
+        DepthType::ToNext => " BIS NÄCHSTE".to_string(),
+        DepthType::ToSelected => " BIS FLÄCHE".to_string(),
+        _ => format!(" ↧ {}", num(&d.depth)),
+    };
+    if d.sketched {
+        return format!("SKIZZIERTE BOHRUNG{}", if d.depth_kind() == DepthType::ThroughAll { depth } else { String::new() });
+    }
+    match d.ty {
+        HoleType::Standard => match super::threads::find(d.standard, &d.size) {
+            Some(s) if d.tapped => {
+                let td = if d.through_all { String::new() } else { format!(" ↧ {}", num(&d.thread_depth)) };
+                format!("{}{}\n⌀{}{}", super::threads::callout(d.standard, s), td, format!("{:.3}", hole_drill(d, vars).unwrap_or(0.0)), depth)
+            }
+            _ => format!("⌀{}{} ({} DL)", format!("{:.3}", hole_drill(d, vars).unwrap_or(0.0)), depth, d.size),
+        },
+        HoleType::Counterbore => format!("⌀{}{}\n⌴ ⌀{} ↧ {}", num(&d.diameter), depth, num(&d.cb_diameter), num(&d.cb_depth)),
+        HoleType::Countersink => format!("⌀{}{}\n⌵ ⌀{} x {}°", num(&d.diameter), depth, num(&d.cs_diameter), num(&d.cs_angle)),
+        HoleType::Simple => format!("⌀{}{}", num(&d.diameter), depth),
+    }
+}
+
 pub fn hole_profile(d: &HoleDef, vars: &Vars, through: f64) -> Result<Vec<V2>, String> {
     let r = hole_drill(d, vars)? / 2.0;
     if r <= 0.0 {
@@ -818,6 +869,140 @@ pub fn hole_profile(d: &HoleDef, vars: &Vars, through: f64) -> Result<Vec<V2>, S
             vec![V2::new(0.0, -eps), V2::new(sr + eps * half.tan(), -eps), V2::new(r, h), V2::new(r, depth), tip(depth)]
         }
     })
+}
+
+/// Profil Skizziert: the sketch's regions revolved once about its centreline. The centreline
+/// becomes the hole axis and the top of the profile (the end the centreline points to) sits on
+/// the placement plane, as in Creo.
+pub fn sketched_hole_tool(s: &Sketch, base: V3, dir: V3, xdir: V3, tags: &mut TagAllocator, fid: u64) -> Result<Vec<CPolygon>, String> {
+    let (ap, au0) = s.centerline_axis().ok_or("Im Bohrungsprofil eine Mittellinie als Bohrungsachse skizzieren.")?;
+    let regions = s.profile_regions()?;
+    if regions.is_empty() {
+        return Err("Das Bohrungsprofil muss geschlossen sein.".into());
+    }
+    // the axis points up, out of the hole
+    let au = if au0.y < 0.0 { -au0 } else { au0 };
+    let mut side = 0.0;
+    let mut top = f64::NEG_INFINITY;
+    for r in &regions {
+        for p in &r.outer.pts {
+            let c = cross2(au, *p - ap);
+            top = top.max((*p - ap).dot(au));
+            if c.abs() < 1e-7 {
+                continue;
+            }
+            if side == 0.0 {
+                side = c;
+            } else if side * c < 0.0 {
+                return Err("Das Bohrungsprofil muss auf einer Seite der Mittellinie liegen.".into());
+            }
+        }
+    }
+    // sketch (x, y) -> world: au -> -dir, its normal -> xdir
+    let perp = V2::new(au.y, -au.x);
+    let ex = -dir * au.x + xdir * perp.x;
+    let ey = -dir * au.y + xdir * perp.y;
+    let anchor = ap + au * top;
+    let frame = Frame { origin: base - ex * anchor.x - ey * anchor.y, x: ex, y: ey };
+    Ok(builders::revolve(&regions, &frame, ap, au, 0.0, std::f64::consts::TAU, tags, fid))
+}
+
+/// Corners where edges of a round or chamfer meet: the shared end point and the indices (into
+/// `chains`) of the chains ending there. Only corners with two or more chains are returned.
+pub fn edge_corners(chains: &[EdgeChain], tol: f64) -> Vec<(V3, Vec<usize>)> {
+    let mut out: Vec<(V3, Vec<usize>)> = vec![];
+    for (i, c) in chains.iter().enumerate() {
+        if c.closed || c.points.is_empty() {
+            continue;
+        }
+        for p in [c.points[0], *c.points.last().unwrap()] {
+            match out.iter_mut().find(|(q, _)| (*q - p).length() < tol) {
+                Some((_, l)) => {
+                    if !l.contains(&i) {
+                        l.push(i)
+                    }
+                }
+                None => out.push((p, vec![i])),
+            }
+        }
+    }
+    out.retain(|(_, l)| l.len() >= 2);
+    out
+}
+
+/// The transition stored for a corner (Standard when none is).
+pub fn transition_at(list: &[Transition], p: V3, tol: f64) -> TransitionKind {
+    list.iter().find(|t| (t.point - p).length() < tol).map(|t| t.kind).unwrap_or_default()
+}
+
+/// Vollrundung: radius of the circle touching the face between two parallel edges and both side
+/// faces; rounding both edges with it replaces the face by one round.
+pub fn full_round_radius(c1: &EdgeChain, c2: &EdgeChain) -> Result<f64, String> {
+    let err = || "Vollrundung: zwei parallele, gerade Kanten einer gemeinsamen Fläche wählen.".to_string();
+    if !(c1.is_straight() && c2.is_straight()) || c1.points.len() < 2 || c2.points.len() < 2 {
+        return Err(err());
+    }
+    let e = safe_norm(c1.points[1] - c1.points[0], V3::X);
+    if safe_norm(c2.points[1] - c2.points[0], V3::X).cross(e).length() > 1e-3 {
+        return Err(err());
+    }
+    let (p1, p2) = (c1.points[0], c2.points[0]);
+    let (a1, b1, a2, b2) = (c1.n_a[0], c1.n_b[0], c2.n_a[0], c2.n_b[0]);
+    // the face both edges border
+    let same = |u: V3, v: V3| u.dot(v) > 1.0 - 1e-6;
+    let (top, s1, s2) = if same(a1, a2) {
+        (a1, b1, b2)
+    } else if same(a1, b2) {
+        (a1, b1, a2)
+    } else if same(b1, a2) {
+        (b1, a1, b2)
+    } else if same(b1, b2) {
+        (b1, a1, a2)
+    } else {
+        return Err(err());
+    };
+    // centre x and radius r: n.(x - p) = -r for the top and both sides, e.(x - p1) = 0
+    let rows = [(top, top.dot(p1)), (s1, s1.dot(p1)), (s2, s2.dot(p2))];
+    let mut m = [[0.0f64; 5]; 4];
+    for (i, (n, w)) in rows.iter().enumerate() {
+        m[i] = [n.x, n.y, n.z, 1.0, *w];
+    }
+    m[3] = [e.x, e.y, e.z, 0.0, e.dot(p1)];
+    for col in 0..4 {
+        let piv = (col..4).max_by(|&a, &b| m[a][col].abs().partial_cmp(&m[b][col].abs()).unwrap()).unwrap();
+        if m[piv][col].abs() < 1e-9 {
+            return Err(err());
+        }
+        m.swap(col, piv);
+        for r in 0..4 {
+            if r != col {
+                let f = m[r][col] / m[col][col];
+                for k in col..5 {
+                    m[r][k] -= f * m[col][k];
+                }
+            }
+        }
+    }
+    let r = m[3][4] / m[3][3];
+    if !(r > 1e-6) {
+        return Err(err());
+    }
+    Ok(r)
+}
+
+/// Closest distance from `p` to a polyline.
+pub fn polyline_distance(p: V3, line: &[V3]) -> f64 {
+    let mut best = f64::INFINITY;
+    for w in line.windows(2) {
+        let (a, b) = (w[0], w[1]);
+        let ab = b - a;
+        let t = ((p - a).dot(ab) / ab.dot(ab).max(1e-18)).clamp(0.0, 1.0);
+        best = best.min((a + ab * t - p).length());
+    }
+    if line.len() == 1 {
+        best = (line[0] - p).length();
+    }
+    best
 }
 
 impl<'a> Regen<'a> {
@@ -1482,20 +1667,146 @@ impl<'a> Regen<'a> {
             }
             FeatureKind::Hole(d) => {
                 let frame = self.plane(&d.plane)?;
-                let p = V2::new(self.e(&d.x)?, self.e(&d.y)?);
-                let dir = if d.flip { frame.z() } else { -frame.z() };
-                let prof = hole_profile(d, &self.vars, self.through(&frame))?;
-                let base = frame.to_world(p);
-                let tool = builders::hole_tool(&prof, base, dir, frame.x, &mut self.tags, fid);
+                let z = frame.z();
+                // where the axis meets the placement plane
+                let on_plane = |p: V3, u: V3| -> Result<V3, String> {
+                    let k = u.dot(z);
+                    if k.abs() < 1e-6 {
+                        return Err("Die Achse liegt parallel zur Platzierungsebene.".into());
+                    }
+                    Ok(p + u * ((frame.origin - p).dot(z) / k))
+                };
+                let base = match d.placement {
+                    HolePlacement::Linear => {
+                        let reference_x = d.offset_x.map(|r| self.plane(&Some(r))).transpose()?;
+                        let reference_y = d.offset_y.map(|r| self.plane(&Some(r))).transpose()?;
+                        frame.to_world(hole_position(&frame, self.e(&d.x)?, self.e(&d.y)?, [reference_x, reference_y])?)
+                    }
+                    HolePlacement::Radial | HolePlacement::Diameter => {
+                        let (ap, au) = self.axis(d.axis_ref.as_ref().ok_or("Eine Achse als Versatzreferenz wählen.")?)?;
+                        let c = on_plane(ap, au)?;
+                        let zero = match d.angle_ref {
+                            Some(r) => {
+                                let rf = self.plane(&Some(r))?;
+                                let v = z.cross(rf.z());
+                                if v.length() < 1e-6 {
+                                    return Err("Die Winkelreferenz darf nicht parallel zur Platzierungsebene sein.".into());
+                                }
+                                safe_norm(v, frame.x)
+                            }
+                            None => frame.x,
+                        };
+                        let rad = self.e(&d.x)? * if d.placement == HolePlacement::Diameter { 0.5 } else { 1.0 };
+                        let ang = self.e(&d.angle)?.to_radians();
+                        c + (zero * ang.cos() + z.cross(zero) * ang.sin()) * rad
+                    }
+                    HolePlacement::Coaxial => {
+                        let (ap, au) = self.axis(d.axis_ref.as_ref().ok_or("Eine Achse für die koaxiale Bohrung wählen.")?)?;
+                        on_plane(ap, au)?
+                    }
+                    HolePlacement::OnPoint => {
+                        let id = d.point_ref.ok_or("Einen Bezugspunkt für die Bohrung wählen.")?;
+                        let p = self.res.points.iter().find(|q| q.id == id).map(|q| q.p).ok_or("Der Bezugspunkt fehlt.")?;
+                        p - z * (p - frame.origin).dot(z)
+                    }
+                };
+                let dir = if d.flip { z } else { -z };
+                // Bohrungsorientierung: turns the hole's own x direction (profile seam, sketch)
+                let mut xdir = frame.x;
+                if let Some(o) = d.orient_ref {
+                    let of = self.plane(&Some(o))?;
+                    let target = if d.orient_normal { of.z() } else { of.z().cross(z) };
+                    xdir = safe_norm(target - z * target.dot(z), frame.x);
+                }
+                // depth option -> plain depth
+                let kind = d.depth_kind();
+                let mut dd = d.clone();
+                let mut base = base;
+                match kind {
+                    DepthType::Symmetric => {
+                        let dep = self.e(&d.depth)?;
+                        base = base - dir * (dep / 2.0);
+                    }
+                    DepthType::ToNext => {
+                        let t = self.topo();
+                        let hit = t.ray_first_hit(base + dir * 1e-3, dir, 1e-4).ok_or("Bis zur nächsten: in Bohrrichtung liegt keine Fläche.")?;
+                        dd.depth = Dim::v(hit + 1e-3);
+                        dd.depth_type = DepthType::Blind;
+                    }
+                    DepthType::ToSelected => {
+                        let pf = self.plane(&d.depth_ref)?;
+                        let k = pf.z().dot(dir);
+                        if k.abs() < 1e-6 {
+                            return Err("Die Tiefenreferenz liegt parallel zur Bohrrichtung.".into());
+                        }
+                        let t = (pf.origin - base).dot(pf.z()) / k;
+                        if t <= 1e-6 {
+                            return Err("Die Tiefenreferenz liegt nicht in Bohrrichtung.".into());
+                        }
+                        dd.depth = Dim::v(t);
+                        dd.depth_type = DepthType::Blind;
+                    }
+                    _ => {}
+                }
+                let through = self.through(&frame);
+                let depth_shown = if kind == DepthType::ThroughAll { through } else { self.e(&dd.depth)? };
+                if d.lightweight {
+                    // Geometrielos: axis plus the outline at both ends, no material removed
+                    let r = hole_drill(d, &self.vars)? / 2.0;
+                    let depth = if kind == DepthType::ThroughAll {
+                        let t = self.topo();
+                        let mut far = 0.0f64;
+                        let mut o = base + dir * 1e-3;
+                        while let Some(h) = t.ray_first_hit(o, dir, 1e-4) {
+                            far += h + 1e-3;
+                            o = o + dir * (h + 1e-3);
+                            if far > through {
+                                break;
+                            }
+                        }
+                        far.max(r)
+                    } else {
+                        depth_shown
+                    };
+                    let w = xdir;
+                    let v2 = dir.cross(w);
+                    let ring = |off: f64| -> Vec<V3> {
+                        (0..=64)
+                            .map(|k| {
+                                let a = std::f64::consts::TAU * k as f64 / 64.0;
+                                base + dir * off + (w * a.cos() + v2 * a.sin()) * r
+                            })
+                            .collect()
+                    };
+                    self.res.curves.push(CurveInfo { feature: fid, polylines: vec![ring(0.0), ring(depth)] });
+                    self.add_axis(fid, 1, base, dir);
+                    return Ok(());
+                }
+                let tool = if d.sketched {
+                    sketched_hole_tool(&self.prepare(&d.sketch)?, base, dir, xdir, &mut self.tags, fid)?
+                } else {
+                    let prof = hole_profile(&dd, &self.vars, through)?;
+                    builders::hole_tool(&prof, base, dir, xdir, &mut self.tags, fid)
+                };
                 self.apply_tool(tool, true, fid)?;
                 self.add_axis(fid, 1, base, dir);
-                if d.ty == HoleType::Standard && d.tapped {
+                if d.ty == HoleType::Standard && d.tapped && !d.sketched {
                     let spec = super::threads::find(d.standard, &d.size).ok_or("Unbekannte Gewindegröße.")?;
                     let extent = self.polys.iter().flat_map(|q| q.v.iter()).map(|v| (v.p - base).dot(dir)).fold(0.0f64, f64::max);
-                    let depth = if d.through_all { extent } else { self.e(&d.depth)? };
+                    let depth = if d.through_all { extent } else { self.e(&dd.depth)? };
                     let len = if d.through_all { extent } else { self.e(&d.thread_depth)?.min(depth) };
                     if len > 0.0 {
-                        self.res.cosmetics.push(Cosmetic { feature: fid, base, dir, radius: spec.major / 2.0, length: len, label: super::threads::callout(d.standard, spec) });
+                        self.res.cosmetics.push(Cosmetic {
+                            feature: fid,
+                            base,
+                            dir,
+                            radius: spec.major / 2.0,
+                            length: len,
+                            label: super::threads::callout(d.standard, spec),
+                            pitch: spec.pitch,
+                            wall: spec.tap / 2.0,
+                            internal: true,
+                        });
                     }
                 }
             }
@@ -1504,9 +1815,42 @@ impl<'a> Regen<'a> {
                     return Err("Kanten für die Rundung wählen.".into());
                 }
                 let t = self.topo();
+                let tol = (t.bbox.diagonal() * 1e-5).max(1e-6);
                 let mut cur = self.polys.clone();
+                // every rounded chain with its (constant) radius, for the transitions
+                let mut done: Vec<(EdgeChain, Option<f64>)> = vec![];
+                let mut shown: Vec<CPolygon> = vec![];
+                let mut surfaces: Vec<CPolygon> = vec![];
                 for (si, set) in d.sets.iter().enumerate() {
-                    if set.edges.is_empty() {
+                    let edges: Vec<&EdgeRef> = set.edges.iter().enumerate().filter(|(i, _)| !set.excluded.contains(i)).map(|(_, e)| e).collect();
+                    if edges.is_empty() {
+                        continue;
+                    }
+                    let mut picked: Vec<(EdgeChain, V3)> = vec![];
+                    for e in &edges {
+                        let ci = t.match_chain(e).ok_or(format!("Satz {}: eine Kantenreferenz wurde nicht gefunden.", si + 1))?;
+                        picked.push((t.chains[ci].clone(), e.a));
+                    }
+                    if set.full {
+                        if picked.len() != 2 {
+                            return Err(format!("Satz {}: eine Vollrundung braucht genau zwei Kanten.", si + 1));
+                        }
+                        let r = full_round_radius(&picked[0].0, &picked[1].0).map_err(|e| format!("Satz {}: {}", si + 1, e))?;
+                        for (c, _) in &picked {
+                            if !c.convex {
+                                return Err(format!("Satz {}: eine Vollrundung geht nur über konvexe Kanten.", si + 1));
+                            }
+                            if d.surface {
+                                let q = builders::edge_surface(c, &builders::round_section(r, r, true), &mut self.tags, fid);
+                                shown.extend(q.iter().cloned());
+                                surfaces.extend(q);
+                                continue;
+                            }
+                            let tool = builders::edge_tool_ends(c, &builders::round_section(r, r, true), t.tool_end_reach(c, r * 0.02), &mut self.tags, fid);
+                            shown.extend(tool.iter().cloned());
+                            cur = csg::subtract_local(&cur, &tool);
+                            done.push((c.clone(), Some(r)));
+                        }
                         continue;
                     }
                     let r0 = self.e(&set.radius)?;
@@ -1514,13 +1858,20 @@ impl<'a> Regen<'a> {
                     if r0 <= 0.0 || r1 <= 0.0 {
                         return Err(format!("Satz {}: der Radius muss positiv sein.", si + 1));
                     }
-                    // (chain, first picked point): a constant radius rounds tangent chains as one edge
-                    let mut picked: Vec<(EdgeChain, V3)> = vec![];
-                    for e in &set.edges {
-                        let ci = t.match_chain(e).ok_or(format!("Satz {}: eine Kantenreferenz wurde nicht gefunden.", si + 1))?;
-                        picked.push((t.chains[ci].clone(), e.a));
+                    let rho = self.e(&set.rho)?;
+                    if set.section.has_rho() && !(0.05..=0.95).contains(&rho) {
+                        return Err(format!("Satz {}: der konische Parameter muss zwischen 0.05 und 0.95 liegen.", si + 1));
                     }
-                    if !set.variable {
+                    let d2 = self.e(&set.d2)?;
+                    if set.section.two_distances() && d2 <= 0.0 {
+                        return Err(format!("Satz {}: D2 muss positiv sein.", si + 1));
+                    }
+                    let driving: Option<Vec<V3>> = match &set.curve {
+                        Some(cr) => Some(t.chains[t.match_chain(cr).ok_or(format!("Satz {}: die Steuerkurve wurde nicht gefunden.", si + 1))?].points.clone()),
+                        None => None,
+                    };
+                    // a constant radius rounds tangent chains as one edge
+                    if !set.variable && driving.is_none() {
                         let anchor = picked[0].1;
                         picked = merge_tangent(picked.into_iter().map(|p| p.0).collect()).into_iter().map(|c| (c, anchor)).collect();
                     }
@@ -1528,45 +1879,225 @@ impl<'a> Regen<'a> {
                         // keep the variable radius anchored to the end that was picked first
                         let rev = (c.points[0] - *anchor).length() > (c.points[c.points.len() - 1] - *anchor).length();
                         let (a, b) = if rev { (r1, r0) } else { (r0, r1) };
-                        let section = if set.shape == crate::kernel::corner::CornerShape::Circular {
+                        let curve_kind = |rho| match set.section {
+                            RoundSection::Conic | RoundSection::D1xD2Conic => builders::SectionCurve::Conic(rho),
+                            _ => builders::SectionCurve::C2(rho),
+                        };
+                        let section = if let Some(line) = driving.clone() {
+                            // Durch Kurve: the round's edge on the surface runs along the curve
+                            builders::round_section_by(Box::new(move |p, n1, n2, _| polyline_distance(p, &line) / builders::round_tangent_distance(1.0, n1, n2).max(1e-6)), c.convex)
+                        } else if set.chord {
+                            builders::round_section_chord(a, b, c.convex, set.shape)
+                        } else if set.section.two_distances() {
+                            builders::round_section_curve(Box::new(move |_, _, _, frac| (a + (b - a) * frac, d2)), c.convex, curve_kind(rho))
+                        } else if set.section.has_rho() {
+                            builders::round_section_curve(
+                                Box::new(move |_, n1, n2, frac| {
+                                    let td = builders::round_tangent_distance(a + (b - a) * frac, n1, n2);
+                                    (td, td)
+                                }),
+                                c.convex,
+                                curve_kind(rho),
+                            )
+                        } else if set.shape == crate::kernel::corner::CornerShape::Circular && set.variable && set.method == RoundMethod::RollingBall && (a - b).abs() > 1e-9 {
+                            builders::round_section_rolling(a, b, c.convex, c.points.clone())
+                        } else if set.shape == crate::kernel::corner::CornerShape::Circular {
                             builders::round_section(a, b, c.convex)
                         } else {
                             builders::round_section_shape(a, b, c.convex, set.shape)
                         };
-                        let tool = builders::edge_tool(c, &section, a.max(b) * 0.02, &mut self.tags, fid);
+                        // the round must stay on its two surfaces; past a surface's border it only
+                        // goes on over the surface's extension (Flächen verlängern)
+                        if !set.extend_surfaces && driving.is_none() {
+                            for w in c.points.windows(2).chain(if c.closed { vec![[*c.points.last().unwrap(), c.points[0]]] } else { vec![] }.iter().map(|x| &x[..])) {
+                                let k = c.points.iter().position(|q| *q == w[0]).unwrap_or(0);
+                                let (na, nb) = (c.n_a[k], c.n_b[k]);
+                                let m = (w[0] + w[1]) * 0.5;
+                                let frac = {
+                                    let total: f64 = c.points.windows(2).map(|x| (x[1] - x[0]).length()).sum::<f64>().max(1e-9);
+                                    let upto: f64 = c.points.windows(2).take(k).map(|x| (x[1] - x[0]).length()).sum::<f64>();
+                                    (upto + (w[1] - w[0]).length() * 0.5) / total
+                                };
+                                let rr = a + (b - a) * frac;
+                                let (da, db) = if set.chord {
+                                    let half = 0.5 * na.dot(nb).clamp(-0.999, 0.999).acos();
+                                    let td = rr / (2.0 * half.sin()).max(1e-6) * half.tan();
+                                    (td, td)
+                                } else if set.section.two_distances() {
+                                    (rr, d2)
+                                } else {
+                                    let td = builders::round_tangent_distance(rr, na, nb);
+                                    (td, td)
+                                };
+                                let (fa, fb) = (c.f_a[k], c.f_b[k]);
+                                let eps = (da.max(db) * 1e-3).max(1e-4);
+                                let on_face = |dir: V3, n: V3, dist: f64| t.contains(m + dir * (dist * 0.995) - n * eps);
+                                if !on_face(fa, na, da) || !on_face(fb, nb, db) {
+                                    return Err(format!(
+                                        "Satz {}: die Rundung läuft über den Rand einer angrenzenden Fläche hinaus. „Flächen verlängern“ aktivieren oder den Radius verkleinern.",
+                                        si + 1
+                                    ));
+                                }
+                            }
+                        }
+                        let reach = if set.extend_surfaces && !c.closed { [a.max(b), a.max(b)] } else { t.tool_end_reach(c, a.max(b) * 0.02) };
+                        if d.surface {
+                            let q = builders::edge_surface(c, &section, &mut self.tags, fid);
+                            shown.extend(q.iter().cloned());
+                            surfaces.extend(q);
+                            done.push((c.clone(), None));
+                            continue;
+                        }
+                        let tool = builders::edge_tool_ends(c, &section, reach, &mut self.tags, fid);
+                        shown.extend(tool.iter().cloned());
                         cur = if c.convex { csg::subtract_local(&cur, &tool) } else { csg::union_local(&cur, &tool) };
+                        let constant = !set.variable && driving.is_none() && !set.chord && set.section == RoundSection::Circular && set.shape == crate::kernel::corner::CornerShape::Circular;
+                        done.push((c.clone(), if constant { Some(a) } else { None }));
                     }
+                }
+                // Übergänge: spherical corners where three rounds of one radius meet
+                let chains: Vec<EdgeChain> = done.iter().map(|x| x.0.clone()).collect();
+                for (p, list) in edge_corners(&chains, tol) {
+                    if d.surface || transition_at(&d.transitions, p, tol) != TransitionKind::Sphere {
+                        continue;
+                    }
+                    let radii: Vec<Option<f64>> = list.iter().map(|&i| done[i].1).collect();
+                    let r = match radii[0] {
+                        Some(r) if list.len() == 3 && radii.iter().all(|x| x.map_or(false, |x| (x - r).abs() < 1e-6)) && list.iter().all(|&i| done[i].0.convex) => r,
+                        _ => return Err("Kugelecke: drei konvexe Kanten mit gleichem, konstantem Kreisradius müssen sich in der Ecke treffen.".into()),
+                    };
+                    let mut normals: Vec<V3> = vec![];
+                    for &i in &list {
+                        let c = &done[i].0;
+                        let k = if (c.points[0] - p).length() < tol { 0 } else { c.points.len() - 1 };
+                        for n in [c.n_a[k], c.n_b[k]] {
+                            if !normals.iter().any(|m| m.dot(n) > 1.0 - 1e-4) {
+                                normals.push(n);
+                            }
+                        }
+                    }
+                    if normals.len() != 3 {
+                        return Err("Kugelecke: in der Ecke müssen genau drei Flächen zusammenkommen.".into());
+                    }
+                    let tool = builders::sphere_corner_tool(p, [normals[0], normals[1], normals[2]], r, &mut self.tags, fid).ok_or("Kugelecke: die Flächen der Ecke sind nicht unabhängig.")?;
+                    cur = csg::subtract_local(&cur, &tool);
+                }
+                self.res.tools.insert(fid, ToolBody { polys: shown, op: Op::Cut });
+                if d.surface {
+                    self.quilts.push((fid, surfaces));
+                    return Ok(());
                 }
                 self.set_polys(cur);
             }
             FeatureKind::Chamfer(d) => {
-                if d.edges.is_empty() {
+                if d.edge_count() == 0 {
                     return Err("Kanten für die Fase wählen.".into());
                 }
-                let d1 = self.e(&d.d1)?;
-                let d2 = match d.kind {
-                    ChamferKind::DxD => d1,
-                    ChamferKind::D1xD2 => self.e(&d.d2)?,
-                    ChamferKind::AnglexD => d1 * self.e(&d.angle)?.to_radians().tan(),
-                };
-                if d1 <= 0.0 || d2 <= 0.0 {
-                    return Err("Fasenabstände müssen positiv sein.".into());
-                }
                 let t = self.topo();
+                let tol = (t.bbox.diagonal() * 1e-5).max(1e-6);
                 if d.corner {
-                    // Eckfase: cut off the corner where the chosen edges meet
+                    let d1 = self.e(&d.d1)?;
+                    if d1 <= 0.0 {
+                        return Err("Der Fasenabstand muss positiv sein.".into());
+                    }
                     let tag = self.tags.next(fid);
                     let tool = corner_tool(&t, &d.edges, d1, tag)?;
                     return self.apply_tool(tool, true, fid);
                 }
                 let mut cur = self.polys.clone();
-                let mut picked: Vec<EdgeChain> = vec![];
-                for e in &d.edges {
-                    picked.push(t.chains[t.match_chain(e).ok_or("Eine Kantenreferenz wurde nicht gefunden.")?].clone());
+                let mut done: Vec<(EdgeRef, f64)> = vec![];
+                let mut shown: Vec<CPolygon> = vec![];
+                let mut surfaces: Vec<CPolygon> = vec![];
+                for (si, set) in d.sets().enumerate() {
+                    let edges: Vec<&EdgeRef> = set.edges.iter().enumerate().filter(|(i, _)| !set.excluded.contains(i)).map(|(_, e)| e).collect();
+                    if edges.is_empty() {
+                        continue;
+                    }
+                    let v1 = if set.by_reference {
+                        // Referenz: D runs from the edge to the picked datum point
+                        let id = set.d_ref.ok_or(format!("Satz {}: einen Bezugspunkt als Referenz für D wählen.", si + 1))?;
+                        let q = self.res.points.iter().find(|x| x.id == id).map(|x| x.p).ok_or(format!("Satz {}: der Referenzpunkt fehlt.", si + 1))?;
+                        let ci = t.match_chain(edges[0]).ok_or(format!("Satz {}: eine Kantenreferenz wurde nicht gefunden.", si + 1))?;
+                        polyline_distance(q, &t.chains[ci].points)
+                    } else {
+                        self.e(&set.d1)?
+                    };
+                    let v2 = match set.kind {
+                        ChamferKind::D1xD2 | ChamferKind::O1xO2 if !set.by_reference => self.e(&set.d2)?,
+                        ChamferKind::AnglexD => {
+                            let angle = self.e(&set.angle)?;
+                            if !(0.0..90.0).contains(&angle) || angle == 0.0 {
+                                return Err(format!("Satz {}: der Fasenwinkel muss zwischen 0° und 90° liegen.", si + 1));
+                            }
+                            v1 * angle.to_radians().tan()
+                        }
+                        _ => v1,
+                    };
+                    if v1 <= 0.0 || v2 <= 0.0 {
+                        return Err(format!("Satz {}: Fasenabstände müssen positiv sein.", si + 1));
+                    }
+                    let mut picked = vec![];
+                    for e in &edges {
+                        let ci = t.match_chain(e).ok_or(format!("Satz {}: eine Kantenreferenz wurde nicht gefunden.", si + 1))?;
+                        picked.push(t.chains[ci].clone());
+                        done.push(((*e).clone(), v1.max(v2)));
+                    }
+                    for c in &merge_tangent(picked) {
+                        if set.kind == ChamferKind::Deg45xD && c.n_a.iter().zip(&c.n_b).any(|(a, b)| a.dot(*b).abs() > 0.02) {
+                            return Err(format!("Satz {}: 45 x D geht nur zwischen senkrecht aufeinander stehenden Flächen.", si + 1));
+                        }
+                        let section = match set.kind {
+                            ChamferKind::OxO | ChamferKind::O1xO2 => {
+                                let (o1, o2) = (v1, v2);
+                                // the point at depth o1 under surface 1 and o2 under surface 2,
+                                // projected back onto both surfaces
+                                builders::chamfer_section_by(
+                                    Box::new(move |n1, n2, f1, f2| {
+                                        let b = o1 / n1.dot(f2).abs().max(1e-6);
+                                        let a = o2 / n2.dot(f1).abs().max(1e-6);
+                                        let k = f1.dot(f2);
+                                        (a + b * k, a * k + b)
+                                    }),
+                                    c.convex,
+                                )
+                            }
+                            ChamferKind::AnglexD => builders::chamfer_section(v1, v2, c.convex),
+                            // Versatzflächen: each chamfer edge is where the other surface,
+                            // offset by its distance, meets this one; Tangentialer Abstand:
+                            // the distances run along the surfaces' tangents
+                            _ if set.method == ChamferMethod::OffsetSurfaces => {
+                                let (o1, o2) = (v1, v2);
+                                builders::chamfer_section_by(Box::new(move |n1, n2, f1, f2| (o2 / f1.dot(n2).abs().max(1e-6), o1 / f2.dot(n1).abs().max(1e-6))), c.convex)
+                            }
+                            _ => builders::chamfer_section(v1, v2, c.convex),
+                        };
+                        if d.surface {
+                            let q = builders::edge_surface(c, &section, &mut self.tags, fid);
+                            shown.extend(q.iter().cloned());
+                            surfaces.extend(q);
+                            continue;
+                        }
+                        let tool = builders::edge_tool_ends(c, &section, t.tool_end_reach(c, v1.max(v2) * 0.02), &mut self.tags, fid);
+                        shown.extend(tool.iter().cloned());
+                        cur = if c.convex { csg::subtract_local(&cur, &tool) } else { csg::union_local(&cur, &tool) };
+                    }
                 }
-                for c in &merge_tangent(picked) {
-                    let tool = builders::edge_tool(c, &builders::chamfer_section(d1, d2, c.convex), d1.max(d2) * 0.02, &mut self.tags, fid);
-                    cur = if c.convex { csg::subtract_local(&cur, &tool) } else { csg::union_local(&cur, &tool) };
+                // Übergänge: Eckfase cuts the tip where three chamfers meet
+                let all: Vec<EdgeChain> = done.iter().filter_map(|(e, _)| t.match_chain(e).map(|ci| t.chains[ci].clone())).collect();
+                for (p, list) in edge_corners(&all, tol) {
+                    if d.surface || transition_at(&d.transitions, p, tol) != TransitionKind::CornerChamfer {
+                        continue;
+                    }
+                    let refs: Vec<EdgeRef> = list.iter().map(|&i| done[i].0.clone()).collect();
+                    let size = list.iter().map(|&i| done[i].1).fold(0.0, f64::max);
+                    let tag = self.tags.next(fid);
+                    let tool = corner_tool(&t, &refs, 2.0 * size, tag)?;
+                    cur = csg::subtract_local(&cur, &tool);
+                }
+                self.res.tools.insert(fid, ToolBody { polys: shown, op: Op::Cut });
+                if d.surface {
+                    self.quilts.push((fid, surfaces));
+                    return Ok(());
                 }
                 self.set_polys(cur);
             }
@@ -1965,7 +2496,7 @@ impl<'a> Regen<'a> {
                 let fr = d.face.ok_or("Eine zylindrische Fläche für das Gewinde wählen.")?;
                 let t = self.topo();
                 let fi = t.match_surface(fr.point, fr.normal).ok_or("Die Gewindefläche wurde nicht gefunden.")?;
-                let (start, dir, _, full, _) = thread_cylinder(&t, fi, d.flip).ok_or("Die gewählte Fläche ist nicht zylindrisch.")?;
+                let (start, dir, wall, full, internal) = thread_cylinder(&t, fi, d.flip).ok_or("Die gewählte Fläche ist nicht zylindrisch.")?;
                 let (dia, pitch) = (self.e(&d.diameter)?, self.e(&d.pitch)?);
                 if dia <= 0.0 || pitch <= 0.0 {
                     return Err("Durchmesser und Steigung müssen positiv sein.".into());
@@ -1974,7 +2505,7 @@ impl<'a> Regen<'a> {
                 if len <= 0.0 {
                     return Err("Die Gewindelänge muss positiv sein.".into());
                 }
-                self.res.cosmetics.push(Cosmetic { feature: fid, base: start, dir, radius: dia / 2.0, length: len.min(full), label: thread_label(dia, pitch) });
+                self.res.cosmetics.push(Cosmetic { feature: fid, base: start, dir, radius: dia / 2.0, length: len.min(full), label: thread_label(dia, pitch), pitch, wall, internal });
             }
             FeatureKind::Mirror(d) => {
                 let frame = self.plane(&d.plane)?;

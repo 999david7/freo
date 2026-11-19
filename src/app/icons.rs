@@ -482,6 +482,19 @@ pub enum Icon {
     MoHole,
     MoRound,
     MoChamfer,
+    DashSets,
+    DashTransitions,
+    NoPreview,
+    PrevSeparate,
+    PrevAttached,
+    ExtendSurfaces,
+    ThroughCurve,
+    FullRound,
+    ChordRound,
+    HoleFlat,
+    HoleDrillPt,
+    HoleSketched,
+    Lightweight,
     MoDraft,
     MoShell,
     MoRib,
@@ -502,6 +515,22 @@ pub enum Icon {
     MoFill,
     MoStyle,
     MoFreestyle,
+    // 3D-Druck
+    PrPrinter,
+    PrSlice,
+    PrLayFlat,
+    PrArrange,
+    PrCenter,
+    PrRotate,
+    PrScale,
+    PrGcode,
+    PrFilament,
+    PrProcess,
+    PrPlate,
+    PrPreview,
+    PrSupport,
+    PrTravel,
+    PrStats,
 }
 
 const fn rgb(r: u8, g: u8, b: u8) -> Color32 {
@@ -1110,6 +1139,74 @@ pub fn paint(p: &Painter, rect: Rect, icon: Icon, enabled: bool) {
             k.poly(&[(5.5, 2.0), (10.5, 2.0), (10.5, 11.0), (5.5, 11.0)], WHITE, Some(GL_O));
             k.path(&k.arc((8.0, 4.0), 2.5, 1.2, 0.0, 360.0), 0.9, GL_O);
         }
+        DashSets | DashTransitions => {
+            // Creo's set / transition fork: a stem splitting into three tines
+            let c = if icon == DashSets { BLUE } else { rgb(70, 140, 210) };
+            k.path(&[(8.0, 15.0), (8.0, 8.0)], 1.4, c);
+            k.path(&[(3.0, 3.0), (3.0, 6.0), (8.0, 8.5), (13.0, 6.0), (13.0, 3.0)], 1.4, c);
+            k.path(&[(8.0, 8.0), (8.0, 2.5)], 1.4, c);
+            if icon == DashTransitions {
+                k.circle((8.0, 8.3), 1.9, WHITE, Some((1.0, c)));
+            } else {
+                k.path(&[(5.5, 4.5), (5.5, 7.2)], 1.0, c);
+                k.path(&[(10.5, 4.5), (10.5, 7.2)], 1.0, c);
+            }
+        }
+        NoPreview => {
+            k.ring((8.0, 8.0), 5.2, 1.6, DARK);
+            k.path(&[(4.4, 11.6), (11.6, 4.4)], 1.6, DARK);
+        }
+        PrevSeparate => {
+            k.iso((8.0, 15.0), 5.5, 5.5, 6.5);
+            for t in [0.33f32, 0.66] {
+                k.path(&[(8.0 - 5.5 * 0.866 * t * 2.0 + 0.0, 15.0 - 6.5), (8.0, 15.0 - 6.5 + 2.75 * t * 2.0)], 0.6, GLINE);
+            }
+            k.dashed((2.0, 4.0), (14.0, 4.0), 0.7, DARK, 1.2, 0.9);
+        }
+        PrevAttached => {
+            k.poly(&[(2.0, 5.0), (8.0, 2.0), (8.0, 14.0), (2.0, 11.0)], rgb(120, 170, 225), Some(BLUE));
+            k.poly(&[(8.0, 2.0), (14.0, 5.0), (14.0, 11.0), (8.0, 14.0)], rgb(190, 215, 240), Some(BLUE));
+            k.path(&[(8.0, 2.0), (8.0, 14.0)], 1.2, WHITE);
+        }
+        ExtendSurfaces => {
+            k.poly(&[(2.0, 12.0), (9.0, 12.0), (9.0, 6.0)], GLEFT, Some(GLINE));
+            k.dashed((9.0, 6.0), (14.0, 2.0), 0.9, BLUE, 1.4, 1.0);
+            k.dashed((9.0, 12.0), (14.5, 12.0), 0.9, BLUE, 1.4, 1.0);
+        }
+        ThroughCurve => {
+            k.poly(&[(2.0, 7.0), (8.0, 3.0), (14.0, 6.0), (8.5, 10.0)], GL_T, Some(GL_O));
+            k.path(&[(3.5, 7.0), (6.0, 6.0), (9.0, 6.5), (12.5, 5.5)], 1.4, rgb(220, 120, 30));
+            k.poly(&[(8.5, 10.0), (14.0, 6.0), (14.0, 12.0), (8.5, 15.0)], GL_R, Some(GL_O));
+        }
+        FullRound => {
+            k.poly(&[(3.0, 15.0), (3.0, 8.0), (13.0, 8.0), (13.0, 15.0)], GL_R, Some(GL_O));
+            let a = k.arc((8.0, 8.0), 5.0, 5.0, 180.0, 360.0);
+            let mut pts = vec![(3.0, 8.0)];
+            pts.extend(a);
+            pts.push((13.0, 8.0));
+            k.poly(&pts, GL_T, Some(GL_O));
+        }
+        ChordRound => {
+            k.poly(&[(2.0, 14.0), (2.0, 3.0), (5.0, 3.0), (5.0, 11.0), (14.0, 11.0), (14.0, 14.0)], GL_R, Some(GL_O));
+            k.path(&k.arc((14.0, 3.0), 9.0, 8.0, 90.0, 180.0), 1.0, GL_O);
+            k.path(&[(5.0, 3.0), (14.0, 11.0)], 1.0, RED);
+        }
+        HoleFlat => k.hole_section(0),
+        HoleDrillPt => {
+            k.poly(&[(1.5, 4.0), (5.5, 4.0), (5.5, 11.0), (8.0, 14.5), (10.5, 11.0), (10.5, 4.0), (14.5, 4.0), (14.5, 15.0), (1.5, 15.0)], GLEFT, Some(GLINE));
+            k.dashed((8.0, 2.0), (8.0, 15.5), 0.8, MID, 2.0, 1.2);
+        }
+        HoleSketched => {
+            k.hole_section(0);
+            k.path(&[(5.5, 4.0), (5.5, 8.0), (7.0, 9.5), (7.0, 14.0)], 1.2, SK);
+            k.path(&[(10.5, 4.0), (10.5, 8.0), (9.0, 9.5), (9.0, 14.0)], 1.2, SK);
+        }
+        Lightweight => {
+            k.ring((8.0, 7.0), 4.5, 1.0, DARK);
+            k.dashed((8.0, 1.0), (8.0, 15.5), 0.9, DARK, 2.0, 1.2);
+            k.path(&[(3.5, 7.0), (3.5, 13.0)], 0.8, MID);
+            k.path(&[(12.5, 7.0), (12.5, 13.0)], 0.8, MID);
+        }
         MoRound | MoChamfer => {
             k.poly(&[(2.0, 6.0), (8.0, 2.0), (14.0, 5.0), (8.5, 9.5)], GL_T, Some(GL_O));
             k.poly(&[(8.5, 9.5), (14.0, 5.0), (14.0, 11.0), (8.5, 15.0)], GL_R, Some(GL_O));
@@ -1217,6 +1314,111 @@ pub fn paint(p: &Painter, rect: Rect, icon: Icon, enabled: bool) {
             pts.push((14.0, 13.5));
             k.poly(&[(2.0, 9.0), (4.0, 4.5), (8.0, 2.5), (12.0, 4.5), (14.0, 9.0), (14.0, 13.5), (2.0, 13.5)], GL_T, Some(GL_O));
             let _ = pts;
+        }
+        PrPrinter => {
+            // frame, gantry with print head, plate with a part on it
+            k.closed(&[(2.0, 1.5), (14.0, 1.5), (14.0, 14.5), (2.0, 14.5)], 1.1, DARK);
+            k.path(&[(2.0, 5.0), (14.0, 5.0)], 1.2, MID);
+            k.poly(&[(6.5, 3.5), (9.5, 3.5), (9.5, 7.0), (6.5, 7.0)], rgb(70, 76, 84), None);
+            k.poly(&[(7.3, 7.0), (8.7, 7.0), (8.0, 8.6)], rgb(236, 160, 40), None);
+            k.iso((8.0, 12.6), 2.2, 2.2, 2.4);
+            k.poly(&[(3.0, 12.6), (13.0, 12.6), (13.0, 13.6), (3.0, 13.6)], rgb(212, 168, 64), Some(BROWN));
+        }
+        PrSlice => {
+            // a part cut into layers
+            for (i, y) in [12.5f32, 10.0, 7.5, 5.0].iter().enumerate() {
+                let c = if i % 2 == 0 { YL } else { YT };
+                k.poly(&[(3.0, *y), (13.0, *y), (13.0, *y + 1.7), (3.0, *y + 1.7)], c, Some(YO));
+            }
+            k.path(&[(1.0, 3.2), (15.0, 3.2)], 1.2, SK);
+            k.head((15.5, 3.2), (12.0, 3.2), 2.6, SK);
+        }
+        PrLayFlat => {
+            k.iso((8.0, 9.5), 4.0, 4.0, 3.4);
+            k.arrow((8.0, 0.5), (8.0, 4.2), 1.3, GREEN, 2.8);
+            k.poly(&[(1.0, 13.0), (15.0, 13.0), (15.0, 14.6), (1.0, 14.6)], rgb(212, 168, 64), Some(BROWN));
+        }
+        PrArrange => {
+            k.poly(&[(1.0, 13.0), (15.0, 13.0), (15.0, 14.6), (1.0, 14.6)], rgb(212, 168, 64), Some(BROWN));
+            k.iso((4.6, 12.6), 2.4, 2.4, 2.6);
+            k.iso((11.4, 12.6), 2.4, 2.4, 2.6);
+            k.iso((8.0, 7.0), 2.4, 2.4, 2.6);
+        }
+        PrCenter => {
+            k.poly(&[(1.0, 11.5), (15.0, 11.5), (15.0, 13.5), (1.0, 13.5)], rgb(212, 168, 64), Some(BROWN));
+            k.iso((8.0, 10.8), 2.8, 2.8, 3.0);
+            k.arrow((1.0, 6.0), (4.6, 6.0), 1.1, SK, 2.4);
+            k.arrow((15.0, 6.0), (11.4, 6.0), 1.1, SK, 2.4);
+        }
+        PrRotate => {
+            k.iso((8.0, 12.0), 3.4, 3.4, 3.4);
+            let a = k.arc((8.0, 7.5), 6.6, 3.0, 200.0, 520.0);
+            k.path(&a, 1.3, GREEN);
+            k.head((1.6, 8.8), (2.4, 6.6), 2.6, GREEN);
+        }
+        PrScale => {
+            k.iso((6.0, 14.0), 2.4, 2.4, 2.4);
+            k.closed(&[(7.0, 1.5), (14.5, 1.5), (14.5, 9.0), (7.0, 9.0)], 0.9, MID);
+            k.arrow((7.0, 9.0), (13.6, 2.4), 1.2, SK, 2.6);
+        }
+        PrGcode => {
+            k.poly(&[(3.0, 1.5), (10.5, 1.5), (13.0, 4.0), (13.0, 14.5), (3.0, 14.5)], WHITE, Some(MID));
+            k.poly(&[(10.5, 1.5), (10.5, 4.0), (13.0, 4.0)], LIGHT, Some(MID));
+            k.text((8.0, 7.2), "G", 7.5, rgb(40, 110, 40));
+            for y in [10.6f32, 12.6] {
+                k.path(&[(4.8, y), (11.2, y)], 0.8, MID);
+            }
+        }
+        PrFilament => {
+            // spool
+            k.circle((8.0, 8.0), 6.8, rgb(70, 76, 84), Some((0.8, DARK)));
+            k.circle((8.0, 8.0), 5.4, rgb(93, 190, 60), None);
+            for r in [4.6f32, 3.8] {
+                k.ring((8.0, 8.0), r, 0.5, rgb(60, 150, 40));
+            }
+            k.circle((8.0, 8.0), 2.2, LIGHT, Some((0.8, DARK)));
+            k.circle((8.0, 8.0), 0.8, DARK, None);
+        }
+        PrProcess => {
+            for (i, y) in [11.5f32, 8.0, 4.5].iter().enumerate() {
+                k.poly(&[(2.0, *y), (11.0, *y), (11.0, *y + 2.4), (2.0, *y + 2.4)], if i == 1 { YT } else { YL }, Some(YO));
+            }
+            k.circle((12.0, 4.0), 3.2, rgb(150, 158, 168), Some((0.8, DARK)));
+            k.circle((12.0, 4.0), 1.2, WHITE, None);
+        }
+        PrPlate => {
+            k.poly(&[(4.0, 6.0), (15.0, 6.0), (12.0, 12.5), (1.0, 12.5)], rgb(222, 180, 80), Some(BROWN));
+            for i in 0..4 {
+                let t = i as f32 / 3.0;
+                k.path(&[(4.0 + 11.0 * t - 3.0 * t * 0.0, 6.0), (1.0 + 11.0 * t, 12.5)], 0.5, rgb(170, 128, 50));
+            }
+            k.poly(&[(1.0, 12.5), (12.0, 12.5), (12.0, 13.8), (1.0, 13.8)], rgb(60, 60, 62), None);
+            k.poly(&[(12.0, 12.5), (15.0, 6.0), (15.0, 7.3), (12.0, 13.8)], rgb(90, 90, 92), None);
+        }
+        PrPreview => {
+            for (i, y) in [12.5f32, 10.5, 8.5].iter().enumerate() {
+                let c = [rgb(255, 125, 56), rgb(255, 230, 77), rgb(176, 48, 41)][i];
+                k.path(&[(2.5, *y), (13.5, *y)], 1.8, c);
+            }
+            k.eye();
+        }
+        PrSupport => {
+            k.poly(&[(2.0, 2.0), (14.0, 2.0), (14.0, 5.0), (2.0, 5.0)], YL, Some(YO));
+            for x in [3.5f32, 6.5, 9.5, 12.5] {
+                k.path(&[(x, 5.5), (x, 14.0)], 1.0, rgb(40, 180, 60));
+            }
+            k.path(&[(2.0, 14.4), (14.0, 14.4)], 1.2, BROWN);
+        }
+        PrTravel => {
+            k.dashed((2.0, 12.0), (14.0, 4.0), 1.2, SK, 1.6, 1.2);
+            k.circle((2.0, 12.0), 1.4, RED, None);
+            k.circle((14.0, 4.0), 1.4, GREEN, None);
+        }
+        PrStats => {
+            k.poly(&[(2.0, 9.0), (5.0, 9.0), (5.0, 14.0), (2.0, 14.0)], rgb(255, 125, 56), None);
+            k.poly(&[(6.5, 5.0), (9.5, 5.0), (9.5, 14.0), (6.5, 14.0)], rgb(176, 48, 41), None);
+            k.poly(&[(11.0, 2.0), (14.0, 2.0), (14.0, 14.0), (11.0, 14.0)], rgb(150, 84, 204), None);
+            k.path(&[(1.0, 14.5), (15.0, 14.5)], 0.9, DARK);
         }
         MoFreestyle => {
             k.closed(&[(2.0, 2.0), (14.0, 2.0), (14.0, 14.0), (2.0, 14.0)], 0.8, DARK);

@@ -170,6 +170,7 @@ impl Topology {
             t.tags.push(p.tag);
         }
         t.repair_t_junctions(tol, &pos_body);
+        t.close_open_seams(&pos_body);
         t.build_edges();
         t
     }
@@ -312,6 +313,71 @@ impl Topology {
         }
     }
 
+    /// Second, looser T-junction pass over open edges only. Where a cutter meets a face almost
+    /// tangentially (a round running into its faces) the BSP leaves split points a little off the
+    /// cutter's boundary line; the gap would otherwise be drawn as a stray edge across the face.
+    fn close_open_seams(&mut self, pos_body: &[u32]) {
+        let loose = self.bbox.diagonal().max(1e-6) * 5e-6;
+        let mut count: HashMap<(usize, usize), (usize, usize, usize)> = HashMap::new();
+        for (pi, poly) in self.polys.iter().enumerate() {
+            for e in 0..poly.len() {
+                let (u, v) = (poly[e], poly[(e + 1) % poly.len()]);
+                let c = count.entry((u.min(v), u.max(v))).or_insert((0, pi, e));
+                c.0 += 1;
+            }
+        }
+        let open: Vec<(usize, usize)> = count.values().filter(|c| c.0 == 1).map(|c| (c.1, c.2)).collect();
+        if open.is_empty() || open.len() > 4000 {
+            return;
+        }
+        let mut verts: Vec<usize> = open.iter().flat_map(|&(pi, e)| [self.polys[pi][e], self.polys[pi][(e + 1) % self.polys[pi].len()]]).collect();
+        verts.sort_unstable();
+        verts.dedup();
+        let mut inserts: HashMap<usize, HashMap<usize, Vec<(f64, usize)>>> = HashMap::new();
+        for &(pi, e) in &open {
+            let poly = &self.polys[pi];
+            let (ia, ib) = (poly[e], poly[(e + 1) % poly.len()]);
+            let (a, b) = (self.positions[ia], self.positions[ib]);
+            let ab = b - a;
+            let l2 = ab.dot(ab);
+            if l2 < 1e-24 {
+                continue;
+            }
+            for &vi in &verts {
+                if vi == ia || vi == ib || pos_body[vi] != self.tags[pi] >> BODY_SHIFT {
+                    continue;
+                }
+                let p = self.positions[vi];
+                let t = (p - a).dot(ab) / l2;
+                if t <= 1e-6 || t >= 1.0 - 1e-6 || (a + ab * t - p).length() > loose {
+                    continue;
+                }
+                inserts.entry(pi).or_default().entry(e).or_default().push((t, vi));
+            }
+        }
+        for (pi, edges) in inserts {
+            let (poly, nrm) = (self.polys[pi].clone(), self.vnormals[pi].clone());
+            let (mut np, mut nn) = (Vec::new(), Vec::new());
+            for e in 0..poly.len() {
+                np.push(poly[e]);
+                nn.push(nrm[e]);
+                if let Some(list) = edges.get(&e) {
+                    let mut l = list.clone();
+                    l.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap());
+                    let (n0, n1) = (nrm[e], nrm[(e + 1) % poly.len()]);
+                    for (t, v) in l {
+                        if np.last() != Some(&v) {
+                            np.push(v);
+                            nn.push(safe_norm(n0 + (n1 - n0) * t, n0));
+                        }
+                    }
+                }
+            }
+            self.polys[pi] = np;
+            self.vnormals[pi] = nn;
+        }
+    }
+
     fn build_edges(&mut self) {
         let mut edge_map: HashMap<(usize, usize), Vec<usize>> = HashMap::new();
         for (pi, poly) in self.polys.iter().enumerate() {
@@ -333,6 +399,15 @@ impl Topology {
             }
             x
         }
+        // a seam where the surfaces on both sides carry the same shading normals is tangent (a
+        // round running into its faces, two rounds meeting): it bounds the faces but, as in Creo,
+        // it is neither drawn as a model edge nor offered as an edge to round or chamfer
+        let cos_tangent = 2f64.to_radians().cos();
+        let vnormal = |pi: usize, v: usize| -> V3 {
+            let k = self.polys[pi].iter().position(|&x| x == v).unwrap_or(0);
+            safe_norm(self.vnormals[pi].get(k).copied().unwrap_or(self.planes[pi].n), self.planes[pi].n)
+        };
+        let tangent = |p: usize, q: usize, k: (usize, usize)| [k.0, k.1].iter().all(|&v| vnormal(p, v).dot(vnormal(q, v)) > cos_tangent);
         let mut sharp: Vec<((usize, usize), usize, usize)> = Vec::new();
         let mut keys: Vec<_> = edge_map.keys().copied().collect();
         keys.sort();
@@ -341,7 +416,10 @@ impl Topology {
             if ps.len() == 2 {
                 let (p, q) = (ps[0], ps[1]);
                 let c = self.planes[p].n.dot(self.planes[q].n);
-                if c < cos_sharp || (self.tags[p] != self.tags[q] && c < cos_tagged) {
+                let crease = c < cos_sharp || (self.tags[p] != self.tags[q] && c < cos_tagged);
+                if self.tags[p] != self.tags[q] && c < 1.0 - 1e-9 && tangent(p, q, k) {
+                    // tangent seam between two surfaces: separate faces, no edge
+                } else if crease {
                     sharp.push((k, p, q));
                 } else {
                     let (rp, rq) = (find(&mut parent, p), find(&mut parent, q));
@@ -501,6 +579,18 @@ impl Topology {
             sfa.push(fa_);
             sfb.push(fb_);
         }
+        // the faces' own surface normals at the vertex (exact on a curved face, where the facet
+        // normals would tilt the round by half a facet step)
+        let seg_polys: Vec<(usize, usize)> = (0..seg_count)
+            .map(|i| {
+                let (u, w) = (verts[i], verts[(i + 1) % n]);
+                *lookup.get(&(u.min(w), u.max(w))).unwrap_or(&(0, 0))
+            })
+            .collect();
+        let vnormal_at = |pi: usize, v: usize| -> Option<V3> {
+            let k = self.polys[pi].iter().position(|&x| x == v)?;
+            self.vnormals[pi].get(k).map(|n| safe_norm(*n, self.planes[pi].n))
+        };
         let (mut n_a, mut n_b, mut f_a, mut f_b) = (vec![], vec![], vec![], vec![]);
         for i in 0..n {
             let idx: Vec<usize> = if closed {
@@ -516,8 +606,20 @@ impl Topology {
                 v
             };
             let avg = |arr: &Vec<V3>| safe_norm(idx.iter().fold(V3::ZERO, |s, &k| s + arr[k]), arr[idx[0]]);
-            n_a.push(avg(&sna));
-            n_b.push(avg(&snb));
+            let surf = |arr: &Vec<V3>, side: usize| {
+                let ns: Vec<V3> = idx.iter().filter_map(|&k| vnormal_at(if side == 0 { seg_polys[k].0 } else { seg_polys[k].1 }, verts[i])).collect();
+                // a vertex normal that disagrees with its facet by more than a facet step is a
+                // crease of that face itself: keep the facet average there
+                let fallback = avg(arr);
+                let m = safe_norm(ns.iter().fold(V3::ZERO, |s, n| s + *n), fallback);
+                if ns.len() == idx.len() && m.dot(fallback) > 15f64.to_radians().cos() {
+                    m
+                } else {
+                    fallback
+                }
+            };
+            n_a.push(surf(&sna, 0));
+            n_b.push(surf(&snb, 1));
             f_a.push(avg(&sfa));
             f_b.push(avg(&sfb));
         }
@@ -770,6 +872,60 @@ impl Topology {
             }
         }
         best
+    }
+
+    /// Whether `q` lies inside the solid: the first surface a ray from it meets faces away.
+    pub fn contains(&self, q: V3) -> bool {
+        // an odd direction, so the ray does not graze edges of axis-aligned models
+        let d = safe_norm(V3::new(0.5773, 0.6131, 0.5393), V3::Y);
+        let mut best: Option<(f64, usize)> = None;
+        for (pi, p) in self.polys.iter().enumerate() {
+            for k in 1..p.len() - 1 {
+                let (a, b, c) = (self.positions[p[0]], self.positions[p[k]], self.positions[p[k + 1]]);
+                let (e1, e2) = (b - a, c - a);
+                let pv = d.cross(e2);
+                let det = e1.dot(pv);
+                if det.abs() < 1e-14 {
+                    continue;
+                }
+                let inv = 1.0 / det;
+                let s = q - a;
+                let u = s.dot(pv) * inv;
+                let w = s.cross(e1);
+                let v = d.dot(w) * inv;
+                if !(0.0..=1.0).contains(&u) || v < 0.0 || u + v > 1.0 {
+                    continue;
+                }
+                let t = e2.dot(w) * inv;
+                if t > 1e-9 && best.map_or(true, |b| t < b.0) {
+                    best = Some((t, pi));
+                }
+            }
+        }
+        best.is_some_and(|(_, pi)| self.planes[pi].n.dot(d) > 0.0)
+    }
+
+    /// How far a round or chamfer tool along `c` may overshoot each end of the chain (first,
+    /// last point). The overshoot lets the boolean cut cleanly through the end faces, but it must
+    /// not change the part: a cutter (convex edge) may only run on into air, a filler (concave
+    /// edge) only into material. Otherwise the tool ends flush with the chain.
+    pub fn tool_end_reach(&self, c: &EdgeChain, extend: f64) -> [f64; 2] {
+        let l = c.points.len();
+        if c.closed || l < 2 {
+            return [extend, extend];
+        }
+        let end = |i: usize, j: usize| {
+            let dir = safe_norm(c.points[i] - c.points[j], V3::X);
+            // into the region the tool fills: between the faces, on their outer side
+            let side = safe_norm(c.n_a[i] + c.n_b[i], V3::ZERO);
+            let q = c.points[i] + dir * extend * 0.5 + side * extend * 5.0;
+            if self.contains(q) != c.convex {
+                extend
+            } else {
+                0.0
+            }
+        };
+        [end(0, 1), end(l - 1, l - 2)]
     }
 
     /// Owning surface tag of a face.

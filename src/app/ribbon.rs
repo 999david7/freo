@@ -462,7 +462,11 @@ impl App {
         if matches!(ed.feature.kind, FeatureKind::Extrude(_)) {
             return Some("Extrudieren".into());
         }
-        Some(ed.feature.kind.type_name().replace(" (Schnitt)", ""))
+        Some(match &ed.feature.kind {
+            // Creo names the chamfer tool's tab after the chamfer kind
+            FeatureKind::Chamfer(c) => (if c.corner { "Eckfase" } else { "Kantenfase" }).to_string(),
+            k => k.type_name().replace(" (Schnitt)", ""),
+        })
     }
 
     /// Selection filter as Creo shows it while a dashboard or the sketcher waits for input.
@@ -681,7 +685,7 @@ impl App {
         if self.drawing_active() {
             return vec![(Tab::Layout, "Layout"), (Tab::Table, "Tabelle"), (Tab::Annotate, "Anmerkungen erstellen"), (Tab::Publish, "Veröffentlichen")];
         }
-        vec![
+        let tabs = vec![
             (Tab::Model, "Modell"),
             (Tab::Analysis, "Analyse"),
             (Tab::LiveSim, "Live-Simulation"),
@@ -691,7 +695,8 @@ impl App {
             (Tab::Flex, "Flexible Modellierung"),
             (Tab::Apps, "Anwendungen"),
             (Tab::Htl, "HTL"),
-        ]
+        ];
+        tabs
     }
 
     pub fn tab_strip(&mut self, ctx: &egui::Context) {
@@ -707,7 +712,8 @@ impl App {
                 }
                 ui.ctx().data_mut(|d| d.insert_temp(egui::Id::new("file_anchor"), pos2(r.left(), full.bottom())));
                 let tabs = self.tab_list();
-                if !tabs.iter().any(|(t, _)| *t == self.tab) && self.tab != Tab::Context {
+                // the slicer (Werkzeuge ▸ Manufacture) has its own ribbon but no tab of its own
+                if !tabs.iter().any(|(t, _)| *t == self.tab) && self.tab != Tab::Context && !(self.tab == Tab::Print && self.print.open) && !(self.tab == Tab::Cnc && self.cnc.open) {
                     self.tab = tabs[0].0;
                 }
                 let ctx_name = if self.creo.home {
@@ -724,7 +730,8 @@ impl App {
                 let text: f32 = labels.iter().map(|l| text_w(ui, l, &font)).sum();
                 let pad = ((full.width() - 78.0 - 150.0 - text) / labels.len() as f32).clamp(12.0, 44.0);
                 for (t, n) in &tabs {
-                    if Self::tab_button(ui, n, self.tab == *t && !self.creo.ribbon_min_hidden(), false, pad).clicked() {
+                    let on = self.tab == *t || (matches!(self.tab, Tab::Print | Tab::Cnc) && *t == Tab::Tools);
+                    if Self::tab_button(ui, n, on && !self.creo.ribbon_min_hidden(), false, pad).clicked() {
                         if self.creo.ribbon_min {
                             self.creo.peek = !(self.tab == *t && self.creo.peek);
                         }
@@ -952,6 +959,8 @@ impl App {
                     Tab::Analysis if asm => self.asm_analysis_ribbon(ui),
                     Tab::Analysis => self.analysis_ribbon(ui),
                     Tab::LiveSim => self.live_sim_ribbon(ui),
+                    Tab::Print => self.print_ribbon(ui),
+                    Tab::Cnc => self.cnc_ribbon(ui),
                     Tab::Annot3d => self.annot3d_ribbon(ui),
                     Tab::View => self.view_ribbon(ui),
                     Tab::Tools if asm => self.asm_tools_ribbon(ui),
@@ -2153,6 +2162,7 @@ impl App {
                 }
             });
         });
+        self.manufacture_group(ui);
         if let Some(n) = todo {
             self.tools_report(n);
         }

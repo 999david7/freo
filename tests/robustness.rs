@@ -129,7 +129,7 @@ fn edge_cases_do_not_panic() {
     });
     case("round with no sets loads and edits", &|| {
         let mut m = block();
-        m.features.push(feat(20, FeatureKind::Round(RoundDef { sets: vec![] })));
+        m.features.push(feat(20, FeatureKind::Round(RoundDef { sets: vec![], transitions: vec![], surface: false })));
         let mut a = part_app(m);
         a.edit_feature(20);
         a.finish_feature();

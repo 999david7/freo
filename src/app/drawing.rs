@@ -913,7 +913,7 @@ impl App {
                         out.push(ModelDim {
                             key: format!("{}:f:{}", f.id, k),
                             feature: f.id,
-                            dk: Some(DimKey::Field(k)),
+                            dk: Some(DimKey::Field(k.into())),
                             geom: MGeom::Linear { a: src, b: e, dir, plane: axis.map(|a| a.1), label: (src + e) * 0.5 },
                             value: v(sp),
                             prefix: "",
@@ -993,7 +993,7 @@ impl App {
                     out.push(ModelDim {
                         key: format!("{}:f:depth", f.id),
                         feature: f.id,
-                        dk: Some(DimKey::Field("depth")),
+                        dk: Some(DimKey::Field("depth".into())),
                         geom: MGeom::Linear { a, b: bb, dir: n, plane: None, label: (a + bb) * 0.5 + fr.x * (size * 0.08) },
                         value: depth,
                         prefix: "",
@@ -1006,7 +1006,7 @@ impl App {
                         out.push(ModelDim {
                             key: format!("{}:f:depth2", f.id),
                             feature: f.id,
-                            dk: Some(DimKey::Field("depth2")),
+                            dk: Some(DimKey::Field("depth2".into())),
                             geom: MGeom::Linear { a: base, b: e, dir: -n, plane: None, label: (base + e) * 0.5 + fr.x * (size * 0.08) },
                             value: v(&d.depth2),
                             prefix: "",
@@ -1017,7 +1017,7 @@ impl App {
                     }
                 }
                 FeatureKind::Hole(d) => {
-                    let c = fr.to_world(V2::new(v(&d.x), v(&d.y)));
+                    let c = r.axes.iter().find(|axis| axis.feature == f.id).map(|axis| axis.point).unwrap_or_else(|| fr.to_world(V2::new(v(&d.x), v(&d.y))));
                     let drill = regen::hole_drill(d, vars).unwrap_or(0.0);
                     let r = drill / 2.0;
                     let std = d.ty == HoleType::Standard;
@@ -1040,7 +1040,7 @@ impl App {
                     out.push(ModelDim {
                         key: format!("{}:f:diameter", f.id),
                         feature: f.id,
-                        dk: if std { None } else { Some(DimKey::Field("diameter")) },
+                        dk: if std { None } else { Some(DimKey::Field("diameter".into())) },
                         geom: MGeom::Radial { c, r, normal: fr.z(), label: c + fr.x * (r + size * 0.1) + fr.y * (size * 0.06), diameter: true },
                         value: drill,
                         prefix: "⌀",

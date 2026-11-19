@@ -848,7 +848,7 @@ pub fn regen(asm: &AssemblyData, cache: &mut PartCache, opts: &RegenOpts) -> Asm
             d.curves.push(CurveInfo { feature: c.id, polylines: cu.polylines.iter().map(|l| l.iter().map(|v| pl.point(*v)).collect()).collect() });
         }
         for co in &part.cosmetics {
-            d.cosmetics.push(Cosmetic { feature: c.id, base: pl.point(co.base), dir: pl.vector(co.dir), radius: co.radius, length: co.length, label: co.label.clone() });
+            d.cosmetics.push(Cosmetic { feature: c.id, base: pl.point(co.base), dir: pl.vector(co.dir), ..co.clone() });
         }
     }
     d.topo = Arc::new(Topology::new(&polys));

@@ -10,6 +10,8 @@ use eframe::egui::{self, pos2, vec2, Align2, Color32, FontId, Rect, Response, Ri
 enum Act {
     None,
     Pick(PickTarget),
+    /// end the current reference selection
+    PickOff,
     Sketch(Slot),
     SketchDialog,
     Ok,
@@ -24,6 +26,75 @@ fn dim_field(ui: &mut egui::Ui, d: &mut Dim, vars: &Vars, width: f32) -> bool {
         te = te.text_color(Color32::from_rgb(200, 30, 30));
     }
     ui.add(te).on_hover_text("Wert oder Beziehung (z. B. W/2 + 5)").changed()
+}
+
+/// Creo's dimension box in a dashboard: the value with three decimals and a ▾ list of the values
+/// used recently for this dimension.
+fn dim_combo(ui: &mut egui::Ui, d: &mut Dim, vars: &Vars, width: f32, key: &str) -> bool {
+    let ok = d.eval(vars).is_ok();
+    let id = ui.make_persistent_id(("dim_combo", key));
+    let recent_id = egui::Id::new(("dim_recent", key));
+    let focused = ui.memory(|m| m.has_focus(id));
+    let mut text = match d.0.trim().parse::<f64>() {
+        Ok(v) if !focused => format!("{:.3}", v),
+        _ => d.0.clone(),
+    };
+    let mut changed = false;
+    ui.horizontal(|ui| {
+        ui.spacing_mut().item_spacing.x = 0.0;
+        let mut te = egui::TextEdit::singleline(&mut text).id(id).desired_width(width - 22.0).font(FontId::proportional(13.0));
+        if !ok {
+            te = te.text_color(Color32::from_rgb(200, 30, 30));
+        }
+        let r = ui.add(te).on_hover_text("Wert oder Beziehung (z. B. W/2 + 5)");
+        if r.changed() {
+            d.0 = text.clone();
+            changed = true;
+        }
+        if r.lost_focus() {
+            remember_value(ui.ctx(), recent_id, &d.0);
+        }
+        let (rect, arrow) = ui.allocate_exact_size(vec2(22.0, r.rect.height().max(22.0)), Sense::click());
+        ui.painter().rect_filled(rect, 2.0, if arrow.hovered() { HOVER_BG } else { Color32::WHITE });
+        let c = rect.center();
+        ui.painter().add(egui::Shape::convex_polygon(vec![c + vec2(-5.0, -2.5), c + vec2(5.0, -2.5), c + vec2(0.0, 3.5)], Color32::from_rgb(60, 66, 74), Stroke::NONE));
+        let popup = id.with("popup");
+        if arrow.clicked() {
+            remember_value(ui.ctx(), recent_id, &d.0);
+            ui.memory_mut(|m| m.toggle_popup(popup));
+        }
+        egui::popup_below_widget(ui, popup, &r, egui::PopupCloseBehavior::CloseOnClick, |ui| {
+            ui.set_min_width(width - 10.0);
+            let list: Vec<String> = ui.ctx().data(|m| m.get_temp::<Vec<String>>(recent_id)).unwrap_or_default();
+            for v in list {
+                let shown = v.trim().parse::<f64>().map(|x| format!("{:.3}", x)).unwrap_or_else(|_| v.clone());
+                if ui.selectable_label(v == d.0, shown).clicked() {
+                    d.0 = v.clone();
+                    changed = true;
+                }
+            }
+        });
+    });
+    changed
+}
+
+fn remember_value(ctx: &egui::Context, id: egui::Id, v: &str) {
+    if v.trim().is_empty() {
+        return;
+    }
+    ctx.data_mut(|m| {
+        let list = m.get_temp_mut_or_default::<Vec<String>>(id);
+        list.retain(|x| x != v);
+        list.insert(0, v.to_string());
+        list.truncate(8);
+    });
+}
+
+/// The tool's own icon at the left end of a Creo dashboard.
+fn tool_icon(ui: &mut egui::Ui, icon: Icon) {
+    let (rect, _) = ui.allocate_exact_size(vec2(64.0, RIB_H + 20.0), Sense::hover());
+    icons::paint(ui.painter(), Rect::from_center_size(pos2(rect.center().x, rect.top() + 56.0), vec2(44.0, 44.0)), icon, true);
+    ui.painter().line_segment([pos2(rect.right() - 2.0, rect.top() + 6.0), pos2(rect.right() - 2.0, rect.bottom() - 4.0)], Stroke::new(1.0_f32, SEP));
 }
 
 /// Reference collector: white box, light green when active (waiting for a selection), as in Creo.
@@ -144,6 +215,134 @@ fn toggle_small(ui: &mut egui::Ui, icon: Icon, label: &str, value: &mut bool) ->
     }
 }
 
+/// Creo's name of a referenced edge: "Kante:F12(FASE_1)", after the feature whose surfaces
+/// form it.
+fn edge_name(r: &crate::model::regen::RegenResult, data: &ModelData, e: &EdgeRef) -> String {
+    let t = &r.topo;
+    let owner = t.match_chain(e).and_then(|ci| {
+        let c = &t.chains[ci];
+        let find = |p: V3| t.positions.iter().position(|q| (*q - p).length() < 1e-9);
+        let (a, b) = (find(c.points[0])?, find(c.points[1])?);
+        let pi = t.polys.iter().position(|poly| (0..poly.len()).any(|k| {
+            let (x, y) = (poly[k], poly[(k + 1) % poly.len()]);
+            (x == a && y == b) || (x == b && y == a)
+        }))?;
+        r.tag_owner.get(&t.tags[pi]).copied()
+    });
+    match owner.and_then(|id| data.feature(id)) {
+        Some(f) => format!("Kante:F{}({})", f.id, f.name.to_uppercase().replace(' ', "_")),
+        None => format!("Kante ({}, {}, {})", fmt_num(e.m.x, 1), fmt_num(e.m.y, 1), fmt_num(e.m.z, 1)),
+    }
+}
+
+/// Creo's reference collector of a set (light green while picking) with its "Details..."
+/// button, which opens the list of references.
+fn edge_references(ui: &mut egui::Ui, edges: &mut Vec<EdgeRef>, names: &[String], active: bool, key: &str) -> bool {
+    let mut remove = None;
+    let mut clicked = false;
+    egui::Frame::NONE.fill(if active { Color32::from_rgb(235, 252, 219) } else { Color32::WHITE }).stroke(Stroke::new(1.0_f32, BORDER)).inner_margin(6.0).show(ui, |ui| {
+        ui.set_min_size(vec2(290.0, 80.0));
+        if edges.is_empty() {
+            clicked |= ui.add(egui::Label::new("Keine Elemente").sense(Sense::click())).clicked();
+        }
+        for (i, _) in edges.iter().enumerate() {
+            let name = names.get(i).cloned().unwrap_or_default();
+            let r = ui.add(egui::Label::new(name).sense(Sense::click()));
+            clicked |= r.clicked();
+            r.context_menu(|ui| {
+                if ui.button("Entfernen").clicked() {
+                    remove = Some(i);
+                    ui.close_menu();
+                }
+            });
+        }
+        clicked |= ui.allocate_response(vec2(290.0, (80.0 - ui.min_rect().height()).max(16.0)), Sense::click()).clicked();
+    });
+    let id = egui::Id::new(("ref_details", key));
+    ui.horizontal(|ui| {
+        ui.add_space(ui.available_width() - 104.0);
+        if ui.add(egui::Button::new("Details...").min_size(vec2(100.0, 28.0))).clicked() {
+            ui.ctx().data_mut(|m| m.insert_temp(id, true));
+        }
+    });
+    if ui.ctx().data(|m| m.get_temp::<bool>(id)).unwrap_or(false) {
+        let mut open = true;
+        let mut ok = false;
+        egui::Window::new("Ketten").id(id.with("win")).open(&mut open).collapsible(false).resizable(false).default_width(340.0).show(ui.ctx(), |ui| {
+            ui.label(RichText::new("Referenzen").strong());
+            egui::Frame::NONE.stroke(Stroke::new(1.0_f32, BORDER)).inner_margin(6.0).show(ui, |ui| {
+                ui.set_width(320.0);
+                ui.set_min_height(120.0);
+                for (i, e) in edges.iter().enumerate() {
+                    ui.horizontal(|ui| {
+                        ui.label(format!("{}   {}", i + 1, names.get(i).cloned().unwrap_or_default()));
+                        ui.label(RichText::new(format!("({}, {}, {})", fmt_num(e.m.x, 1), fmt_num(e.m.y, 1), fmt_num(e.m.z, 1))).size(11.0).color(LABEL));
+                    });
+                }
+            });
+            ui.horizontal(|ui| {
+                if ui.button("Hinzufügen").clicked() {
+                    clicked = true;
+                }
+                if ui.add_enabled(!edges.is_empty(), egui::Button::new("Entfernen")).on_hover_text("Die letzte Referenz entfernen").clicked() {
+                    remove = Some(edges.len() - 1);
+                }
+                if ui.add_enabled(!edges.is_empty(), egui::Button::new("Alle entfernen")).clicked() {
+                    remove = Some(usize::MAX);
+                }
+            });
+            ui.separator();
+            ok = ui.button("OK").clicked();
+        });
+        if !open || ok {
+            ui.ctx().data_mut(|m| m.insert_temp(id, false));
+        }
+    }
+    match remove {
+        Some(usize::MAX) => edges.clear(),
+        Some(i) => {
+            edges.remove(i);
+        }
+        None => {}
+    }
+    clicked
+}
+
+/// Creo's "Bemaßungsschema" list of a chamfer.
+fn chamfer_scheme_combo(ui: &mut egui::Ui, id: &str, set: &mut ChamferSet, width: f32) -> bool {
+    let mut changed = false;
+    egui::ComboBox::from_id_salt(id).width(width).selected_text(set.kind.label()).show_ui(ui, |ui| {
+        for k in ChamferKind::ALL {
+            changed |= ui.selectable_value(&mut set.kind, k, k.label()).changed();
+        }
+    });
+    changed
+}
+
+/// Creo's cross-section list of a round ("Kreisförmig", "Konisch", ...); Freo's curvature-
+/// continuous corner shapes follow under a rule.
+fn round_section_combo(ui: &mut egui::Ui, id: &str, set: &mut RoundSet, width: f32) -> bool {
+    use crate::kernel::corner::CornerShape;
+    let text = if set.section == RoundSection::Circular && set.shape != CornerShape::Circular { set.shape.label() } else { set.section.label() };
+    let before = (set.section, set.shape);
+    egui::ComboBox::from_id_salt(id).width(width).selected_text(text).show_ui(ui, |ui| {
+        for sec in RoundSection::ALL {
+            if ui.selectable_label(set.section == sec && (sec != RoundSection::Circular || set.shape == CornerShape::Circular), sec.label()).clicked() {
+                set.section = sec;
+                set.shape = CornerShape::Circular;
+            }
+        }
+        ui.separator();
+        for sh in CornerShape::SMOOTH {
+            if ui.selectable_label(set.section == RoundSection::Circular && set.shape == sh, sh.label()).on_hover_text(sh.tip()).clicked() {
+                set.section = RoundSection::Circular;
+                set.shape = sh;
+            }
+        }
+    });
+    (set.section, set.shape) != before
+}
+
 impl App {
     fn ed_vars(&self) -> Vars {
         self.preview.as_ref().map(|p| p.vars.clone()).unwrap_or_else(|| self.result.vars.clone())
@@ -161,8 +360,9 @@ impl App {
             FeatureKind::Extrude(_) | FeatureKind::Revolve(_) => &["Platzierung", "Optionen", "Körperoptionen", "Eigenschaften"],
             FeatureKind::Sweep(_) => &["Referenzen", "Eigenschaften"],
             FeatureKind::Blend(_) => &["Schnitte", "Optionen", "Eigenschaften"],
-            FeatureKind::Hole(_) => &["Platzierung", "Form", "Eigenschaften"],
-            FeatureKind::Round(_) | FeatureKind::Chamfer(_) => &["Sätze", "Eigenschaften"],
+            FeatureKind::Hole(_) => &["Platzierung", "Form", "Notiz", "Körperoptionen", "Eigenschaften"],
+            FeatureKind::Chamfer(d) if d.corner => &["Sätze", "Eigenschaften"],
+            FeatureKind::Round(_) | FeatureKind::Chamfer(_) => &["Sätze", "Übergänge", "Stücke", "Optionen", "Eigenschaften"],
             FeatureKind::Shell(_) | FeatureKind::Draft(_) | FeatureKind::Mirror(_) => &["Referenzen", "Eigenschaften"],
             FeatureKind::Pattern(_) => &["Referenzen", "Optionen", "Eigenschaften"],
             FeatureKind::Rib(_) | FeatureKind::Thread(_) => &["Referenzen", "Eigenschaften"],
@@ -176,6 +376,14 @@ impl App {
         match (panel, k) {
             ("Platzierung", FeatureKind::Extrude(d)) => d.sketch.is_empty(),
             ("Platzierung", FeatureKind::Revolve(d)) => d.sketch.is_empty(),
+            ("Platzierung", FeatureKind::Hole(d)) => {
+                d.plane.is_none()
+                    || match d.placement {
+                        HolePlacement::Linear => false,
+                        HolePlacement::Radial | HolePlacement::Diameter | HolePlacement::Coaxial => d.axis_ref.is_none(),
+                        HolePlacement::OnPoint => d.point_ref.is_none(),
+                    }
+            }
             _ => false,
         }
     }
@@ -210,6 +418,12 @@ impl App {
         let left = ui.available_width();
         ui.allocate_ui_with_layout(vec2(left, super::ribbon::RIB_H + 22.0), egui::Layout::left_to_right(egui::Align::Min), |ui| {
             ui.spacing_mut().item_spacing.x = 0.0;
+            let paused = ed.paused;
+            ui.scope(|ui| {
+            if paused {
+                // Pause: the tool waits; only the controls on the right stay live
+                ui.disable();
+            }
             match &mut f.kind {
                 FeatureKind::Surface(d) => {
                     let op = d.op;
@@ -586,20 +800,78 @@ impl App {
                     });
                 }
                 FeatureKind::Hole(d) => {
+                    tool_icon(ui, Icon::MoHole);
+                    let simple = d.ty != HoleType::Standard;
                     group(ui, "Typ", |ui| {
-                        for (t, ic, n) in [
-                            (HoleType::Simple, Icon::HoleSimple, "Einfach"),
-                            (HoleType::Standard, Icon::HoleStandard, "Norm"),
-                            (HoleType::Counterbore, Icon::HoleCbore, "Zylindersenkung"),
-                            (HoleType::Countersink, Icon::HoleCsink, "Kegelsenkung"),
-                        ] {
-                            if large(ui, ic, n, true, d.ty == t).clicked() {
-                                d.ty = t;
-                                changed = true;
-                            }
+                        if large(ui, Icon::HoleSimple, "Einfach", true, simple).on_hover_text("Einfache Bohrung mit eigenen Maßen").clicked() && !simple {
+                            d.ty = HoleType::Simple;
+                            changed = true;
+                        }
+                        if large(ui, Icon::HoleStandard, "Standard", true, !simple).on_hover_text("Normbohrung (Gewinde- oder Durchgangsloch)").clicked() && simple {
+                            d.ty = HoleType::Standard;
+                            d.sketched = false;
+                            changed = true;
                         }
                     });
-                    if d.ty == HoleType::Standard {
+                    if simple {
+                        // 0 Flach, 1 Bohrloch (drill point, optional sinks), 2 Skizziert
+                        let profile = if d.sketched {
+                            2
+                        } else if d.ty == HoleType::Simple && !d.drill_tip {
+                            0
+                        } else {
+                            1
+                        };
+                        group(ui, "Profil", |ui| {
+                            for (k, icon, label, tip) in [
+                                (0, Icon::HoleFlat, "Flach", "Rechteckprofil mit flachem Boden"),
+                                (1, Icon::HoleDrillPt, "Bohrloch", "Standardbohrprofil mit Bohrspitze, optional mit Senkung"),
+                                (2, Icon::HoleSketched, "Skizziert", "Ein skizziertes Profil um die Mittellinie drehen"),
+                            ] {
+                                if large(ui, icon, label, true, profile == k).on_hover_text(tip).clicked() && profile != k {
+                                    match k {
+                                        0 => {
+                                            d.sketched = false;
+                                            d.drill_tip = false;
+                                            d.ty = HoleType::Simple;
+                                        }
+                                        1 => {
+                                            d.sketched = false;
+                                            d.drill_tip = true;
+                                        }
+                                        _ => {
+                                            d.sketched = true;
+                                            if d.sketch.is_empty() {
+                                                act = Act::Sketch(Slot::Main);
+                                            }
+                                        }
+                                    }
+                                    changed = true;
+                                }
+                            }
+                            if profile == 1 {
+                                stack(ui, |ui| {
+                                    let mut cs = d.ty == HoleType::Countersink;
+                                    let mut cb = d.ty == HoleType::Counterbore;
+                                    if toggle_small(ui, Icon::HoleCsink, "Kegelsenkung", &mut cs) {
+                                        d.ty = if cs { HoleType::Countersink } else { HoleType::Simple };
+                                        changed = true;
+                                    }
+                                    if toggle_small(ui, Icon::HoleCbore, "Zylindersenkung", &mut cb) {
+                                        d.ty = if cb { HoleType::Counterbore } else { HoleType::Simple };
+                                        changed = true;
+                                    }
+                                });
+                            }
+                            if profile == 2 {
+                                stack(ui, |ui| {
+                                    if small(ui, Icon::Sketch, if d.sketch.is_empty() { "Skizze..." } else { "Skizze editieren..." }, true, false).clicked() {
+                                        act = Act::Sketch(Slot::Main);
+                                    }
+                                });
+                            }
+                        });
+                    } else {
                         group(ui, "Gewinde", |ui| {
                             stack(ui, |ui| {
                                 ui.horizontal(|ui| {
@@ -654,190 +926,204 @@ impl App {
                             });
                         });
                     }
-                    group(ui, "Größe", |ui| {
+                    if !d.sketched {
+                        group(ui, "Größe", |ui| {
+                            stack(ui, |ui| {
+                                if d.ty == HoleType::Standard {
+                                    let dd = crate::model::regen::hole_drill(d, &vars).unwrap_or(0.0);
+                                    ui.label(RichText::new(format!("Bohrer ⌀ {}", fmt_num(dd, 3))).size(11.5).color(LABEL));
+                                } else {
+                                    ui.add_space(14.0);
+                                    ui.horizontal(|ui| {
+                                        ui.label(RichText::new("Durchmesser:").size(13.0).color(TEXT));
+                                        ui.label(RichText::new("⌀").size(14.0).color(LABEL));
+                                        changed |= dim_combo(ui, &mut d.diameter, &vars, 110.0, "hole_diameter");
+                                    });
+                                }
+                            });
+                        });
+                    }
+                    group(ui, "Tiefe", |ui| {
                         stack(ui, |ui| {
-                            if d.ty == HoleType::Standard {
-                                let dd = crate::model::regen::hole_drill(d, &vars).unwrap_or(0.0);
-                                ui.label(RichText::new(format!("Bohrer ⌀ {}", fmt_num(dd, 3))).size(11.5).color(LABEL));
-                            } else {
-                                labeled(ui, "⌀", |ui| {
-                                    changed |= dim_field(ui, &mut d.diameter, &vars, 60.0);
-                                });
-                            }
+                            ui.add_space(14.0);
                             ui.horizontal(|ui| {
-                                let mut ta = d.through_all;
-                                if option_menu(ui, "holedepth", &mut ta, &[(false, Icon::DepthBlind, "Variabel"), (true, Icon::DepthThrough, "Durch alle")]) {
-                                    d.through_all = ta;
+                                let mut kind = d.depth_kind();
+                                if option_menu(
+                                    ui,
+                                    "holedepth",
+                                    &mut kind,
+                                    &[
+                                        (DepthType::Blind, Icon::DepthBlind, "Variabel"),
+                                        (DepthType::Symmetric, Icon::DepthSymmetric, "Symmetrisch"),
+                                        (DepthType::ToNext, Icon::DepthNext, "Bis zur nächsten"),
+                                        (DepthType::ThroughAll, Icon::DepthThrough, "Durch alle"),
+                                        (DepthType::ToSelected, Icon::DepthSelected, "Bis zur ausgewählten"),
+                                    ],
+                                ) {
+                                    d.set_depth_kind(kind);
+                                    if kind == DepthType::ToSelected && d.depth_ref.is_none() {
+                                        act = Act::Pick(PickTarget::DepthRef);
+                                    }
                                     changed = true;
                                 }
-                                if !d.through_all {
-                                    changed |= dim_field(ui, &mut d.depth, &vars, 56.0);
+                                match kind {
+                                    DepthType::Blind | DepthType::Symmetric => {
+                                        changed |= dim_combo(ui, &mut d.depth, &vars, 120.0, "hole_depth");
+                                    }
+                                    DepthType::ToSelected => {
+                                        if collector(ui, &if d.depth_ref.is_some() { pn(self, &d.depth_ref) } else { "Fläche wählen".into() }, pick == Some(PickTarget::DepthRef), 120.0).clicked() {
+                                            act = Act::Pick(PickTarget::DepthRef);
+                                        }
+                                    }
+                                    _ => {}
                                 }
                             });
-                            if !d.through_all {
-                                changed |= toggle_small(ui, Icon::HoleSimple, "Bohrspitze", &mut d.drill_tip);
-                            }
                         });
                     });
-                    match d.ty {
-                        HoleType::Counterbore => group(ui, "Zylindersenkung", |ui| {
-                            stack(ui, |ui| {
-                                labeled(ui, "⌀", |ui| {
-                                    changed |= dim_field(ui, &mut d.cb_diameter, &vars, 56.0);
-                                });
-                                labeled(ui, "Tiefe", |ui| {
-                                    changed |= dim_field(ui, &mut d.cb_depth, &vars, 56.0);
-                                });
-                            });
-                        }),
-                        HoleType::Countersink => group(ui, "Kegelsenkung", |ui| {
-                            stack(ui, |ui| {
-                                labeled(ui, "⌀", |ui| {
-                                    changed |= dim_field(ui, &mut d.cs_diameter, &vars, 56.0);
-                                });
-                                labeled(ui, "Winkel", |ui| {
-                                    changed |= dim_field(ui, &mut d.cs_angle, &vars, 56.0);
-                                });
-                            });
-                        }),
-                        HoleType::Simple | HoleType::Standard => {}
-                    }
-                    group(ui, "Platzierung", |ui| {
+                    group(ui, "Optionen", |ui| {
                         stack(ui, |ui| {
-                            if collector(ui, &pn(self, &d.plane), pick == Some(PickTarget::Plane), 150.0).clicked() {
-                                act = Act::Pick(PickTarget::Plane);
-                            }
-                            ui.horizontal(|ui| {
-                                labeled(ui, "X", |ui| {
-                                    changed |= dim_field(ui, &mut d.x, &vars, 44.0);
-                                });
-                                labeled(ui, "Y", |ui| {
-                                    changed |= dim_field(ui, &mut d.y, &vars, 44.0);
-                                });
-                            });
-                            changed |= toggle_small(ui, Icon::Flip, "Richtung umkehren", &mut d.flip);
+                            changed |= toggle_small(ui, Icon::Lightweight, "Geometrielos", &mut d.lightweight);
                         });
                     });
                 }
                 FeatureKind::Round(d) => {
+                    tool_icon(ui, Icon::MoRound);
                     let nsets = d.sets.len();
-                    let mut active = self.round_set.min(nsets - 1);
-                    group(ui, "Sätze", |ui| {
+                    let active = self.round_set.min(nsets - 1);
+                    let transitions = ui.ctx().data(|m| m.get_temp::<bool>(egui::Id::new(("dash_mode_trans", ed.feature.id)))).unwrap_or(false);
+                    group(ui, "Modus", |ui| {
+                        if large(ui, Icon::DashSets, "Sätze", true, !transitions).on_hover_text("Rundungssätze definieren").clicked() {
+                            ui.ctx().data_mut(|m| m.insert_temp(egui::Id::new(("dash_mode_trans", ed.feature.id)), false));
+                            self.dash_panel = Some("Sätze");
+                            act = Act::Pick(PickTarget::Edges);
+                        }
+                        if large(ui, Icon::DashTransitions, "Übergänge", true, transitions).on_hover_text("Übergänge zwischen den Rundungen definieren").clicked() {
+                            ui.ctx().data_mut(|m| m.insert_temp(egui::Id::new(("dash_mode_trans", ed.feature.id)), true));
+                            self.dash_panel = Some("Übergänge");
+                            act = Act::PickOff;
+                        }
+                    });
+                    let set = &mut d.sets[active];
+                    group(ui, "Bemaßungsschema", |ui| {
                         stack(ui, |ui| {
+                            changed |= round_section_combo(ui, "roundscheme", set, 160.0);
+                            ui.add_space(4.0);
+                            let label = if set.full {
+                                "Radius:"
+                            } else if set.curve.is_some() {
+                                "Durch Kurve"
+                            } else if set.chord {
+                                "Sehne:"
+                            } else if set.section.two_distances() {
+                                "D1:"
+                            } else if set.section.has_rho() {
+                                "Abstand:"
+                            } else {
+                                "Radius:"
+                            };
                             ui.horizontal(|ui| {
-                                egui::ComboBox::from_id_salt("roundset").width(70.0).selected_text(format!("Satz {}", active + 1)).show_ui(ui, |ui| {
-                                    for i in 0..nsets {
-                                        ui.selectable_value(&mut active, i, format!("Satz {}", i + 1));
+                                ui.label(RichText::new(label).size(13.0).color(TEXT));
+                                if set.full || set.curve.is_some() {
+                                    ui.label(RichText::new("bestimmt durch Geometrie").size(11.5).color(LABEL));
+                                } else {
+                                    changed |= dim_combo(ui, &mut set.radius, &vars, 110.0, "round_radius");
+                                    if set.section.two_distances() {
+                                        ui.label(RichText::new("D2:").size(13.0).color(TEXT));
+                                        changed |= dim_field(ui, &mut set.d2, &vars, 60.0);
                                     }
-                                });
-                                if ui.small_button("＋ Neuer Satz").on_hover_text("Einen neuen Rundungssatz beginnen").clicked() {
-                                    let r = d.sets[active].radius.clone();
-                                    let shape = d.sets[active].shape;
-                                    d.sets.push(RoundSet { edges: vec![], radius: r.clone(), variable: false, radius_end: r, shape });
-                                    active = d.sets.len() - 1;
-                                    act = Act::Pick(PickTarget::Edges);
-                                    changed = true;
                                 }
                             });
-                            let set = &mut d.sets[active];
-                            if collector(
-                                ui,
-                                &if set.edges.is_empty() { "Kanten wählen".to_string() } else { format!("{} Kante(n)", set.edges.len()) },
-                                pick == Some(PickTarget::Edges),
-                                150.0,
-                            )
-                            .clicked()
-                            {
-                                act = Act::Pick(PickTarget::Edges);
-                            }
                         });
                     });
-                    group(ui, "Radius", |ui| {
+                    group(ui, "Optionen", |ui| {
                         stack(ui, |ui| {
-                            let set = &mut d.sets[active];
-                            labeled(ui, if set.variable { "Start" } else { "Radius" }, |ui| {
-                                changed |= dim_field(ui, &mut set.radius, &vars, 60.0);
-                            });
-                            changed |= toggle_small(ui, Icon::Round, "Variabel", &mut set.variable);
-                            if set.variable {
-                                labeled(ui, "Ende", |ui| {
-                                    changed |= dim_field(ui, &mut set.radius_end, &vars, 60.0);
-                                });
+                            changed |= toggle_small(ui, Icon::ExtendSurfaces, "Flächen verlängern", &mut set.extend_surfaces);
+                            let can_full = set.edges.len() == 2;
+                            if small(ui, Icon::FullRound, "Vollrundung", can_full, set.full).on_hover_text("Die Fläche zwischen zwei Kanten durch eine Rundung ersetzen (genau zwei Kanten im Satz)").clicked() && can_full {
+                                set.full = !set.full;
+                                if set.full {
+                                    set.curve = None;
+                                    set.chord = false;
+                                }
+                                changed = true;
                             }
                         });
-                    });
-                    group(ui, "Form", |ui| {
                         stack(ui, |ui| {
-                            use crate::kernel::corner::CornerShape;
-                            let set = &mut d.sets[active];
-                            let before = set.shape;
-                            egui::ComboBox::from_id_salt("roundshape")
-                                .width(150.0)
-                                .selected_text(set.shape.label())
-                                .show_ui(ui, |ui| {
-                                    for s in CornerShape::ALL {
-                                        ui.selectable_value(&mut set.shape, s, s.label()).on_hover_text(s.tip());
+                            let mut through = set.curve.is_some();
+                            if small(ui, Icon::ThroughCurve, "Durch Kurve", true, through || pick == Some(PickTarget::RoundCurve)).on_hover_text("Den Radius durch eine Steuerkurve bestimmen").clicked() {
+                                through = !through;
+                                if through {
+                                    set.full = false;
+                                    act = Act::Pick(PickTarget::RoundCurve);
+                                } else {
+                                    set.curve = None;
+                                    if pick == Some(PickTarget::RoundCurve) {
+                                        act = Act::PickOff;
                                     }
-                                })
-                                .response
-                                .on_hover_text("Querschnittsform der Rundung: Kreisbogen oder krümmungsstetig wie bei Apple-Gehäusen");
-                            // one click for the usual choice
-                            let mut apple = set.shape == CornerShape::G3One;
-                            if toggle_small(ui, Icon::Round, "Apple-Ecke", &mut apple) {
-                                set.shape = if apple { CornerShape::G3One } else { CornerShape::Circular };
+                                }
+                                changed = true;
                             }
-                            changed |= set.shape != before;
+                            if small(ui, Icon::ChordRound, "Sehne", !set.full, set.chord).on_hover_text("Den Abstand der Tangentialpunkte statt des Radius bemaßen").clicked() && !set.full {
+                                set.chord = !set.chord;
+                                changed = true;
+                            }
                         });
                     });
                     self.round_set = active;
                 }
                 FeatureKind::Chamfer(d) => {
-                    group(ui, "Bemaßung", |ui| {
+                    tool_icon(ui, Icon::MoChamfer);
+                    let active = self.round_set.min(d.additional_sets.len());
+                    let transitions = ui.ctx().data(|m| m.get_temp::<bool>(egui::Id::new(("dash_mode_trans", ed.feature.id)))).unwrap_or(false);
+                    if !d.corner {
+                        group(ui, "Modus", |ui| {
+                            if large(ui, Icon::DashSets, "Sätze", true, !transitions).on_hover_text("Fasensätze definieren").clicked() {
+                                ui.ctx().data_mut(|m| m.insert_temp(egui::Id::new(("dash_mode_trans", ed.feature.id)), false));
+                                self.dash_panel = Some("Sätze");
+                                act = Act::Pick(PickTarget::Edges);
+                            }
+                            if large(ui, Icon::DashTransitions, "Übergänge", true, transitions).on_hover_text("Übergänge zwischen den Fasen definieren").clicked() {
+                                ui.ctx().data_mut(|m| m.insert_temp(egui::Id::new(("dash_mode_trans", ed.feature.id)), true));
+                                self.dash_panel = Some("Übergänge");
+                                act = Act::PickOff;
+                            }
+                        });
+                    }
+                    let corner = d.corner;
+                    let set = d.set_mut(active);
+                    group(ui, "Bemaßungsschema", |ui| {
                         stack(ui, |ui| {
-                            egui::ComboBox::from_id_salt("chscheme")
-                                .width(100.0)
-                                .selected_text(match d.kind {
-                                    ChamferKind::DxD => "D x D",
-                                    ChamferKind::D1xD2 => "D1 x D2",
-                                    ChamferKind::AnglexD => "Winkel x D",
-                                })
-                                .show_ui(ui, |ui| {
-                                    changed |= ui.selectable_value(&mut d.kind, ChamferKind::DxD, "D x D").changed();
-                                    changed |= ui.selectable_value(&mut d.kind, ChamferKind::D1xD2, "D1 x D2").changed();
-                                    changed |= ui.selectable_value(&mut d.kind, ChamferKind::AnglexD, "Winkel x D").changed();
-                                });
+                            if !corner {
+                                changed |= chamfer_scheme_combo(ui, "chscheme", set, 160.0);
+                                ui.add_space(4.0);
+                            }
+                            let (n1, n2) = set.kind.dim_names();
                             ui.horizontal(|ui| {
-                                labeled(ui, "D", |ui| {
-                                    changed |= dim_field(ui, &mut d.d1, &vars, 48.0);
-                                });
-                                if d.kind == ChamferKind::D1xD2 {
-                                    labeled(ui, "D2", |ui| {
-                                        changed |= dim_field(ui, &mut d.d2, &vars, 48.0);
-                                    });
+                                ui.label(RichText::new(format!("{}:", n1)).size(13.0).color(TEXT));
+                                if set.by_reference {
+                                    ui.label(RichText::new("Referenz").size(12.0).color(LABEL));
+                                } else {
+                                    changed |= dim_combo(ui, &mut set.d1, &vars, 110.0, "chamfer_d");
                                 }
-                                if d.kind == ChamferKind::AnglexD {
-                                    labeled(ui, "∠", |ui| {
-                                        changed |= dim_field(ui, &mut d.angle, &vars, 48.0);
-                                    });
+                                if let (Some(n2), false) = (n2, corner) {
+                                    ui.label(RichText::new(format!("{}:", n2)).size(13.0).color(TEXT));
+                                    if set.kind == ChamferKind::AnglexD {
+                                        changed |= dim_field(ui, &mut set.angle, &vars, 60.0);
+                                    } else {
+                                        changed |= dim_field(ui, &mut set.d2, &vars, 60.0);
+                                    }
                                 }
                             });
                         });
                     });
-                    group(ui, "Sätze", |ui| {
-                        stack(ui, |ui| {
-                            if collector(
-                                ui,
-                                &if d.edges.is_empty() { "Kanten wählen".to_string() } else { format!("{} Kante(n)", d.edges.len()) },
-                                pick == Some(PickTarget::Edges),
-                                150.0,
-                            )
-                            .clicked()
-                            {
+                    if corner {
+                        group(ui, "Ecke", |ui| {
+                            if collector(ui, &if set.edges.is_empty() { "Kanten wählen".to_string() } else { format!("{} Kante(n)", set.edges.len()) }, pick == Some(PickTarget::Edges), 150.0).clicked() {
                                 act = Act::Pick(PickTarget::Edges);
                             }
-                            changed |= toggle_small(ui, Icon::Chamfer, "Eckfase (Kanten treffen sich in der Ecke)", &mut d.corner);
                         });
-                    });
+                    }
+                    self.round_set = active;
                 }
                 FeatureKind::Shell(d) => {
                     group(ui, "Einstellungen", |ui| {
@@ -1202,6 +1488,7 @@ impl App {
                 }
                 _ => {}
             }
+            });
             // right-hand controls: preview, OK, cancel
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Min), |ui| {
                 ui.add_space(6.0);
@@ -1212,8 +1499,27 @@ impl App {
                         ui.set_min_height(RIB_H);
                         ui.with_layout(egui::Layout::top_down(egui::Align::Min), |ui| {
                             ui.add(egui::Label::new(RichText::new(help).size(12.5).color(TEXT)).wrap());
+                            let more = ui.add(egui::Label::new(RichText::new("Mehr lesen...").size(12.5).color(Color32::from_rgb(30, 90, 200)).underline()).sense(Sense::click()));
+                            if more.clicked() {
+                                let id = egui::Id::new("feature_help_more");
+                                let open = ui.ctx().data(|m| m.get_temp::<bool>(id)).unwrap_or(false);
+                                ui.ctx().data_mut(|m| m.insert_temp(id, !open));
+                            }
                         });
                     });
+                    if ui.ctx().data(|m| m.get_temp::<bool>(egui::Id::new("feature_help_more"))).unwrap_or(false) {
+                        let mut open = true;
+                        egui::Window::new(ed.feature.kind.type_name()).id(egui::Id::new("feature_help_win")).open(&mut open).collapsible(false).resizable(false).default_width(360.0).show(ui.ctx(), |ui| {
+                            ui.label(RichText::new(help).size(13.0));
+                            if let Some(more) = feature_help_more(&ed.feature.kind) {
+                                ui.add_space(6.0);
+                                ui.label(RichText::new(more).size(12.5).color(LABEL));
+                            }
+                        });
+                        if !open {
+                            ui.ctx().data_mut(|m| m.insert_temp(egui::Id::new("feature_help_more"), false));
+                        }
+                    }
                     ui.add_space(8.0);
                 }
                 if large(ui, Icon::Cancel, "Abbrechen", true, false).on_hover_text("Abbrechen (Esc)").clicked() {
@@ -1225,11 +1531,63 @@ impl App {
                 if large(ui, Icon::Ok, "OK", err.is_none(), false).on_hover_text(err.clone().unwrap_or_else(|| "Änderungen anwenden und speichern (Enter)".into())).clicked() {
                     act = Act::Ok;
                 }
-                let mut prev = ed.preview;
-                if large(ui, Icon::Preview, "Vorschau", true, prev).on_hover_text("Geometrievorschau").clicked() {
-                    prev = !prev;
-                    if let Some(e) = &mut self.editor {
-                        e.preview = prev;
+                ui.add_space(10.0);
+                // Creo's tool controls: pause, no preview, separate / attached preview, verify
+                let creo_controls = matches!(ed.feature.kind, FeatureKind::Hole(_) | FeatureKind::Round(_) | FeatureKind::Chamfer(_));
+                if creo_controls {
+                    let mut set_mode = None;
+                    for (icon, tip, sel, mode) in [
+                        (Icon::Preview, "Verifizierungsmodus: das Ergebnis ohne Vorschauelemente anzeigen", ed.verify, 4),
+                        (Icon::PrevAttached, "Verbundene Vorschau: das KE am Modell zeigen", ed.preview && !ed.separate, 3),
+                        (Icon::PrevSeparate, "Separate Vorschau: die Geometrie des KEs getrennt vom Modell zeigen", ed.preview && ed.separate, 2),
+                        (Icon::NoPreview, "Keine Vorschau", !ed.preview, 1),
+                        (Icon::SimPause, if ed.paused { "Werkzeug fortsetzen" } else { "Werkzeug anhalten, um andere Aktionen auszuführen" }, ed.paused, 0),
+                    ] {
+                        if icon_button(ui, icon, tip, true, sel, 30.0).clicked() {
+                            set_mode = Some(mode);
+                        }
+                        if mode == 3 || mode == 1 {
+                            ui.add_space(2.0);
+                        }
+                    }
+                    if let (Some(mode), Some(e)) = (set_mode, &mut self.editor) {
+                        match mode {
+                            0 => {
+                                e.paused = !e.paused;
+                                if e.paused {
+                                    e.pick = None;
+                                }
+                            }
+                            1 => {
+                                e.preview = false;
+                                e.verify = false;
+                            }
+                            2 => {
+                                e.preview = true;
+                                e.separate = true;
+                                e.verify = false;
+                            }
+                            3 => {
+                                e.preview = true;
+                                e.separate = false;
+                            }
+                            _ => {
+                                e.verify = !e.verify;
+                                if e.verify {
+                                    e.preview = true;
+                                    e.separate = false;
+                                    e.pick = None;
+                                }
+                            }
+                        }
+                    }
+                } else {
+                    let mut prev = ed.preview;
+                    if large(ui, Icon::Preview, "Vorschau", true, prev).on_hover_text("Geometrievorschau").clicked() {
+                        prev = !prev;
+                        if let Some(e) = &mut self.editor {
+                            e.preview = prev;
+                        }
                     }
                 }
                 if let Some(e) = shown_err {
@@ -1249,6 +1607,7 @@ impl App {
         match act {
             Act::None => {}
             Act::Pick(t) => self.set_pick_target(Some(t)),
+            Act::PickOff => self.set_pick_target(None),
             Act::Sketch(s) => self.begin_sketch(s),
             Act::SketchDialog => self.open_sketch_dialog(),
             Act::Ok => self.finish_feature(),
@@ -1267,7 +1626,12 @@ impl App {
         }
         ui.horizontal(|ui| {
             ui.spacing_mut().item_spacing.x = 2.0;
-            ui.add_space(4.0);
+            let left = if matches!(ed.feature.kind, FeatureKind::Hole(_) | FeatureKind::Round(_) | FeatureKind::Chamfer(_)) {
+                ui.ctx().data(|data| data.get_temp::<f32>(egui::Id::new("feature_dashboard_left"))).unwrap_or(380.0)
+            } else {
+                4.0
+            };
+            ui.add_space(left);
             for p in panels {
                 let font = FontId::proportional(13.5);
                 let w = ui.fonts(|f| f.layout_no_wrap(p.to_string(), font.clone(), Color32::BLACK).size().x) + 26.0;
@@ -1358,7 +1722,7 @@ impl App {
                                 }
                             });
                         }
-                        ("Körperoptionen", FeatureKind::Extrude(_) | FeatureKind::Revolve(_)) => {
+                        ("Körperoptionen", FeatureKind::Extrude(_) | FeatureKind::Revolve(_) | FeatureKind::Hole(_)) => {
                             ui.add_enabled(false, egui::Checkbox::new(&mut false, "Neuen Körper erzeugen"));
                             labeled(ui, "Körper", |ui| {
                                 ui.label("Körper 1 (Standardkörper)");
@@ -1473,21 +1837,112 @@ impl App {
                             );
                         }
                         ("Platzierung", FeatureKind::Hole(d)) => {
-                            labeled(ui, "Platzierung", |ui| {
-                                if collector(ui, &pn(self, &d.plane), pick == Some(PickTarget::Plane), 170.0).clicked() {
-                                    act = Act::Pick(PickTarget::Plane);
+                            section_rule(ui, "Typ");
+                            ui.horizontal(|ui| {
+                                egui::ComboBox::from_id_salt("hole_place_type").width(250.0).selected_text(d.placement.label()).show_ui(ui, |ui| {
+                                    for t in HolePlacement::ALL {
+                                        ui.selectable_value(&mut d.placement, t, t.label());
+                                    }
+                                });
+                                if ui.add(egui::Button::new(RichText::new("⇅").size(15.0)).min_size(vec2(30.0, 26.0))).on_hover_text("Bohrrichtung umkehren").clicked() {
+                                    d.flip = !d.flip;
                                 }
                             });
-                            ui.label(RichText::new("Typ: Linear — Versätze in der Platzierungsebene gemessen").size(11.0).color(LABEL));
-                            egui::Grid::new("holeplace").show(ui, |ui| {
-                                ui.label("Versatz X");
-                                dim_field(ui, &mut d.x, &vars, 70.0);
-                                ui.end_row();
-                                ui.label("Versatz Y");
-                                dim_field(ui, &mut d.y, &vars, 70.0);
-                                ui.end_row();
+                            ui.add_space(8.0);
+                            section_rule(ui, "Platzierung");
+                            if collector_req(ui, &if d.plane.is_some() { pn(self, &d.plane) } else { "Keine Elemente".into() }, pick == Some(PickTarget::Plane), d.plane.is_none(), 300.0).clicked() {
+                                act = Act::Pick(PickTarget::Plane);
+                            }
+                            ui.add_space(8.0);
+                            section_rule(ui, "Versatzreferenzen");
+                            let axis_name = |s: &App, a: &Option<AxisRef>| match a {
+                                Some(AxisRef::Axis(id)) => s.displayed().axis(*id).map(|x| x.name.clone()).unwrap_or_else(|| "Achse".into()),
+                                Some(AxisRef::WorldX) => "X-Achse".into(),
+                                Some(AxisRef::WorldY) => "Y-Achse".into(),
+                                Some(AxisRef::WorldZ) => "Z-Achse".into(),
+                                None => "Achse wählen".into(),
+                            };
+                            egui::Frame::NONE.stroke(Stroke::new(1.0_f32, BORDER)).inner_margin(6.0).show(ui, |ui| {
+                                ui.set_width(288.0);
+                                egui::Grid::new("holeplace").spacing(vec2(6.0, 8.0)).show(ui, |ui| match d.placement {
+                                    HolePlacement::Linear => {
+                                        for (reference, value, target, label) in
+                                            [(&mut d.offset_x, &mut d.x, PickTarget::HoleOffsetX, "X"), (&mut d.offset_y, &mut d.y, PickTarget::HoleOffsetY, "Y")]
+                                        {
+                                            ui.label(label);
+                                            let text = if reference.is_some() { pn(self, reference) } else { format!("Lokale {}-Achse", label) };
+                                            if collector(ui, &text, pick == Some(target), 150.0).clicked() {
+                                                act = Act::Pick(target);
+                                            }
+                                            ui.label(RichText::new("Versatz").size(11.5).color(LABEL));
+                                            dim_field(ui, value, &vars, 50.0);
+                                            if ui.small_button("✕").on_hover_text("Versatz wieder vom lokalen Ursprung messen").clicked() {
+                                                *reference = None;
+                                            }
+                                            ui.end_row();
+                                        }
+                                    }
+                                    HolePlacement::Radial | HolePlacement::Diameter => {
+                                        ui.label("Achse");
+                                        if collector_req(ui, &axis_name(self, &d.axis_ref), pick == Some(PickTarget::Axis), d.axis_ref.is_none(), 130.0).clicked() {
+                                            act = Act::Pick(PickTarget::Axis);
+                                        }
+                                        ui.label(RichText::new(if d.placement == HolePlacement::Diameter { "Durchmesser" } else { "Radius" }).size(11.5).color(LABEL));
+                                        dim_field(ui, &mut d.x, &vars, 50.0);
+                                        ui.end_row();
+                                        ui.label("Ebene");
+                                        if collector(ui, &if d.angle_ref.is_some() { pn(self, &d.angle_ref) } else { "Ebene wählen".into() }, pick == Some(PickTarget::HoleAngleRef), 130.0).clicked() {
+                                            act = Act::Pick(PickTarget::HoleAngleRef);
+                                        }
+                                        ui.label(RichText::new("Winkel").size(11.5).color(LABEL));
+                                        dim_field(ui, &mut d.angle, &vars, 50.0);
+                                        ui.end_row();
+                                    }
+                                    HolePlacement::Coaxial => {
+                                        ui.label("Achse");
+                                        if collector_req(ui, &axis_name(self, &d.axis_ref), pick == Some(PickTarget::Axis), d.axis_ref.is_none(), 200.0).clicked() {
+                                            act = Act::Pick(PickTarget::Axis);
+                                        }
+                                        ui.end_row();
+                                    }
+                                    HolePlacement::OnPoint => {
+                                        ui.label("Punkt");
+                                        let name = d.point_ref.and_then(|id| self.displayed().points.iter().find(|p| p.id == id).map(|p| p.name.clone())).unwrap_or_else(|| "Punkt wählen".into());
+                                        if collector_req(ui, &name, pick == Some(PickTarget::HolePoint), d.point_ref.is_none(), 200.0).clicked() {
+                                            act = Act::Pick(PickTarget::HolePoint);
+                                        }
+                                        ui.end_row();
+                                    }
+                                });
                             });
-                            ui.checkbox(&mut d.flip, "Bohrrichtung umkehren");
+                            ui.add_space(8.0);
+                            section_rule(ui, "Bohrungsorientierung");
+                            ui.horizontal(|ui| {
+                                if collector(ui, &if d.orient_ref.is_some() { pn(self, &d.orient_ref) } else { "Hier klicken, um Element hinzuzufügen".into() }, pick == Some(PickTarget::HoleOrient), 232.0).clicked() {
+                                    act = Act::Pick(PickTarget::HoleOrient);
+                                }
+                                ui.add_enabled_ui(d.orient_ref.is_some(), |ui| {
+                                    if ui.add(egui::Button::new("//").selected(!d.orient_normal).min_size(vec2(26.0, 26.0))).on_hover_text("Parallel zur Referenz").clicked() {
+                                        d.orient_normal = false;
+                                    }
+                                    if ui.add(egui::Button::new("⊥").selected(d.orient_normal).min_size(vec2(26.0, 26.0))).on_hover_text("Normal zur Referenz").clicked() {
+                                        d.orient_normal = true;
+                                    }
+                                });
+                            });
+                            if d.orient_ref.is_some() && ui.small_button("Orientierung entfernen").clicked() {
+                                d.orient_ref = None;
+                            }
+                        }
+                        ("Notiz", FeatureKind::Hole(d)) => {
+                            ui.checkbox(&mut d.note, "Notiz hinzufügen");
+                            ui.add_space(6.0);
+                            egui::Frame::NONE.stroke(Stroke::new(1.0_f32, BORDER)).fill(if d.note { Color32::WHITE } else { Color32::from_rgb(244, 245, 246) }).inner_margin(8.0).show(ui, |ui| {
+                                ui.set_width(288.0);
+                                ui.set_min_height(60.0);
+                                let text = crate::model::regen::hole_note_text(d, &vars);
+                                ui.label(RichText::new(text).size(13.5).color(if d.note { TEXT } else { DIM_TEXT }));
+                            });
                         }
                         ("Form", FeatureKind::Hole(d)) => {
                             hole_shape_diagram(ui, d, &vars);
@@ -1495,92 +1950,371 @@ impl App {
                         ("Sätze", FeatureKind::Round(d)) => {
                             let mut active = self.round_set.min(d.sets.len() - 1);
                             let mut delete = None;
-                            egui::Grid::new("round_sets").striped(true).num_columns(4).show(ui, |ui| {
-                                for (i, set) in d.sets.iter().enumerate() {
-                                    if ui.selectable_label(i == active, format!("Satz {}", i + 1)).clicked() {
-                                        active = i;
+                            let mut new_set = false;
+                            ui.horizontal_top(|ui| {
+                                egui::Frame::NONE.stroke(Stroke::new(1.0_f32, BORDER)).inner_margin(4.0).show(ui, |ui| {
+                                    ui.set_width(110.0);
+                                    ui.set_min_height(360.0);
+                                    ui.vertical(|ui| {
+                                        for i in 0..d.sets.len() {
+                                            let r = ui.add_sized([102.0, 24.0], egui::SelectableLabel::new(i == active, format!("Satz {}", i + 1)));
+                                            if r.clicked() {
+                                                active = i;
+                                            }
+                                            r.context_menu(|ui| {
+                                                if ui.add_enabled(d.sets.len() > 1, egui::Button::new("Entfernen")).clicked() {
+                                                    delete = Some(i);
+                                                    ui.close_menu();
+                                                }
+                                            });
+                                        }
+                                        new_set = ui.add_sized([102.0, 24.0], egui::SelectableLabel::new(false, "*Neuer Satz")).clicked();
+                                    });
+                                });
+                                ui.vertical(|ui| {
+                                    ui.spacing_mut().item_spacing.y = 6.0;
+                                    let set = &mut d.sets[active];
+                                    round_section_combo(ui, "roundshape_panel", set, 176.0);
+                                    ui.add_enabled_ui(set.section.has_rho(), |ui| {
+                                        if set.section.has_rho() {
+                                            dim_field(ui, &mut set.rho, &vars, 176.0);
+                                        } else {
+                                            let mut zero = "0.000".to_string();
+                                            ui.add(egui::TextEdit::singleline(&mut zero).desired_width(176.0));
+                                        }
+                                    })
+                                    .response
+                                    .on_hover_text("Konischer Parameter (0.05 bis 0.95)");
+                                    egui::ComboBox::from_id_salt("round_method").width(176.0).selected_text(set.method.label()).show_ui(ui, |ui| {
+                                        for m in [RoundMethod::RollingBall, RoundMethod::NormalToSpine] {
+                                            ui.selectable_value(&mut set.method, m, m.label());
+                                        }
+                                    });
+                                    let wide = |ui: &mut egui::Ui, label: &str, on: bool, enabled: bool| ui.add_enabled(enabled, egui::Button::new(label).selected(on).min_size(vec2(188.0, 30.0))).clicked();
+                                    if wide(ui, "Flächen verlängern", set.extend_surfaces, true) {
+                                        set.extend_surfaces = !set.extend_surfaces;
                                     }
-                                    ui.label(format!("{} Kante(n)", set.edges.len()));
-                                    ui.label(format!(
-                                        "{}{}",
-                                        if set.variable { format!("R {} → {}", set.radius.0, set.radius_end.0) } else { format!("R {}", set.radius.0) },
-                                        if set.shape == Default::default() { String::new() } else { format!("  {}", set.shape.label()) }
-                                    ));
-                                    if d.sets.len() > 1 && ui.small_button("✕").clicked() {
-                                        delete = Some(i);
+                                    if wide(ui, "Vollrundung", set.full, set.edges.len() == 2) {
+                                        set.full = !set.full;
+                                        if set.full {
+                                            set.curve = None;
+                                            set.chord = false;
+                                        }
                                     }
-                                    ui.end_row();
-                                }
+                                    if wide(ui, "Durch Kurve", set.curve.is_some() || pick == Some(PickTarget::RoundCurve), true) {
+                                        if set.curve.is_some() {
+                                            set.curve = None;
+                                        } else {
+                                            set.full = false;
+                                            act = Act::Pick(PickTarget::RoundCurve);
+                                        }
+                                    }
+                                    if wide(ui, "Sehne", set.chord, !set.full) {
+                                        set.chord = !set.chord;
+                                    }
+                                });
                             });
-                            if ui.button("＋ Neuer Satz").clicked() {
-                                d.sets.push(RoundSet::new(d.sets[active].radius.value(&vars, 3.0)));
+                            if new_set {
+                                let mut set = d.sets[active].clone();
+                                set.edges.clear();
+                                set.excluded.clear();
+                                set.full = false;
+                                set.curve = None;
+                                d.sets.push(set);
                                 active = d.sets.len() - 1;
                                 act = Act::Pick(PickTarget::Edges);
                             }
                             if let Some(i) = delete {
                                 d.sets.remove(i);
+                                if i < active {
+                                    active -= 1;
+                                }
                                 active = active.min(d.sets.len() - 1);
                             }
-                            ui.separator();
+                            ui.add_space(6.0);
+                            ui.label("Referenzen");
                             let set = &mut d.sets[active];
-                            ui.label(RichText::new(format!("Referenzen von Satz {}", active + 1)).strong());
-                            let mut remove = None;
-                            for (i, e) in set.edges.iter().enumerate() {
-                                ui.horizontal(|ui| {
-                                    ui.label(format!("Kante {}   ({}, {}, {})", i + 1, fmt_num(e.m.x, 1), fmt_num(e.m.y, 1), fmt_num(e.m.z, 1)));
-                                    if ui.small_button("✕").clicked() {
-                                        remove = Some(i);
-                                    }
-                                });
-                            }
-                            if let Some(i) = remove {
-                                set.edges.remove(i);
-                            }
-                            labeled(ui, if set.variable { "Startradius" } else { "Radius" }, |ui| {
-                                dim_field(ui, &mut set.radius, &vars, 70.0);
-                            });
-                            ui.checkbox(&mut set.variable, "Variabler Radius entlang der Kante");
-                            if set.variable {
-                                labeled(ui, "Endradius", |ui| {
-                                    dim_field(ui, &mut set.radius_end, &vars, 70.0);
-                                });
-                            }
-                            labeled(ui, "Form", |ui| {
-                                egui::ComboBox::from_id_salt("roundshape_panel").width(170.0).selected_text(set.shape.label()).show_ui(ui, |ui| {
-                                    for s in crate::kernel::corner::CornerShape::ALL {
-                                        ui.selectable_value(&mut set.shape, s, s.label()).on_hover_text(s.tip());
-                                    }
-                                });
-                            });
-                            if ui.button(if pick == Some(PickTarget::Edges) { "Auswahl beendet" } else { "Kanten hinzufügen..." }).clicked() {
+                            let names: Vec<String> = set.edges.iter().map(|e| edge_name(self.context.as_ref().unwrap_or(&self.result), &self.data, e)).collect();
+                            if edge_references(ui, &mut set.edges, &names, pick == Some(PickTarget::Edges), "round") {
                                 act = Act::Pick(PickTarget::Edges);
                             }
+                            set.excluded.retain(|&i| i < set.edges.len());
+                            if set.full && set.edges.len() != 2 {
+                                set.full = false;
+                            }
+                            ui.add_space(6.0);
+                            ui.label(RichText::new("Steuerkurve").color(if set.curve.is_some() || pick == Some(PickTarget::RoundCurve) { TEXT } else { DIM_TEXT }));
+                            ui.horizontal(|ui| {
+                                let text = match &set.curve {
+                                    Some(c) => edge_name(self.context.as_ref().unwrap_or(&self.result), &self.data, c).replacen("Kante", "Kurve", 1),
+                                    None => String::new(),
+                                };
+                                if collector(ui, &text, pick == Some(PickTarget::RoundCurve), 220.0).clicked() {
+                                    act = Act::Pick(PickTarget::RoundCurve);
+                                }
+                                if set.curve.is_some() && ui.small_button("✕").clicked() {
+                                    set.curve = None;
+                                }
+                            });
+                            ui.add_space(6.0);
+                            // Creo's value table: one row for a constant radius, start and end for a variable one
+                            let value_name = if set.chord {
+                                "Sehne"
+                            } else if set.section.two_distances() {
+                                "D1"
+                            } else if set.section.has_rho() {
+                                "Abstand"
+                            } else {
+                                "Radius"
+                            };
+                            egui::Frame::NONE.stroke(Stroke::new(1.0_f32, BORDER)).inner_margin(4.0).show(ui, |ui| {
+                                ui.set_width(300.0);
+                                ui.set_min_height(90.0);
+                                ui.add_enabled_ui(!set.full && set.curve.is_none(), |ui| {
+                                    egui::Grid::new("round_values").striped(true).num_columns(if set.section.two_distances() { 3 } else { 2 }).spacing(vec2(10.0, 4.0)).show(ui, |ui| {
+                                        ui.label("Nr.");
+                                        ui.label(value_name);
+                                        if set.section.two_distances() {
+                                            ui.label("D2");
+                                        }
+                                        ui.end_row();
+                                        ui.label("1");
+                                        dim_field(ui, &mut set.radius, &vars, 90.0);
+                                        if set.section.two_distances() {
+                                            dim_field(ui, &mut set.d2, &vars, 70.0);
+                                        }
+                                        ui.end_row();
+                                        if set.variable {
+                                            ui.label("2");
+                                            dim_field(ui, &mut set.radius_end, &vars, 90.0);
+                                            ui.end_row();
+                                        }
+                                    });
+                                    ui.horizontal(|ui| {
+                                        if !set.variable && ui.small_button("Radius hinzufügen").on_hover_text("Variable Rundung: einen zweiten Wert am Kantenende").clicked() {
+                                            set.variable = true;
+                                            set.radius_end = set.radius.clone();
+                                        }
+                                        if set.variable && ui.small_button("Radius entfernen").clicked() {
+                                            set.variable = false;
+                                        }
+                                    });
+                                });
+                            });
                             self.round_set = active;
                         }
-                        ("Sätze", FeatureKind::Chamfer(ChamferDef { edges, .. })) => {
-                            ui.label("Referenzen");
+                        ("Sätze", FeatureKind::Chamfer(d)) => {
+                            let mut active = self.round_set.min(d.additional_sets.len());
+                            let mut remove_set = None;
+                            let mut new_set = false;
                             egui::Frame::NONE.stroke(Stroke::new(1.0_f32, BORDER)).inner_margin(4.0).show(ui, |ui| {
-                                ui.set_min_height(70.0);
-                                ui.set_width(290.0);
-                                if edges.is_empty() {
-                                    ui.label(RichText::new("Kanten im Grafikfenster wählen").color(LABEL));
-                                }
-                                let mut remove = None;
-                                for (i, e) in edges.iter().enumerate() {
-                                    ui.horizontal(|ui| {
-                                        ui.label(format!("Kante {}   ({}, {}, {})", i + 1, fmt_num(e.m.x, 1), fmt_num(e.m.y, 1), fmt_num(e.m.z, 1)));
-                                        if ui.small_button("✕").clicked() {
-                                            remove = Some(i);
+                                ui.set_width(300.0);
+                                ui.set_min_height(120.0);
+                                let n = d.additional_sets.len() + 1;
+                                for i in 0..n {
+                                    let r = ui.add_sized([290.0, 24.0], egui::SelectableLabel::new(active == i, format!("Satz {}", i + 1)));
+                                    if r.clicked() {
+                                        active = i;
+                                    }
+                                    r.context_menu(|ui| {
+                                        if ui.add_enabled(n > 1 && !d.corner, egui::Button::new("Entfernen")).clicked() {
+                                            remove_set = Some(i);
+                                            ui.close_menu();
                                         }
                                     });
                                 }
-                                if let Some(i) = remove {
-                                    edges.remove(i);
+                                if !d.corner {
+                                    new_set = ui.add_sized([290.0, 24.0], egui::SelectableLabel::new(false, "*Neuer Satz")).clicked();
                                 }
                             });
-                            if ui.button(if pick == Some(PickTarget::Edges) { "Auswahl beendet" } else { "Kanten hinzufügen..." }).clicked() {
+                            if new_set {
+                                let mut set = d.set_mut(active).clone();
+                                set.edges.clear();
+                                set.excluded.clear();
+                                d.additional_sets.push(set);
+                                active = d.additional_sets.len();
                                 act = Act::Pick(PickTarget::Edges);
                             }
+                            if let Some(i) = remove_set {
+                                if i == 0 {
+                                    d.primary = d.additional_sets.remove(0);
+                                } else {
+                                    d.additional_sets.remove(i - 1);
+                                }
+                                if i < active {
+                                    active -= 1;
+                                }
+                                active = active.min(d.additional_sets.len());
+                            }
+                            ui.add_space(6.0);
+                            let corner = d.corner;
+                            let set = d.set_mut(active);
+                            ui.label("Referenzen");
+                            let names: Vec<String> = set.edges.iter().map(|e| edge_name(self.context.as_ref().unwrap_or(&self.result), &self.data, e)).collect();
+                            if edge_references(ui, &mut set.edges, &names, pick == Some(PickTarget::Edges), "chamfer") {
+                                act = Act::Pick(PickTarget::Edges);
+                            }
+                            set.excluded.retain(|&i| i < set.edges.len());
+                            ui.add_space(6.0);
+                            let (n1, n2) = set.kind.dim_names();
+                            egui::Frame::NONE.stroke(Stroke::new(1.0_f32, BORDER)).inner_margin(4.0).show(ui, |ui| {
+                                ui.set_width(300.0);
+                                ui.set_min_height(70.0);
+                                egui::Grid::new("chamfer_values").striped(true).spacing(vec2(10.0, 4.0)).show(ui, |ui| {
+                                    ui.label("Nr.");
+                                    ui.label(n1);
+                                    if let Some(n2) = n2 {
+                                        ui.label(n2);
+                                    }
+                                    ui.end_row();
+                                    ui.label("1");
+                                    if set.by_reference {
+                                        ui.label(RichText::new("Referenz").color(LABEL));
+                                    } else {
+                                        dim_field(ui, &mut set.d1, &vars, 80.0);
+                                    }
+                                    if n2.is_some() {
+                                        if set.kind == ChamferKind::AnglexD {
+                                            dim_field(ui, &mut set.angle, &vars, 80.0);
+                                        } else {
+                                            dim_field(ui, &mut set.d2, &vars, 80.0);
+                                        }
+                                    }
+                                    ui.end_row();
+                                });
+                            });
+                            if !corner {
+                                ui.add_space(6.0);
+                                ui.horizontal(|ui| {
+                                    egui::ComboBox::from_id_salt("chamfer_value_kind").width(120.0).selected_text(if set.by_reference { "Referenz" } else { "Wert" }).show_ui(ui, |ui| {
+                                        ui.selectable_value(&mut set.by_reference, false, "Wert").on_hover_text("Den Abstand als Wert eingeben");
+                                        if ui.selectable_value(&mut set.by_reference, true, "Referenz").on_hover_text("Der Abstand reicht bis zu einem gewählten Bezugspunkt").clicked() {
+                                            act = Act::Pick(PickTarget::ChamferRef);
+                                        }
+                                    });
+                                    if set.by_reference {
+                                        let name = set.d_ref.and_then(|id| self.displayed().points.iter().find(|p| p.id == id).map(|p| p.name.clone())).unwrap_or_else(|| "Punkt wählen".into());
+                                        if collector_req(ui, &name, pick == Some(PickTarget::ChamferRef), set.d_ref.is_none(), 160.0).clicked() {
+                                            act = Act::Pick(PickTarget::ChamferRef);
+                                        }
+                                    }
+                                });
+                                ui.add_space(4.0);
+                                chamfer_scheme_combo(ui, "chamfer_panel_scheme", set, 150.0);
+                                ui.add_space(4.0);
+                                egui::ComboBox::from_id_salt("chamfer_method").width(240.0).selected_text(set.method.label()).show_ui(ui, |ui| {
+                                    for m in [ChamferMethod::OffsetSurfaces, ChamferMethod::TangentDistance] {
+                                        ui.selectable_value(&mut set.method, m, m.label());
+                                    }
+                                });
+                            }
+                            self.round_set = active;
+                        }
+                        ("Übergänge", FeatureKind::Round(_) | FeatureKind::Chamfer(_)) => {
+                            let is_round = matches!(f.kind, FeatureKind::Round(_));
+                            let refs: Vec<EdgeRef> = match &f.kind {
+                                FeatureKind::Round(d) => d.sets.iter().flat_map(|s| s.edges.iter().enumerate().filter(|(i, _)| !s.excluded.contains(i)).map(|(_, e)| *e)).collect(),
+                                FeatureKind::Chamfer(d) => d.sets().flat_map(|s| s.edges.iter().enumerate().filter(|(i, _)| !s.excluded.contains(i)).map(|(_, e)| *e)).collect(),
+                                _ => vec![],
+                            };
+                            let topo = &self.context.as_ref().unwrap_or(&self.result).topo;
+                            let chains: Vec<crate::kernel::topology::EdgeChain> = refs.iter().filter_map(|e| topo.match_chain(e).map(|ci| topo.chains[ci].clone())).collect();
+                            let tol = (topo.bbox.diagonal() * 1e-5).max(1e-6);
+                            let corners = crate::model::regen::edge_corners(&chains, tol);
+                            let list = match &mut f.kind {
+                                FeatureKind::Round(d) => &mut d.transitions,
+                                FeatureKind::Chamfer(d) => &mut d.transitions,
+                                _ => unreachable!(),
+                            };
+                            ui.label("Übergänge");
+                            egui::Frame::NONE.stroke(Stroke::new(1.0_f32, BORDER)).inner_margin(6.0).show(ui, |ui| {
+                                ui.set_width(300.0);
+                                ui.set_min_height(120.0);
+                                if corners.is_empty() {
+                                    ui.label(RichText::new("Keine Übergänge: die gewählten Kanten treffen sich in keiner Ecke.").size(12.0).color(LABEL));
+                                }
+                                let kinds: &[TransitionKind] = if is_round { &[TransitionKind::Standard, TransitionKind::Sphere] } else { &[TransitionKind::Standard, TransitionKind::CornerChamfer] };
+                                for (k, (p, edges)) in corners.iter().enumerate() {
+                                    ui.horizontal(|ui| {
+                                        ui.label(format!("Übergang {}  ({} Kanten)", k + 1, edges.len())).on_hover_text(format!("Ecke bei ({}, {}, {})", fmt_num(p.x, 1), fmt_num(p.y, 1), fmt_num(p.z, 1)));
+                                        let mut cur = crate::model::regen::transition_at(list, *p, tol);
+                                        let before = cur;
+                                        egui::ComboBox::from_id_salt(("trans", k)).width(150.0).selected_text(cur.label()).show_ui(ui, |ui| {
+                                            for t in kinds {
+                                                ui.selectable_value(&mut cur, *t, t.label());
+                                            }
+                                        });
+                                        if cur != before {
+                                            list.retain(|t| (t.point - *p).length() >= tol);
+                                            if cur != TransitionKind::Standard {
+                                                list.push(Transition { point: *p, kind: cur });
+                                            }
+                                        }
+                                    });
+                                }
+                            });
+                            ui.label(
+                                RichText::new(if is_round { "Kugelecke: drei Rundungen gleichen Radius laufen in einer Kugelfläche zusammen." } else { "Eckfase: die Spitze, an der drei Fasen zusammenlaufen, wird eben abgeschnitten." })
+                                    .size(11.0)
+                                    .color(LABEL),
+                            );
+                        }
+                        ("Stücke", FeatureKind::Round(_) | FeatureKind::Chamfer(_)) => {
+                            let topo = self.context.as_ref().unwrap_or(&self.result).topo.clone();
+                            let active = self.round_set;
+                            let set_edges: Option<(&mut Vec<EdgeRef>, &mut Vec<usize>)> = match &mut f.kind {
+                                FeatureKind::Round(d) => {
+                                    let i = active.min(d.sets.len() - 1);
+                                    let s = &mut d.sets[i];
+                                    Some((&mut s.edges, &mut s.excluded))
+                                }
+                                FeatureKind::Chamfer(d) => {
+                                    let i = active.min(d.additional_sets.len());
+                                    let s = d.set_mut(i);
+                                    Some((&mut s.edges, &mut s.excluded))
+                                }
+                                _ => None,
+                            };
+                            if let Some((edges, excluded)) = set_edges {
+                                ui.label(format!("Stücke von Satz {}", active + 1));
+                                egui::Frame::NONE.stroke(Stroke::new(1.0_f32, BORDER)).inner_margin(6.0).show(ui, |ui| {
+                                    ui.set_width(300.0);
+                                    ui.set_min_height(120.0);
+                                    if edges.is_empty() {
+                                        ui.label(RichText::new("Keine Elemente").color(LABEL));
+                                    }
+                                    for (i, e) in edges.iter().enumerate() {
+                                        let len = topo.match_chain(e).map(|ci| topo.chains[ci].points.windows(2).map(|w| (w[1] - w[0]).length()).sum::<f64>()).unwrap_or(0.0);
+                                        let mut on = !excluded.contains(&i);
+                                        if ui.checkbox(&mut on, format!("Stück {}   Länge {}", i + 1, fmt_num(len, 2))).on_hover_text("Ausgeschaltete Stücke werden nicht gerundet").changed() {
+                                            if on {
+                                                excluded.retain(|&x| x != i);
+                                            } else {
+                                                excluded.push(i);
+                                            }
+                                        }
+                                    }
+                                });
+                                ui.label(RichText::new("Ein ausgeschlossenes Stück bleibt im Satz, wird aber nicht bearbeitet.").size(11.0).color(LABEL));
+                            }
+                        }
+                        ("Optionen", FeatureKind::Round(_) | FeatureKind::Chamfer(_)) => {
+                            let surface = match &mut f.kind {
+                                FeatureKind::Round(d) => &mut d.surface,
+                                FeatureKind::Chamfer(d) => &mut d.surface,
+                                _ => unreachable!(),
+                            };
+                            section_rule(ui, "Anhängen");
+                            if ui.radio(!*surface, "Volumenkörper").on_hover_text("Den Volumenkörper abrunden bzw. abschrägen").clicked() {
+                                *surface = false;
+                            }
+                            if ui.radio(*surface, "Fläche").on_hover_text("Die Rundung als Fläche erzeugen; der Volumenkörper bleibt unverändert").clicked() {
+                                *surface = true;
+                            }
+                            ui.add_space(6.0);
+                            let mut new_surface = *surface;
+                            ui.add_enabled(false, egui::Checkbox::new(&mut new_surface, "Neue Fläche erstellen"))
+                                .on_disabled_hover_text("Eine Fläche aus Kanten eines Volumenkörpers ist immer eine neue Sammelfläche.");
                         }
                         ("Referenzen", FeatureKind::Shell(ShellDef { faces, .. })) | ("Referenzen", FeatureKind::Draft(DraftDef { faces, .. })) => {
                             ui.label("Flächen");
@@ -2208,7 +2942,31 @@ fn hole_shape_diagram(ui: &mut egui::Ui, d: &mut HoleDef, vars: &Vars) {
 /// Description shown at the right end of a dashboard (Creo 10).
 fn feature_help(k: &FeatureKind) -> Option<&'static str> {
     match k {
+        FeatureKind::Round(_) => Some("Kanten ersetzen, indem eine gerundete Fläche zwischen den ursprünglichen Flächen erzeugt wird, die an jede Kante angrenzen."),
+        FeatureKind::Chamfer(_) => Some("Kanten ersetzen, indem eine abgeschrägte Fläche zwischen den ursprünglichen Flächen, die an jede Kante angrenzen, erzeugt wird."),
+        FeatureKind::Hole(_) => Some("Eine einfache, eine skizzierte oder eine Normbohrung durch Wegnehmen von Material erzeugen."),
         FeatureKind::Extrude(_) => Some("3D-Geometrie durch Verschieben eines Schnitts senkrecht zur Skizzierebene als Volumenkörper oder Fläche erzeugen."),
+        _ => None,
+    }
+}
+
+/// Longer explanation behind "Mehr lesen...".
+fn feature_help_more(k: &FeatureKind) -> Option<&'static str> {
+    match k {
+        FeatureKind::Round(_) => Some(
+            "Sätze fassen Kanten mit gleichem Querschnitt zusammen. Bemaßungsschema: Kreisförmig, Konisch (konischer Parameter 0.05 bis 0.95), C2 Kontinuierlich oder D1 x D2. \
+             Vollrundung ersetzt die Fläche zwischen zwei Kanten. Durch Kurve bestimmt den Radius über eine Steuerkurve. Sehne bemaßt den Abstand der Tangentialpunkte. \
+             Unter Übergänge lässt sich eine Ecke aus drei gleichen Rundungen als Kugelecke ausbilden; unter Stücke werden einzelne Kanten eines Satzes ausgeschlossen.",
+        ),
+        FeatureKind::Chamfer(_) => Some(
+            "Bemaßungsschemata: D x D, D1 x D2, Winkel x D, 45 x D (nur zwischen senkrechten Flächen), O x O und O1 x O2 (Versatz der Flächen). \
+             Unter Übergänge kann die Spitze, an der drei Fasen zusammenlaufen, als Eckfase abgeschnitten werden; unter Stücke werden einzelne Kanten eines Satzes ausgeschlossen.",
+        ),
+        FeatureKind::Hole(_) => Some(
+            "Einfache Bohrungen haben ein flaches Profil, ein Standardbohrprofil mit Bohrspitze und optionaler Senkung oder ein skizziertes Profil um eine Mittellinie. \
+             Tiefe: Variabel, Symmetrisch, Bis zur nächsten, Durch alle, Bis zur ausgewählten Fläche. Platzierung: Linear, Radial, Durchmesser, Koaxial oder Auf Punkt. \
+             Geometrielos zeigt die Bohrung nur als Achse und Kontur, ohne Material zu entfernen.",
+        ),
         _ => None,
     }
 }

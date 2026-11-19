@@ -320,6 +320,90 @@ pub struct HoleDef {
     pub fit: HoleFit,
     #[serde(default = "default_thread_depth")]
     pub thread_depth: Dim,
+    #[serde(default)]
+    pub offset_x: Option<PlaneRef>,
+    #[serde(default)]
+    pub offset_y: Option<PlaneRef>,
+    /// Tiefe: Variabel, Symmetrisch, Bis zur nächsten, Durch alle, Bis zur ausgewählten.
+    /// `through_all` stays the switch for "Durch alle" (files from before).
+    #[serde(default = "blind")]
+    pub depth_type: DepthType,
+    #[serde(default)]
+    pub depth_ref: Option<PlaneRef>,
+    /// Profil Skizziert: a sketched half profile revolved about its centreline.
+    #[serde(default)]
+    pub sketched: bool,
+    #[serde(default)]
+    pub sketch: Sketch,
+    /// Geometrielos: the hole is shown (axis and outline) but no material is removed.
+    #[serde(default)]
+    pub lightweight: bool,
+    /// Platzierungstyp and its references.
+    #[serde(default)]
+    pub placement: HolePlacement,
+    #[serde(default)]
+    pub axis_ref: Option<AxisRef>,
+    #[serde(default)]
+    pub angle_ref: Option<PlaneRef>,
+    #[serde(default = "default_hole_angle")]
+    pub angle: Dim,
+    #[serde(default)]
+    pub point_ref: Option<u64>,
+    /// Bohrungsorientierung: the hole's x direction runs parallel (or normal) to this plane.
+    #[serde(default)]
+    pub orient_ref: Option<PlaneRef>,
+    #[serde(default)]
+    pub orient_normal: bool,
+    /// Notiz: show the hole callout next to the hole.
+    #[serde(default = "yes")]
+    pub note: bool,
+}
+
+fn blind() -> DepthType {
+    DepthType::Blind
+}
+fn default_hole_angle() -> Dim {
+    Dim::v(0.0)
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub enum HolePlacement {
+    #[default]
+    Linear,
+    Radial,
+    Diameter,
+    Coaxial,
+    OnPoint,
+}
+
+impl HolePlacement {
+    pub const ALL: [HolePlacement; 5] = [HolePlacement::Linear, HolePlacement::Radial, HolePlacement::Diameter, HolePlacement::Coaxial, HolePlacement::OnPoint];
+    pub fn label(self) -> &'static str {
+        match self {
+            HolePlacement::Linear => "Linear",
+            HolePlacement::Radial => "Radial",
+            HolePlacement::Diameter => "Durchmesser",
+            HolePlacement::Coaxial => "Koaxial",
+            HolePlacement::OnPoint => "Auf Punkt",
+        }
+    }
+}
+
+impl HoleDef {
+    /// The depth option in effect ("Durch alle" is also kept in `through_all`).
+    pub fn depth_kind(&self) -> DepthType {
+        if self.through_all {
+            DepthType::ThroughAll
+        } else if self.depth_type == DepthType::ThroughAll {
+            DepthType::Blind
+        } else {
+            self.depth_type
+        }
+    }
+    pub fn set_depth_kind(&mut self, t: DepthType) {
+        self.depth_type = t;
+        self.through_all = t == DepthType::ThroughAll;
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -335,6 +419,110 @@ pub struct RoundSet {
     /// the arc; the smooth shapes pass through its middle and start earlier on both surfaces.
     #[serde(default)]
     pub shape: crate::kernel::corner::CornerShape,
+    /// Dimension the distance between the two tangent points instead of the arc radius.
+    #[serde(default)]
+    pub chord: bool,
+    /// Creo's Querschnittsform: Kreisförmig, Konisch, C2 Kontinuierlich, D1 x D2 Konisch/C2.
+    #[serde(default)]
+    pub section: RoundSection,
+    /// Konischer Parameter (rho) of the conic and C2 sections, 0.05 .. 0.95.
+    #[serde(default = "default_rho")]
+    pub rho: Dim,
+    /// Second distance of the D1 x D2 sections (on the second surface).
+    #[serde(default = "default_radius")]
+    pub d2: Dim,
+    /// Vollrundung: the face between the set's two edges is replaced by one round.
+    #[serde(default)]
+    pub full: bool,
+    /// Durch Kurve: the radius follows a driving curve (Steuerkurve) on one of the surfaces.
+    #[serde(default)]
+    pub curve: Option<EdgeRef>,
+    /// Flächen verlängern: the round runs on over the surfaces' extensions past their borders.
+    #[serde(default)]
+    pub extend_surfaces: bool,
+    /// Erstellungsmethode: Abrollkugel (rolling ball) or Normal auf Leitkurve.
+    #[serde(default)]
+    pub method: RoundMethod,
+    /// Stücke: indices into `edges` left out of the geometry.
+    #[serde(default)]
+    pub excluded: Vec<usize>,
+}
+
+fn default_rho() -> Dim {
+    Dim::v(0.5)
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub enum RoundSection {
+    #[default]
+    Circular,
+    Conic,
+    C2,
+    D1xD2Conic,
+    D1xD2C2,
+}
+
+impl RoundSection {
+    pub const ALL: [RoundSection; 5] = [RoundSection::Circular, RoundSection::Conic, RoundSection::C2, RoundSection::D1xD2Conic, RoundSection::D1xD2C2];
+    pub fn label(self) -> &'static str {
+        match self {
+            RoundSection::Circular => "Kreisförmig",
+            RoundSection::Conic => "Konisch",
+            RoundSection::C2 => "C2 Kontinuierlich",
+            RoundSection::D1xD2Conic => "D1 x D2 Konisch",
+            RoundSection::D1xD2C2 => "D1 x D2 C2",
+        }
+    }
+    pub fn has_rho(self) -> bool {
+        self != RoundSection::Circular
+    }
+    pub fn two_distances(self) -> bool {
+        matches!(self, RoundSection::D1xD2Conic | RoundSection::D1xD2C2)
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub enum RoundMethod {
+    #[default]
+    RollingBall,
+    NormalToSpine,
+}
+
+impl RoundMethod {
+    pub fn label(self) -> &'static str {
+        match self {
+            RoundMethod::RollingBall => "Abrollkugel",
+            RoundMethod::NormalToSpine => "Normal auf Leitkurve",
+        }
+    }
+}
+
+/// Übergänge: how the geometry is finished where edges of the feature meet in a corner.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub enum TransitionKind {
+    #[default]
+    Standard,
+    /// rounds: a spherical corner patch where three rounds of one radius meet
+    Sphere,
+    /// chamfers: a flat triangle cuts off the tip where three chamfers meet
+    CornerChamfer,
+}
+
+impl TransitionKind {
+    pub fn label(self) -> &'static str {
+        match self {
+            TransitionKind::Standard => "Standard (Vorgabe)",
+            TransitionKind::Sphere => "Kugelecke",
+            TransitionKind::CornerChamfer => "Eckfase",
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+pub struct Transition {
+    /// the corner, as it lies on the part before the feature
+    pub point: V3,
+    pub kind: TransitionKind,
 }
 
 fn default_radius() -> Dim {
@@ -343,7 +531,22 @@ fn default_radius() -> Dim {
 
 impl RoundSet {
     pub fn new(r: f64) -> RoundSet {
-        RoundSet { edges: vec![], radius: Dim::v(r), variable: false, radius_end: Dim::v(r), shape: Default::default() }
+        RoundSet {
+            edges: vec![],
+            radius: Dim::v(r),
+            variable: false,
+            radius_end: Dim::v(r),
+            shape: Default::default(),
+            chord: false,
+            section: RoundSection::Circular,
+            rho: default_rho(),
+            d2: Dim::v(r),
+            full: false,
+            curve: None,
+            extend_surfaces: false,
+            method: RoundMethod::RollingBall,
+            excluded: vec![],
+        }
     }
 }
 
@@ -351,6 +554,11 @@ impl RoundSet {
 #[serde(from = "RoundRepr")]
 pub struct RoundDef {
     pub sets: Vec<RoundSet>,
+    #[serde(default)]
+    pub transitions: Vec<Transition>,
+    /// Optionen ▸ Anhängen: Fläche – the round is made as a new surface, the solid stays
+    #[serde(default)]
+    pub surface: bool,
 }
 
 /// Accepts rounds saved before round sets existed (`edges` + `radius`), and never yields an
@@ -358,20 +566,32 @@ pub struct RoundDef {
 #[derive(Deserialize)]
 #[serde(untagged)]
 enum RoundRepr {
-    Sets { sets: Vec<RoundSet> },
+    Sets {
+        sets: Vec<RoundSet>,
+        #[serde(default)]
+        transitions: Vec<Transition>,
+        #[serde(default)]
+        surface: bool,
+    },
     Single { edges: Vec<EdgeRef>, radius: Dim },
 }
 
 impl From<RoundRepr> for RoundDef {
     fn from(r: RoundRepr) -> RoundDef {
-        let mut sets = match r {
-            RoundRepr::Sets { sets } => sets,
-            RoundRepr::Single { edges, radius } => vec![RoundSet { edges, radius, variable: false, radius_end: default_radius(), shape: Default::default() }],
+        let (mut sets, transitions, surface) = match r {
+            RoundRepr::Single { edges, radius } => {
+                let mut s = RoundSet::new(3.0);
+                s.edges = edges;
+                s.radius = radius;
+                s.radius_end = default_radius();
+                (vec![s], vec![], false)
+            }
+            RoundRepr::Sets { sets, transitions, surface } => (sets, transitions, surface),
         };
         if sets.is_empty() {
             sets.push(RoundSet::new(3.0));
         }
-        RoundDef { sets }
+        RoundDef { sets, transitions, surface }
     }
 }
 
@@ -386,18 +606,137 @@ pub enum ChamferKind {
     DxD,
     D1xD2,
     AnglexD,
+    /// 45 x D: D x D on two perpendicular surfaces
+    Deg45xD,
+    /// O x O: both surfaces offset by O; the chamfer runs where the offsets meet
+    OxO,
+    O1xO2,
+}
+
+impl ChamferKind {
+    pub const ALL: [ChamferKind; 6] = [ChamferKind::DxD, ChamferKind::D1xD2, ChamferKind::AnglexD, ChamferKind::Deg45xD, ChamferKind::OxO, ChamferKind::O1xO2];
+    pub fn label(self) -> &'static str {
+        match self {
+            ChamferKind::DxD => "D x D",
+            ChamferKind::D1xD2 => "D1 x D2",
+            ChamferKind::AnglexD => "Winkel x D",
+            ChamferKind::Deg45xD => "45 x D",
+            ChamferKind::OxO => "O x O",
+            ChamferKind::O1xO2 => "O1 x O2",
+        }
+    }
+    /// names of the dimensions it uses, first and second
+    pub fn dim_names(self) -> (&'static str, Option<&'static str>) {
+        match self {
+            ChamferKind::DxD | ChamferKind::Deg45xD => ("D", None),
+            ChamferKind::D1xD2 => ("D1", Some("D2")),
+            ChamferKind::AnglexD => ("D", Some("Winkel")),
+            ChamferKind::OxO => ("O", None),
+            ChamferKind::O1xO2 => ("O1", Some("O2")),
+        }
+    }
+}
+
+/// Erstellungsmethode of a chamfer: distances measured along the surfaces themselves
+/// (Versatzflächen) or along their tangent planes at the edge (Tangentialer Abstand).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub enum ChamferMethod {
+    #[default]
+    OffsetSurfaces,
+    TangentDistance,
+}
+
+impl ChamferMethod {
+    pub fn label(self) -> &'static str {
+        match self {
+            ChamferMethod::OffsetSurfaces => "Versatzflächen",
+            ChamferMethod::TangentDistance => "Tangentialer Abstand",
+        }
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-pub struct ChamferDef {
+pub struct ChamferSet {
     pub edges: Vec<EdgeRef>,
     pub kind: ChamferKind,
     pub d1: Dim,
     pub d2: Dim,
     pub angle: Dim,
+    #[serde(default)]
+    pub method: ChamferMethod,
+    /// Stücke: indices into `edges` left out of the geometry.
+    #[serde(default)]
+    pub excluded: Vec<usize>,
+    /// "Referenz" instead of "Wert": D is the distance of a datum point from the edge.
+    #[serde(default)]
+    pub by_reference: bool,
+    #[serde(default)]
+    pub d_ref: Option<u64>,
+}
+
+impl ChamferSet {
+    pub fn new(d: f64) -> ChamferSet {
+        ChamferSet {
+            edges: vec![],
+            kind: ChamferKind::DxD,
+            d1: Dim::v(d),
+            d2: Dim::v(d),
+            angle: Dim::v(45.0),
+            method: ChamferMethod::OffsetSurfaces,
+            excluded: vec![],
+            by_reference: false,
+            d_ref: None,
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct ChamferDef {
+    /// Keep the original single-set file representation readable by existing files.
+    #[serde(flatten)]
+    pub primary: ChamferSet,
+    #[serde(default)]
+    pub additional_sets: Vec<ChamferSet>,
     /** Eckfase: cut the corner where the edges meet */
     #[serde(default)]
     pub corner: bool,
+    #[serde(default)]
+    pub transitions: Vec<Transition>,
+    /// Optionen ▸ Anhängen: Fläche – the chamfer is made as a new surface, the solid stays
+    #[serde(default)]
+    pub surface: bool,
+}
+
+impl std::ops::Deref for ChamferDef {
+    type Target = ChamferSet;
+
+    fn deref(&self) -> &ChamferSet {
+        &self.primary
+    }
+}
+
+impl std::ops::DerefMut for ChamferDef {
+    fn deref_mut(&mut self) -> &mut ChamferSet {
+        &mut self.primary
+    }
+}
+
+impl ChamferDef {
+    pub fn sets(&self) -> impl Iterator<Item = &ChamferSet> {
+        std::iter::once(&self.primary).chain(&self.additional_sets)
+    }
+
+    pub fn set_mut(&mut self, index: usize) -> &mut ChamferSet {
+        if index == 0 {
+            &mut self.primary
+        } else {
+            &mut self.additional_sets[index - 1]
+        }
+    }
+
+    pub fn edge_count(&self) -> usize {
+        self.sets().map(|s| s.edges.len()).sum()
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -748,13 +1087,34 @@ impl FeatureKind {
             tapped: true,
             fit: HoleFit::Medium,
             thread_depth: Dim::v(12.0),
+            offset_x: None,
+            offset_y: None,
+            depth_type: DepthType::Blind,
+            depth_ref: None,
+            sketched: false,
+            sketch: Sketch::default(),
+            lightweight: false,
+            placement: HolePlacement::Linear,
+            axis_ref: None,
+            angle_ref: None,
+            angle: Dim::v(0.0),
+            point_ref: None,
+            orient_ref: None,
+            orient_normal: false,
+            note: true,
         })
     }
     pub fn new_round() -> Self {
-        FeatureKind::Round(RoundDef { sets: vec![RoundSet::new(3.0)] })
+        FeatureKind::Round(RoundDef { sets: vec![RoundSet::new(3.0)], transitions: vec![], surface: false })
     }
     pub fn new_chamfer() -> Self {
-        FeatureKind::Chamfer(ChamferDef { edges: vec![], kind: ChamferKind::DxD, d1: Dim::v(2.0), d2: Dim::v(2.0), angle: Dim::v(45.0), corner: false })
+        FeatureKind::Chamfer(ChamferDef {
+            primary: ChamferSet::new(2.0),
+            additional_sets: vec![],
+            corner: false,
+            transitions: vec![],
+            surface: false,
+        })
     }
     pub fn new_shell() -> Self {
         FeatureKind::Shell(ShellDef { faces: vec![], thickness: Dim::v(2.0) })
@@ -1052,7 +1412,11 @@ impl FeatureKind {
             FeatureKind::Revolve(d) => plane(&d.plane, &mut out),
             FeatureKind::Sweep(d) => plane(&d.plane, &mut out),
             FeatureKind::Blend(d) => plane(&d.plane, &mut out),
-            FeatureKind::Hole(d) => plane(&d.plane, &mut out),
+            FeatureKind::Hole(d) => {
+                plane(&d.plane, &mut out);
+                plane(&d.offset_x, &mut out);
+                plane(&d.offset_y, &mut out);
+            }
             FeatureKind::Draft(d) => plane(&d.hinge, &mut out),
             FeatureKind::Pattern(d) => {
                 out.extend(&d.features);

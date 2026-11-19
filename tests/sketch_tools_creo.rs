@@ -25,6 +25,31 @@ fn kinds(s: &SketchSession, k: SkKind) -> usize {
 }
 
 #[test]
+fn consecutive_circles_snap_to_the_first_radius_until_the_sequence_ends() {
+    let mut app = session();
+    let s = sk(&mut app);
+    s.set_tool(Tool::Circle);
+    let draw = |s: &mut SketchSession, x: f64, radius: f64| {
+        let center = V2::new(x, 25.0);
+        s.click_at(center);
+        s.click_at(center + V2::Y * radius);
+        s.sketch.entities.last().unwrap().r
+    };
+
+    let first = draw(s, -90.0, 10.0);
+    assert!((first - 10.0).abs() < 1e-4);
+    assert_eq!(draw(s, -55.0, 10.2), first);
+    assert!((draw(s, -20.0, 16.0) - 16.0).abs() < 1e-4);
+    assert!((draw(s, 20.0, 4.0) - 4.0).abs() < 1e-4);
+    assert_eq!(draw(s, 55.0, 9.8), first);
+
+    s.end_chain();
+    let next = draw(s, 90.0, 10.2);
+    assert!((next - 10.2).abs() < 1e-4);
+    assert_eq!(draw(s, 125.0, 10.4), next);
+}
+
+#[test]
 fn common_tangents_touch_both_circles() {
     let (c1, r1, c2, r2) = (V2::new(0.0, 0.0), 10.0, V2::new(50.0, 0.0), 5.0);
     let t = common_tangents(c1, r1, c2, r2);

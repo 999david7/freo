@@ -1175,6 +1175,7 @@ impl App {
                 self.windows.about = !self.windows.about;
             }
         });
+        self.manufacture_group(ui);
     }
 
     /// View tab group shown for assemblies.
